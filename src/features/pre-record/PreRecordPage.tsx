@@ -1,4 +1,272 @@
-// TODO(phase-7.3): replace stub with real PreRecordPage.
+import { EqBar } from '@/components/domain/EqBar/EqBar';
+import { TemplateIcon } from '@/components/domain/TemplateIcon/TemplateIcon';
+import { Button } from '@/components/primitives/Button/Button';
+import { Chip } from '@/components/primitives/Chip/Chip';
+import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
+import { Input } from '@/components/primitives/Input/Input';
+import { Toggle } from '@/components/primitives/Toggle/Toggle';
+import { useT } from '@/i18n/useT';
+import type { AudioDevice, Template } from '@/ipc/bindings';
+import { Paths } from '@/router/paths';
+import { useListAudioDevicesQuery } from '@/store/api/devices.api';
+import { useListTemplatesQuery } from '@/store/api/templates.api';
+import { pickL } from '@/utils/format';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import styles from './PreRecordPage.module.css';
+
+function genSessionId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return `sess-${crypto.randomUUID()}`;
+  }
+  return `sess-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+}
+
 export default function PreRecordPage() {
-  return <div style={{ padding: 32 }}>PreRecord — to be implemented</div>;
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { t, lang } = useT();
+
+  const { data: devices = [] } = useListAudioDevicesQuery();
+  const { data: templates = [] } = useListTemplatesQuery();
+
+  const [deviceId, setDeviceId] = useState<string>('');
+  const [templateId, setTemplateId] = useState<string>(searchParams.get('tpl') ?? 'tecnica');
+  const [name, setName] = useState('');
+  const [autoId, setAutoId] = useState(true);
+  const [detectLang, setDetectLang] = useState(true);
+  const [saveAudio, setSaveAudio] = useState(true);
+
+  useEffect(() => {
+    if (!deviceId && devices.length > 0) {
+      const active = devices.find((d) => d.active) ?? devices[0];
+      if (active) setDeviceId(active.id);
+    }
+  }, [deviceId, devices]);
+
+  function start() {
+    navigate(Paths.LiveRecording(genSessionId()), {
+      state: {
+        name: name.trim() || (lang === 'es' ? 'Reunión sin título' : 'Untitled meeting'),
+        templateId,
+      },
+    });
+  }
+
+  return (
+    <div className={styles.page} data-screen-label="03 Pre-record">
+      <div className={styles.header}>
+        <button type="button" className={styles.back} onClick={() => navigate(Paths.Dashboard)}>
+          <Icon name="chevLeft" size={14} />
+          {lang === 'es' ? 'Volver' : 'Back'}
+        </button>
+        <h1 className={styles.title}>{t('preTitle')}</h1>
+        <div className={styles.sub}>{t('preSub')}</div>
+      </div>
+      <div className={styles.scroll}>
+        <div className={styles.body}>
+          <div className={styles.section}>
+            <Input
+              label={t('meetingNameLabel')}
+              placeholder={t('meetingNamePh')}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={{ fontSize: 14, padding: '11px 14px' }}
+            />
+          </div>
+
+          <div className={styles.section}>
+            <h2 className={styles.sectionTitle}>{t('deviceSection')}</h2>
+            <div className={styles.sectionHint}>{t('deviceHint')}</div>
+            <div className={styles.grid2}>
+              {devices.map((d) => (
+                <DeviceCard
+                  key={d.id}
+                  device={d}
+                  selected={deviceId === d.id}
+                  onSelect={() => setDeviceId(d.id)}
+                />
+              ))}
+            </div>
+            <AudioPreviewCard />
+          </div>
+
+          <div className={styles.section}>
+            <h2 className={styles.sectionTitle}>{t('templateSection')}</h2>
+            <div className={styles.sectionHint}>{t('templateHint')}</div>
+            <div className={styles.tmplGrid}>
+              {templates.map((tpl) => (
+                <TemplateCard
+                  key={tpl.id}
+                  template={tpl}
+                  selected={templateId === tpl.id}
+                  onSelect={() => setTemplateId(tpl.id)}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.section}>
+            <h2 className={styles.sectionTitle}>{t('advancedSection')}</h2>
+            <div className={styles.advCard}>
+              <SettingRow
+                label={t('autoIdSpeakers')}
+                desc={t('autoIdSpeakersDesc')}
+                on={autoId}
+                onChange={setAutoId}
+              />
+              <SettingRow
+                label={t('detectLang')}
+                desc={t('detectLangDesc')}
+                on={detectLang}
+                onChange={setDetectLang}
+              />
+              <SettingRow
+                label={t('saveAudio')}
+                desc={t('saveAudioDesc')}
+                on={saveAudio}
+                onChange={setSaveAudio}
+              />
+            </div>
+          </div>
+
+          <div className={styles.footer}>
+            <div className={styles.privacy}>
+              <Icon name="shield" size={16} stroke="var(--text-muted)" />
+              <span>
+                {lang === 'es'
+                  ? 'Procesamiento 100% local. Tu audio nunca sale de tu PC.'
+                  : '100% local processing. Your audio never leaves your PC.'}
+              </span>
+            </div>
+            <div className={styles.footerActions}>
+              <Button variant="default" onClick={() => navigate(Paths.Dashboard)}>
+                {t('cancel')}
+              </Button>
+              <Button
+                variant="primary"
+                icon={<Icon name="record" size={12} />}
+                onClick={start}
+                disabled={!deviceId}
+              >
+                {t('startRecording')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeviceCard({
+  device,
+  selected,
+  onSelect,
+}: {
+  device: AudioDevice;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { lang } = useT();
+  const iconName = (device.icon as IconName) ?? 'monitor';
+  return (
+    <button
+      type="button"
+      className={`${styles.optCard} ${selected ? styles.optCardSelected : ''}`}
+      onClick={onSelect}
+    >
+      <div className={styles.iconBox}>
+        <Icon name={iconName} size={18} />
+      </div>
+      <div className={styles.optMeta}>
+        <div className={styles.optName}>
+          <span>{pickL(device.name, lang)}</span>
+          {device.recommended && (
+            <Chip variant="accent" disabled>
+              {lang === 'es' ? 'Recomendado' : 'Recommended'}
+            </Chip>
+          )}
+        </div>
+        <div className={styles.optDesc}>{pickL(device.desc, lang)}</div>
+      </div>
+      <div className={styles.radio} />
+    </button>
+  );
+}
+
+function TemplateCard({
+  template,
+  selected,
+  onSelect,
+}: {
+  template: Template;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { lang } = useT();
+  return (
+    <button
+      type="button"
+      className={`${styles.tmplCard} ${selected ? styles.tmplCardSelected : ''}`}
+      onClick={onSelect}
+    >
+      {selected && (
+        <div className={styles.tmplCheck}>
+          <Icon name="check" size={12} stroke="white" />
+        </div>
+      )}
+      <div className={styles.tmplIconWrap}>
+        <TemplateIcon templateId={template.id} size={36} />
+      </div>
+      <div className={styles.tmplName}>{pickL(template.name, lang)}</div>
+      <div className={styles.tmplDesc}>{pickL(template.desc, lang)}</div>
+    </button>
+  );
+}
+
+function AudioPreviewCard() {
+  const { lang } = useT();
+  return (
+    <div className={styles.previewCard}>
+      <div className={styles.previewHead}>
+        <div>
+          <div className={styles.previewLabel}>
+            {lang === 'es' ? 'Vista previa del audio' : 'Audio preview'}
+          </div>
+          <div className={styles.previewSub}>
+            {lang === 'es'
+              ? 'Reproduce algo en tu PC para verificar la señal'
+              : 'Play something on your PC to check the signal'}
+          </div>
+        </div>
+        <EqBar bars={8} />
+      </div>
+      <div className={styles.levelBar}>
+        <div className={styles.levelFill} style={{ width: '54%' }} />
+      </div>
+    </div>
+  );
+}
+
+function SettingRow({
+  label,
+  desc,
+  on,
+  onChange,
+}: {
+  label: string;
+  desc: string;
+  on: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div className={styles.settingRow}>
+      <div>
+        <div className={styles.settingLabel}>{label}</div>
+        <div className={styles.settingDesc}>{desc}</div>
+      </div>
+      <Toggle on={on} onChange={onChange} aria-label={label} />
+    </div>
+  );
 }
