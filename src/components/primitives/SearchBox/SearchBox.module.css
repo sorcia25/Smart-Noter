@@ -1,0 +1,27 @@
+.box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke-strong);
+  border-radius: var(--radius);
+  width: 320px;
+}
+
+.box input {
+  border: none;
+  outline: none;
+  background: transparent;
+  width: 100%;
+  font-size: 13px;
+  color: inherit;
+  font-family: inherit;
+}
+
+.icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-subtle);
+  flex-shrink: 0;
+}

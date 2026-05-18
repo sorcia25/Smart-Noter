@@ -1,0 +1,27 @@
+.input {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke-strong);
+  border-bottom: 1px solid var(--stroke-focus);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-family: inherit;
+  color: inherit;
+  transition: border-color var(--speed) var(--ease), background var(--speed) var(--ease);
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--stroke);
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 8px;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  display: block;
+}
