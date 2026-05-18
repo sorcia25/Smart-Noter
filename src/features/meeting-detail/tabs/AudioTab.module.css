@@ -1,0 +1,115 @@
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  margin-bottom: 14px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.headLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.waveform {
+  background: var(--bg-inset);
+  border-radius: 8px;
+  padding: 20px 16px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 120px;
+  position: relative;
+}
+
+.bar {
+  flex: 1;
+  min-height: 4px;
+  border-radius: 2px;
+}
+
+.barPlayed {
+  background: var(--accent);
+}
+
+.barUnplayed {
+  background: var(--stroke-strong);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.playBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 0;
+  cursor: pointer;
+}
+
+.time {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.markers {
+  font-size: 13px;
+}
+
+.markersHead {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.markersSub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 12px;
+}
+
+.markerRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--stroke);
+}
+
+.markerRow:last-child {
+  border-bottom: none;
+}
+
+.markerTime {
+  width: 70px;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.flex1 {
+  flex: 1;
+}

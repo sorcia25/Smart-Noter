@@ -1,0 +1,88 @@
+.row {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-lg);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color var(--speed) var(--ease);
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+}
+
+.row:hover {
+  border-color: var(--stroke-strong);
+}
+
+.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.icon {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+}
+
+.iconMp3 {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+}
+
+.iconMd {
+  background: linear-gradient(135deg, #475569, #1e293b);
+}
+
+.iconPdf {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+}
+
+.formatTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.formatDesc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.options {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.optionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.optionLabel {
+  font-size: 13px;
+}
+
+.optionSub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.fileNameRow {
+  margin-top: 14px;
+}
