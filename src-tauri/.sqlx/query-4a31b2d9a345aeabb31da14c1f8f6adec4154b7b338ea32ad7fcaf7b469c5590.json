@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO participants (id, meeting_id, label, name, color_class, word_count, talk_pct)\n                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "4a31b2d9a345aeabb31da14c1f8f6adec4154b7b338ea32ad7fcaf7b469c5590"
+}

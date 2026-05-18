@@ -11,6 +11,7 @@
       "dist",
       "src-tauri/target",
       "src-tauri/.sqlx",
+      "src-tauri/crates/db/seed_data.json",
       "src/ipc/bindings.ts",
       "src/i18n/keys.ts",
       "**/*.stories.tsx"

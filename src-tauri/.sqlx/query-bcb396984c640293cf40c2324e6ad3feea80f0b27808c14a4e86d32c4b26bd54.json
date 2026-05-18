@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO decisions (meeting_id, text_es, text_en) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "bcb396984c640293cf40c2324e6ad3feea80f0b27808c14a4e86d32c4b26bd54"
+}

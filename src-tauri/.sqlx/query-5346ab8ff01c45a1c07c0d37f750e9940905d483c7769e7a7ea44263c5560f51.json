@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO templates (id, color_class, icon, name_es, name_en, desc_es, desc_en, sections_json, is_default)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "5346ab8ff01c45a1c07c0d37f750e9940905d483c7769e7a7ea44263c5560f51"
+}

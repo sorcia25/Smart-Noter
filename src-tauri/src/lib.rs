@@ -42,6 +42,17 @@ pub fn run() {
                 let pool = smart_noter_db::init_pool(&db_path)
                     .await
                     .expect("init pool");
+
+                // Write embedded seed to disk and seed if empty
+                let seed_path = app_data.join("seed_data.json");
+                if !seed_path.exists() {
+                    let bytes = include_bytes!("../crates/db/seed_data.json");
+                    std::fs::write(&seed_path, bytes).expect("write seed json");
+                }
+                smart_noter_db::seed::seed_if_empty(&pool, &seed_path)
+                    .await
+                    .expect("seed");
+
                 app_handle.manage(AppState { pool });
             });
             Ok(())

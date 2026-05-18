@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO blockers (meeting_id, text_es, text_en) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "4e206cb1544cb995af19fa10637ca859d510d4a7c2fe5a04871e47ac2b727b35"
+}
