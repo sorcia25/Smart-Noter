@@ -38,6 +38,7 @@ chrono = { version = "0.4", features = ["serde"] }
 name = "smart-noter"
 version.workspace = true
 edition.workspace = true
+default-run = "smart-noter"
 
 [lib]
 name = "smart_noter_lib"
