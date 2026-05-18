@@ -1,0 +1,45 @@
+# Node
+node_modules/
+.pnpm-store/
+dist/
+*.local
+
+# Rust
+target/
+**/*.rs.bk
+
+# Tauri
+src-tauri/gen/
+src-tauri/target/
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# App data (never commit)
+**/.env
+**/.env.local
+**/db.sqlite
+**/db.sqlite-journal
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+
+# Generated
+src/ipc/bindings.ts
+src/i18n/keys.ts
+src-tauri/crates/db/.sqlx/
+
+# Logs
+logs/
+*.log
+
+# Handoff artifacts (do not commit)
+*-handoff.zip
