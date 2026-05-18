@@ -4,7 +4,7 @@ import { initReactI18next } from 'react-i18next';
 import en from './locales/en.json';
 import es from './locales/es.json';
 
-await i18n
+i18n
   .use(ICU)
   .use(initReactI18next)
   .init({

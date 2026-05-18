@@ -1,7 +1,13 @@
-.bootstrap {
+.app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.suspense {
   display: grid;
   place-items: center;
-  height: 100vh;
-  font-family: system-ui, sans-serif;
-  color: #1a1a1a;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 14px;
 }
