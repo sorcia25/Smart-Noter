@@ -5,6 +5,13 @@ import { useListMeetingsQuery } from '@/store/api/meetings.api';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import styles from './Sidebar.module.css';
 
+// TODO(sub-project-2): replace with real user from auth/profile backend.
+const MOCK_USER = {
+  initials: 'CR',
+  name: 'Carlos Rivera',
+  role: 'Pro · v0.1.0',
+} as const;
+
 interface NavEntry {
   to: string;
   icon: IconName;
@@ -77,10 +84,10 @@ export function Sidebar() {
         ))}
       </div>
       <div className={styles.sidebarFooter}>
-        <div className={styles.avatar}>CR</div>
+        <div className={styles.avatar}>{MOCK_USER.initials}</div>
         <div>
-          <div className={styles.name}>Carlos Rivera</div>
-          <div className={styles.role}>Pro · v0.1.0</div>
+          <div className={styles.name}>{MOCK_USER.name}</div>
+          <div className={styles.role}>{MOCK_USER.role}</div>
         </div>
       </div>
     </aside>

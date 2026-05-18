@@ -64,8 +64,8 @@ export function AudioTab({ meeting }: AudioTabProps) {
             <span>{t('audio')}</span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Chip disabled>WAV · 48 kHz</Chip>
-            <Chip disabled>47.2 MB</Chip>
+            <Chip disabled>{'WAV · 48 kHz'}</Chip>
+            <Chip disabled>{'47.2 MB'}</Chip>
           </div>
         </div>
         <div className={styles.waveform}>

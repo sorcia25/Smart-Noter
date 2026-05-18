@@ -1,4 +1,9 @@
 {
+  "loading": "Loading…",
+  "errorTitle": "Something went wrong",
+  "winMinimize": "Minimize",
+  "winMaximize": "Maximize",
+  "winClose": "Close",
   "appName": "Smart Noter",
   "appTag": "AI meeting notes",
   "navWorkspace": "Workspace",

@@ -26,10 +26,10 @@ export function WindowChrome({ title }: WindowChromeProps) {
           type="button"
           className={styles.ctrl}
           onClick={() => void win.minimize()}
-          title="Minimize"
+          title={t('winMinimize')}
         >
           <svg viewBox="0 0 10 10" width="10" height="10">
-            <title>Minimize</title>
+            <title>{t('winMinimize')}</title>
             <rect x="1" y="5" width="8" height="1" fill="currentColor" />
           </svg>
         </button>
@@ -37,10 +37,10 @@ export function WindowChrome({ title }: WindowChromeProps) {
           type="button"
           className={styles.ctrl}
           onClick={() => void win.toggleMaximize()}
-          title="Maximize"
+          title={t('winMaximize')}
         >
           <svg viewBox="0 0 10 10" width="10" height="10" fill="none">
-            <title>Maximize</title>
+            <title>{t('winMaximize')}</title>
             <rect x="1" y="1" width="8" height="8" stroke="currentColor" />
           </svg>
         </button>
@@ -48,10 +48,10 @@ export function WindowChrome({ title }: WindowChromeProps) {
           type="button"
           className={`${styles.ctrl} ${styles.close}`}
           onClick={() => void win.close()}
-          title="Close"
+          title={t('winClose')}
         >
           <svg viewBox="0 0 10 10" width="10" height="10" stroke="currentColor" strokeWidth={1}>
-            <title>Close</title>
+            <title>{t('winClose')}</title>
             <line x1="1" y1="1" x2="9" y2="9" />
             <line x1="9" y1="1" x2="1" y2="9" />
           </svg>

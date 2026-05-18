@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import i18n from './i18n';
 import { tauri } from './ipc/commands';
 
 interface State {
@@ -20,7 +21,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
     if (this.state.error) {
       return (
         <div style={{ padding: 32, fontFamily: 'system-ui' }}>
-          <h1>Something went wrong</h1>
+          <h1>{i18n.t('errorTitle')}</h1>
           <pre style={{ whiteSpace: 'pre-wrap' }}>{this.state.error.message}</pre>
         </div>
       );

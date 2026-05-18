@@ -1,4 +1,9 @@
 {
+  "loading": "Cargando…",
+  "errorTitle": "Algo salió mal",
+  "winMinimize": "Minimizar",
+  "winMaximize": "Maximizar",
+  "winClose": "Cerrar",
   "appName": "Smart Noter",
   "appTag": "Notas de reunión con IA",
   "navWorkspace": "Espacio de trabajo",

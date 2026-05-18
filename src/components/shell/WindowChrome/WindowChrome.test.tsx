@@ -19,8 +19,8 @@ describe('WindowChrome', () => {
 
   it('renders three window controls', () => {
     render(<WindowChrome title="X" />);
-    expect(screen.getByRole('button', { name: 'Minimize' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Maximize' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Minimizar|Minimize/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Maximizar|Maximize/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Cerrar|Close/ })).toBeInTheDocument();
   });
 });

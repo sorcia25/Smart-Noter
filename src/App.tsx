@@ -57,7 +57,7 @@ export default function App() {
           <div className={styles.body}>
             <Sidebar />
             <main className={styles.main}>
-              <Suspense fallback={<div className={styles.suspense}>Loading…</div>}>
+              <Suspense fallback={<div className={styles.suspense}>{t('loading')}</div>}>
                 {element}
               </Suspense>
             </main>

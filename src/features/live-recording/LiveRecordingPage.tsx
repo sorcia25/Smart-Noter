@@ -175,8 +175,8 @@ export default function LiveRecordingPage() {
         </div>
         <div className={styles.metaBlock}>
           <Icon name="globe" size={14} />
-          <span>ES ·</span>
-          <span className={styles.metaSubtle}>auto</span>
+          <span>{'ES ·'}</span>
+          <span className={styles.metaSubtle}>{'auto'}</span>
         </div>
         <div className={styles.metaBlock}>
           <Icon name="shield" size={14} />
