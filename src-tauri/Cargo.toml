@@ -27,7 +27,7 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
-specta = "2.0.0-rc.20"
+specta = { version = "2.0.0-rc.20", features = ["derive"] }
 specta-typescript = "0.0.7"
 tauri-specta = { version = "2.0.0-rc.20", features = ["derive", "typescript"] }
 uuid = { version = "1.10", features = ["v7", "serde"] }

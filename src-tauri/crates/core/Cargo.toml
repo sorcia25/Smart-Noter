@@ -7,6 +7,6 @@ edition.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-specta = { workspace = true, features = ["derive"] }
+specta.workspace = true
 chrono.workspace = true
 uuid.workspace = true
