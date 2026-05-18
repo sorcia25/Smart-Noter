@@ -1,4 +1,4 @@
 // TODO(phase-7.6): replace stub with real TemplatesPage.
 export default function TemplatesPage() {
-  return null;
+  return <div style={{ padding: 32 }}>Templates — to be implemented</div>;
 }

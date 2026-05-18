@@ -1,4 +1,4 @@
 // TODO(phase-7.2): replace stub with real MeetingsListPage.
 export default function MeetingsListPage() {
-  return null;
+  return <div style={{ padding: 32 }}>MeetingsList — to be implemented</div>;
 }
