@@ -45,6 +45,7 @@
     "@biomejs/biome": "^1.9.0",
     "@playwright/test": "^1.48.0",
     "@storybook/addon-essentials": "^8.3.0",
+    "@storybook/react": "^8.3.0",
     "@storybook/react-vite": "^8.3.0",
     "@tauri-apps/cli": "^2.1.0",
     "@testing-library/jest-dom": "^6.5.0",
