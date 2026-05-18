@@ -10,9 +10,11 @@ describe('Card', () => {
 
   it('applies padding when padded prop is true', () => {
     const { container, rerender } = render(<Card>x</Card>);
-    const cls = container.firstChild?.className ?? '';
+    const initial = container.firstChild as HTMLElement;
+    const cls = initial.className;
     rerender(<Card padded>x</Card>);
-    expect(container.firstChild?.className).not.toBe(cls);
-    expect((container.firstChild as HTMLElement).className).toMatch(/pad/);
+    const after = container.firstChild as HTMLElement;
+    expect(after.className).not.toBe(cls);
+    expect(after.className).toMatch(/pad/);
   });
 });

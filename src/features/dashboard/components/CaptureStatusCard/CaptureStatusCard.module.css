@@ -1,0 +1,51 @@
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+}
+
+.title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.eqWrap {
+  margin-left: auto;
+}
+
+.levelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.levelDb {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.levelBar {
+  height: 8px;
+  background: var(--bg-inset);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.levelFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #34d399 70%, #fbbf24 90%, #ef4444);
+  transition: width 100ms linear;
+}

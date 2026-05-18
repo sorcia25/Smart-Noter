@@ -1,7 +1,7 @@
 import type { Participant } from '@/ipc/bindings';
 import styles from './Avatar.module.css';
 
-const COLOR_MAP: Record<string, string> = {
+const COLOR_MAP: Record<string, string | undefined> = {
   's-color-1': styles.s1,
   's-color-2': styles.s2,
   's-color-3': styles.s3,
@@ -19,9 +19,11 @@ export interface SubjectAvatarProps {
 
 function initials(p: Participant): string {
   const source = p.name ?? p.label;
-  const parts = source.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  const parts = source.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0] ?? '?';
+  if (parts.length === 1) return first.slice(0, 2).toUpperCase();
+  const last = parts[parts.length - 1] ?? '';
+  return ((first[0] ?? '?') + (last[0] ?? '')).toUpperCase();
 }
 
 export function SubjectAvatar({ participant, size = 28 }: SubjectAvatarProps) {

@@ -1,7 +1,7 @@
 import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
 import styles from './TemplateIcon.module.css';
 
-const COLOR_MAP: Record<string, string> = {
+const COLOR_MAP: Record<string, string | undefined> = {
   ejecutiva: styles.tEjecutiva,
   discovery: styles.tDiscovery,
   conferencia: styles.tConferencia,
