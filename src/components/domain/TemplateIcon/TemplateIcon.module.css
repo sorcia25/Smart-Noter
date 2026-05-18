@@ -1,0 +1,40 @@
+.tmplIcon {
+  display: grid;
+  place-items: center;
+  color: white;
+  font-weight: 600;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+/* Template color classes (mirror prototype) */
+.tEjecutiva {
+  background: linear-gradient(135deg, #1e40af, #3b82f6);
+}
+.tDiscovery {
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+}
+.tConferencia {
+  background: linear-gradient(135deg, #be185d, #ec4899);
+}
+.tTecnica {
+  background: linear-gradient(135deg, #0e7490, #06b6d4);
+}
+.tWebinar {
+  background: linear-gradient(135deg, #b45309, #f59e0b);
+}
+.tDaily {
+  background: linear-gradient(135deg, #047857, #10b981);
+}
+.tRetro {
+  background: linear-gradient(135deg, #b91c1c, #ef4444);
+}
+.tEntrevista {
+  background: linear-gradient(135deg, #6d28d9, #8b5cf6);
+}
+.tCoaching {
+  background: linear-gradient(135deg, #c2410c, #f97316);
+}
+.tDefault {
+  background: linear-gradient(135deg, #6b7280, #9ca3af);
+}

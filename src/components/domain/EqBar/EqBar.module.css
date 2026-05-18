@@ -1,0 +1,43 @@
+.bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+}
+
+.bar span {
+  width: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: eq 1s var(--ease) infinite alternate;
+}
+
+.bar span:nth-child(1) {
+  height: 30%;
+  animation-delay: 0s;
+}
+.bar span:nth-child(2) {
+  height: 60%;
+  animation-delay: 0.15s;
+}
+.bar span:nth-child(3) {
+  height: 90%;
+  animation-delay: 0.3s;
+}
+.bar span:nth-child(4) {
+  height: 50%;
+  animation-delay: 0.45s;
+}
+.bar span:nth-child(5) {
+  height: 70%;
+  animation-delay: 0.2s;
+}
+
+@keyframes eq {
+  from {
+    transform: scaleY(0.4);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
