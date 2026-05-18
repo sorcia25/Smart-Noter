@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import './assets/fonts/fonts.css';
+import './theme/tokens.module.css';
 import './styles/reset.css';
 import './styles/globals.css';
 
