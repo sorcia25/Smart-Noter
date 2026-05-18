@@ -1,0 +1,6 @@
+[package]
+name = "smart-noter-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

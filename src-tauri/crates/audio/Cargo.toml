@@ -1,0 +1,6 @@
+[package]
+name = "smart-noter-audio"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

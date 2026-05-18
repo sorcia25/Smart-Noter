@@ -4,6 +4,15 @@ node_modules/
 dist/
 *.local
 
+# TypeScript build artifacts
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+src/**/*.js
+src/**/*.d.ts
+!src/**/*.config.js
+!src/vite-env.d.ts
+
 # Rust
 target/
 **/*.rs.bk

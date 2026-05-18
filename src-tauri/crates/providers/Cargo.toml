@@ -1,0 +1,6 @@
+[package]
+name = "smart-noter-providers"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

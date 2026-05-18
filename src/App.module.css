@@ -1,0 +1,7 @@
+.bootstrap {
+  display: grid;
+  place-items: center;
+  height: 100vh;
+  font-family: system-ui, sans-serif;
+  color: #1a1a1a;
+}
