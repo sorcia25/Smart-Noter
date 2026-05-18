@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT text_es, text_en FROM blockers WHERE meeting_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "text_es",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "text_en",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "ad5ffbc61c8cbed2c82fe274a6ac1c1949e1e3fba687885e8d837b477fb2e75c"
+}

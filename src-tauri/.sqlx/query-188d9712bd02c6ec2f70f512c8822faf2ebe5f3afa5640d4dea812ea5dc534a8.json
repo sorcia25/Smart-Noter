@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO actions (id, meeting_id, text_es, done) VALUES ('a1', 'm1', 'Do thing', 0)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "188d9712bd02c6ec2f70f512c8822faf2ebe5f3afa5640d4dea812ea5dc534a8"
+}

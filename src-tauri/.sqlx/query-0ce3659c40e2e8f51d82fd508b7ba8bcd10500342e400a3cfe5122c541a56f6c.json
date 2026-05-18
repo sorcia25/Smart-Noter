@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE templates SET is_default = 1 WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "0ce3659c40e2e8f51d82fd508b7ba8bcd10500342e400a3cfe5122c541a56f6c"
+}

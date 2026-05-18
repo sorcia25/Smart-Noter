@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, meeting_id, text_es, text_en, owner_participant_id, due, done\n           FROM actions WHERE meeting_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "meeting_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "text_es",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "text_en",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "owner_participant_id",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "due",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "done",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "7c0e73bb66adbb97bd2ac9d93fd6f89143a4f3b9aaeac26c24b76fdb6c2b1d63"
+}

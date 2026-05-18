@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, color_class, icon, name_es, name_en, desc_es, desc_en, sections_json, is_default\n           FROM templates ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "color_class",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "icon",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "name_es",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "name_en",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "desc_es",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "desc_en",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "sections_json",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_default",
+        "ordinal": 8,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "986ae9d8cecdfabd5f6930776165d10c2a8bdc2947035fc13057baf747474155"
+}

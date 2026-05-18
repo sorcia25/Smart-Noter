@@ -35,7 +35,10 @@ test-results/
 # Generated
 src/ipc/bindings.ts
 src/i18n/keys.ts
-src-tauri/crates/db/.sqlx/
+
+# Note: src-tauri/.sqlx/ is committed so offline cargo builds work without DATABASE_URL.
+# Regenerate after schema/query changes via:
+#   cd src-tauri && DATABASE_URL="sqlite://./crates/db/sn_prepare.db" cargo sqlx prepare --workspace -- --workspace --tests
 
 # Logs
 logs/

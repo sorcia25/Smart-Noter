@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, title_es, title_en, template_id, date, duration_sec, word_count,\n                  device_used, summary_es, summary_en\n           FROM meetings WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "title_es",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "title_en",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "template_id",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "date",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "duration_sec",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "word_count",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "device_used",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "summary_es",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "summary_en",
+        "ordinal": 9,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "45ab9ef5ea1bcab6c55869c97127906229e120506ad4de31d096f386143f8704"
+}

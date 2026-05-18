@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT text_es, text_en FROM decisions WHERE meeting_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "text_es",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "text_en",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "3eecf4eb471ea39624daa7e5f978c6c2ac71143c120cbbc5de53e767b81b0326"
+}

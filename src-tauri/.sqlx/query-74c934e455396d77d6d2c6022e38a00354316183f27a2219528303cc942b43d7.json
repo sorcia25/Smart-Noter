@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT done FROM actions WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "done",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "74c934e455396d77d6d2c6022e38a00354316183f27a2219528303cc942b43d7"
+}

@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, meeting_id, label, name, color_class, word_count, talk_pct\n           FROM participants WHERE meeting_id = ? ORDER BY label",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "meeting_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "label",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "name",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "color_class",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "word_count",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "talk_pct",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "423772388c66b880ab9e0c93552d1648e0a3688a38e46b5f99134b803c7b46b8"
+}

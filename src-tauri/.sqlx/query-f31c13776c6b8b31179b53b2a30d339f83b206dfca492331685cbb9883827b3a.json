@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO templates VALUES ('a','c','i','na','ne','da','de','[]',1),\n                                          ('b','c','i','na','ne','da','de','[]',0)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "f31c13776c6b8b31179b53b2a30d339f83b206dfca492331685cbb9883827b3a"
+}

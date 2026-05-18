@@ -1,5 +1,5 @@
 CREATE TABLE meetings (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL,
     title_es TEXT NOT NULL,
     title_en TEXT,
     template_id TEXT NOT NULL,
@@ -18,7 +18,7 @@ CREATE INDEX idx_meetings_date ON meetings(date DESC);
 CREATE INDEX idx_meetings_template ON meetings(template_id);
 
 CREATE TABLE participants (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL,
     meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
     label TEXT NOT NULL,
     name TEXT,
@@ -30,7 +30,7 @@ CREATE TABLE participants (
 CREATE INDEX idx_participants_meeting ON participants(meeting_id);
 
 CREATE TABLE actions (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL,
     meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
     text_es TEXT NOT NULL,
     text_en TEXT,
@@ -68,7 +68,7 @@ CREATE TABLE blockers (
 );
 
 CREATE TABLE templates (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL,
     color_class TEXT NOT NULL,
     icon TEXT NOT NULL,
     name_es TEXT NOT NULL,
@@ -80,6 +80,6 @@ CREATE TABLE templates (
 );
 
 CREATE TABLE settings (
-    key TEXT PRIMARY KEY,
+    key TEXT PRIMARY KEY NOT NULL,
     value TEXT NOT NULL
 );

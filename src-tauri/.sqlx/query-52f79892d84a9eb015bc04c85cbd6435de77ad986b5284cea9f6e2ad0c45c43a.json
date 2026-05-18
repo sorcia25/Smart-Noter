@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO meetings (id, title_es, template_id, date, duration_sec) VALUES ('m1', 'M1', 'tecnica', '2025-01-01T00:00:00', 100)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "52f79892d84a9eb015bc04c85cbd6435de77ad986b5284cea9f6e2ad0c45c43a"
+}

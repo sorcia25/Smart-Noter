@@ -10,6 +10,7 @@
       "node_modules",
       "dist",
       "src-tauri/target",
+      "src-tauri/.sqlx",
       "src/ipc/bindings.ts",
       "src/i18n/keys.ts",
       "**/*.stories.tsx"

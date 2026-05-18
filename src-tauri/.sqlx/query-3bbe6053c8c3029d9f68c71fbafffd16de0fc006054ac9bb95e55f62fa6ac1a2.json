@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t_display, speaker_id, text_es, text_en FROM transcript_lines WHERE meeting_id = ? ORDER BY t_seconds",
+  "describe": {
+    "columns": [
+      {
+        "name": "t_display",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "speaker_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "text_es",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "text_en",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "3bbe6053c8c3029d9f68c71fbafffd16de0fc006054ac9bb95e55f62fa6ac1a2"
+}
