@@ -1,0 +1,23 @@
+pre-commit:
+  parallel: true
+  commands:
+    biome:
+      glob: "*.{ts,tsx,js,jsx,json}"
+      run: pnpm biome check {staged_files}
+    no-hardcoded-strings:
+      glob: "src/**/*.tsx"
+      run: node scripts/check-no-hardcoded-strings.mjs {staged_files}
+    rust-fmt:
+      glob: "*.rs"
+      root: src-tauri/
+      run: cargo fmt --check
+    rust-clippy:
+      glob: "*.rs"
+      root: src-tauri/
+      run: cargo clippy --workspace --all-targets -- -D warnings
+
+commit-msg:
+  commands:
+    conventional:
+      run: |
+        head -1 {1} | grep -qE '^(feat|fix|chore|docs|refactor|test|style|perf|build|ci)(\(.+\))?: .+' || (echo "Commit must follow Conventional Commits (type: subject)"; exit 1)
