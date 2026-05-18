@@ -1,0 +1,30 @@
+.group {
+  display: inline-flex;
+  background: var(--bg-inset);
+  border-radius: var(--radius);
+  padding: 3px;
+  border: 1px solid var(--stroke);
+}
+
+.btn {
+  padding: 5px 12px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background var(--speed) var(--ease), color var(--speed) var(--ease);
+}
+
+.btn:hover:not(.active) {
+  color: var(--text);
+}
+
+.active {
+  background: var(--bg-surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
