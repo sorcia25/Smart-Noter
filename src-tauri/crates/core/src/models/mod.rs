@@ -1,1 +1,13 @@
-// Model definitions land in Task 1.2.
+pub mod action;
+pub mod audio_device;
+pub mod meeting;
+pub mod participant;
+pub mod settings;
+pub mod template;
+
+pub use action::Action;
+pub use audio_device::AudioDevice;
+pub use meeting::{MeetingDetail, MeetingSummary, TranscriptLine};
+pub use participant::Participant;
+pub use settings::{AppSettings, AvatarStyle, CaptureMode, Language, Theme};
+pub use template::Template;
