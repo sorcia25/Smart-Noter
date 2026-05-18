@@ -14,7 +14,16 @@
       "src-tauri/crates/db/seed_data.json",
       "src/ipc/bindings.ts",
       "src/i18n/keys.ts",
-      "**/*.stories.tsx"
+      "handoff",
+      "playwright-report",
+      "tests/e2e/__screenshots__",
+      "*.tsbuildinfo",
+      "vite.config.d.ts",
+      "vite.config.js",
+      "vitest.config.d.ts",
+      "vitest.config.js",
+      "playwright.config.d.ts",
+      "playwright.config.js"
     ]
   },
   "organizeImports": {
@@ -36,6 +45,18 @@
       }
     }
   },
+  "overrides": [
+    {
+      "include": ["scripts/**/*.mjs", "scripts/**/*.js"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsoleLog": "off"
+          }
+        }
+      }
+    }
+  ],
   "formatter": {
     "enabled": true,
     "indentStyle": "space",

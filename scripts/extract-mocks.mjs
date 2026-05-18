@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -24,5 +24,7 @@ const out = {
 };
 
 mkdirSync(dirname(outPath), { recursive: true });
-writeFileSync(outPath, JSON.stringify(out, null, 2) + '\n');
-console.log(`Wrote ${out.meetings.length} meetings, ${out.templates.length} templates → ${outPath}`);
+writeFileSync(outPath, `${JSON.stringify(out, null, 2)}\n`);
+console.log(
+  `Wrote ${out.meetings.length} meetings, ${out.templates.length} templates → ${outPath}`
+);
