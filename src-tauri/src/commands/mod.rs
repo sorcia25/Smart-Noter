@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod devices;
 pub mod log;
 pub mod meetings;
