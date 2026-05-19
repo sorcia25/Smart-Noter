@@ -3,3 +3,6 @@
 pub mod error;
 
 pub use error::AudioError;
+
+pub mod devices;
+pub use devices::{enumerate, AudioDevice, AudioDeviceKind};
