@@ -24,6 +24,11 @@ pub struct StreamHandle {
     pub sample_rate: u32,
     pub channels: u16,
     pub drops: Arc<AtomicU32>,
+    /// Populated only in Mix mode: the actual sample rate of the mic input.
+    ///
+    /// The mixer's b-side resampler must be configured with this rate.
+    /// `None` in System and Mic modes (no resampling needed).
+    pub mic_sample_rate: Option<u32>,
     /// Keep handles alive so the OS doesn't drop the stream.
     _streams: Vec<Box<dyn KeepAlive>>,
 }
@@ -94,6 +99,8 @@ pub fn open(
             let loop_handle =
                 open_loopback_with_drops(device_id, tx_a, shared_drops.clone())?;
             let mic_handle = open_mic_default_with_drops(tx_b, shared_drops.clone())?;
+            // Capture the mic's actual rate before the handle is consumed.
+            let mic_sample_rate = mic_handle.sample_rate;
             // Combine streams' keepalive boxes
             let mut streams = loop_handle._streams;
             streams.extend(mic_handle._streams);
@@ -104,6 +111,7 @@ pub fn open(
                 sample_rate: loop_handle.sample_rate,
                 channels: 1, // mixed output is mono
                 drops: shared_drops,
+                mic_sample_rate: Some(mic_sample_rate),
                 _streams: streams,
             })
         }
@@ -166,6 +174,7 @@ fn open_loopback_with_drops(
         sample_rate,
         channels,
         drops,
+        mic_sample_rate: None,
         _streams: vec![Box::new(WasapiStreamThread {
             stop,
             handle: Some(handle),
@@ -416,6 +425,7 @@ fn build_cpal_input_stream(
         sample_rate,
         channels,
         drops,
+        mic_sample_rate: None,
         _streams: vec![Box::new(CpalStream(stream))],
     })
 }
@@ -642,6 +652,7 @@ mod tests {
             sample_rate: 48_000,
             channels: 2,
             drops: drops.clone(),
+            mic_sample_rate: None,
             _streams: vec![],
         };
         assert_eq!(h.sample_rate, 48_000);

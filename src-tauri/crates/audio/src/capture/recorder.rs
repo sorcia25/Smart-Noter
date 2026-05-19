@@ -70,7 +70,8 @@ impl Recorder {
 
             // Spawn mixer thread.
             let mixer_sample_rate_a = handle.sample_rate;
-            let mixer_sample_rate_b = 48_000; // default mic; could be refined per device
+            // Falls back to 48 kHz only if Mix branch didn't populate it (shouldn't happen).
+            let mixer_sample_rate_b = handle.mic_sample_rate.unwrap_or(48_000);
             let sample_tx_for_mixer = sample_tx.clone();
             std::thread::spawn(move || {
                 let mut mixer = match Mixer::new(mixer_sample_rate_a, mixer_sample_rate_b) {
@@ -140,6 +141,7 @@ impl Recorder {
         // Note: crossbeam_channel is MPMC — both writer and meter compete for samples.
         // Writer gets priority. If the meter visibly stutters during smoke tests,
         // switch to two channels and have the stream thread send each buf to both.
+        let start_instant = Instant::now();
         let meter_app = app.clone();
         let meter_stop = stop_flag.clone();
         let meter_sample_rate = stream.sample_rate;
@@ -183,7 +185,7 @@ impl Recorder {
                     let _ = meter_app.emit(
                         "audio:elapsed",
                         ElapsedEvent {
-                            elapsed_sec: meter.elapsed_sec(),
+                            elapsed_sec: start_instant.elapsed().as_secs() as u32,
                         },
                     );
                 }
@@ -208,6 +210,16 @@ impl Recorder {
         self.paused.store(false, Ordering::Relaxed);
     }
 
+    /// Signals the worker threads to stop, joins them, and returns the finalised
+    /// recording. Joins the writer first to get the `FinalizeResult`, then the meter.
+    ///
+    /// **Blocking contract:** `stop` returns as soon as both worker threads observe
+    /// the stop flag. The writer thread observes it at most every 50 ms (the
+    /// `recv_timeout` interval). If `writer.write()` is mid-call when stop is
+    /// signalled, `stop()` will wait for that write to complete first — typically
+    /// sub-millisecond for WAV (hound buffered I/O) and in-memory for FLAC
+    /// (`flacenc` buffers in RAM and only does I/O in `finalize`). Worst-case
+    /// observed latency: < 100 ms in normal operation.
     pub fn stop(mut self) -> Result<(PathBuf, u64, u32), AudioError> {
         self.stop_flag.store(true, Ordering::Relaxed);
 

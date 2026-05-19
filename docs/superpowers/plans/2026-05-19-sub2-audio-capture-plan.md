@@ -1991,6 +1991,11 @@ pub struct StreamHandle {
     pub sample_rate: u32,
     pub channels: u16,
     pub drops: Arc<AtomicU32>,
+    /// Populated only in Mix mode: the actual sample rate of the mic input.
+    ///
+    /// The mixer's b-side resampler must be configured with this rate.
+    /// `None` in System and Mic modes (no resampling needed).
+    pub mic_sample_rate: Option<u32>,
     /// Keep handles alive so the OS doesn't drop the stream.
     _streams: Vec<Box<dyn KeepAlive>>,
 }
@@ -2023,6 +2028,8 @@ pub fn open(
             // device_id is the loopback id; mic picks the system default for now
             let loop_handle = open_loopback(device_id, tx_a)?;
             let mic_handle = open_mic_default(tx_b)?;
+            // Capture the mic's actual rate before the handle is consumed.
+            let mic_sample_rate = mic_handle.sample_rate;
             // Combine streams' keepalive boxes
             let mut streams = loop_handle._streams;
             streams.extend(mic_handle._streams);
@@ -2030,6 +2037,7 @@ pub fn open(
                 sample_rate: loop_handle.sample_rate,
                 channels: 1, // mixed output is mono
                 drops: loop_handle.drops,
+                mic_sample_rate: Some(mic_sample_rate),
                 _streams: streams,
             })
         }
@@ -2420,7 +2428,8 @@ impl Recorder {
 
             // Spawn mixer thread.
             let mixer_sample_rate_a = handle.sample_rate;
-            let mixer_sample_rate_b = 48_000; // default mic; could be refined per device
+            // Falls back to 48 kHz only if Mix branch didn't populate it (shouldn't happen).
+            let mixer_sample_rate_b = handle.mic_sample_rate.unwrap_or(48_000);
             let sample_tx_for_mixer = sample_tx.clone();
             std::thread::spawn(move || {
                 let mut mixer = match Mixer::new(mixer_sample_rate_a, mixer_sample_rate_b) {
@@ -2524,7 +2533,7 @@ impl Recorder {
                 }
                 if now.duration_since(last_elapsed) >= Duration::from_millis(1000) {
                     last_elapsed = now;
-                    let _ = meter_app.emit("audio:elapsed", ElapsedEvent { elapsed_sec: meter.elapsed_sec() });
+                    let _ = meter_app.emit("audio:elapsed", ElapsedEvent { elapsed_sec: start_instant.elapsed().as_secs() as u32 });
                 }
             }
         });
