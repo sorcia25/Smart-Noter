@@ -2048,10 +2048,17 @@ fn open_loopback(device_id: &str, tx: Sender<Vec<f32>>) -> Result<StreamHandle, 
         .find(|d| d.id == device_id && d.kind == AudioDeviceKind::Loopback)
         .ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?;
 
-    // Resolve back to a wasapi::Device by enumerating and matching the endpoint name.
-    use wasapi::{Direction, DeviceCollection};
-    let coll = DeviceCollection::new(&Direction::Render)
-        .map_err(|e| AudioError::WasapiInit { hresult: e.hresult().0 })?;
+    // Resolve back to a wasapi::Device by enumerating render endpoints and
+    // matching by friendly name (the name stored in our AudioDevice).
+    use wasapi::{DeviceCollection, Direction};
+    let coll = DeviceCollection::new(&Direction::Render).map_err(|e| match e {
+        // Plan amended (Task 3.1): wasapi 0.16 uses WasapiError::Windows(inner),
+        // not e.hresult().0.  Pattern established in Phase 2 Task 2.2 (devices.rs).
+        wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
+            hresult: inner.code().0,
+        },
+        other => AudioError::Other(format!("WASAPI: {other}")),
+    })?;
 
     let count = coll.get_nbr_devices().unwrap_or(0);
     let mut wasapi_dev = None;
@@ -2171,49 +2178,107 @@ fn open_mic_default(tx: Sender<Vec<f32>>) -> Result<StreamHandle, AudioError> {
     })
 }
 
-struct WasapiStreamThread(std::thread::JoinHandle<()>);
+// Plan amended (Task 3.1):
+// - WasapiStreamThread refactored to hold stop: Arc<AtomicBool> + handle: Option<JoinHandle<()>>
+//   so its Drop impl can signal the thread and join it (a bare JoinHandle drop only detaches).
+// - wasapi::Device is !Send; wrapped in a SendDevice newtype (unsafe impl Send) with a SAFETY
+//   comment explaining MTA COM rules. Passed to spawn() as SendDevice, unwrapped inside thread.
+// - Drift 2: placeholder replaced with real wasapi_loopback_loop() that initialises MTA,
+//   calls get_iaudioclient / WaveFormat::new(32,32,Float) / initialize_client / set_get_eventhandle /
+//   get_audiocaptureclient / start_stream, then loops on h_event.wait_for_event(100) draining
+//   packets via read_from_device, reinterprets raw bytes as f32 (native — no conversion),
+//   and stop_stream on exit.
+// - f32 native preferred over i16-and-convert (WaveFormat::new(32,32,&SampleType::Float,...)).
+
+/// Newtype wrapper that makes `wasapi::Device` sendable across threads.
+///
+/// SAFETY: `wasapi::Device` wraps an `IMMDevice` COM pointer. COM objects in the
+/// MTA can be accessed from any thread in that MTA. The loopback thread calls
+/// `initialize_mta()` before touching the device. We transfer ownership to exactly
+/// one thread and never share the pointer.
+struct SendDevice(wasapi::Device);
+unsafe impl Send for SendDevice {}
+
+struct WasapiStreamThread {
+    stop: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
 impl KeepAlive for WasapiStreamThread {}
-// The thread joins on drop via a stop flag; see `spawn_wasapi_loopback_thread`.
+impl Drop for WasapiStreamThread {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
 
 fn spawn_wasapi_loopback_thread(
-    device: wasapi::Device,
+    device: SendDevice,
     sample_rate: u32,
     channels: u16,
     tx: Sender<Vec<f32>>,
     drops: Arc<AtomicU32>,
+    stop: Arc<AtomicBool>,
 ) -> Result<std::thread::JoinHandle<()>, AudioError> {
-    // Concrete WASAPI loopback init code goes here. Because the wasapi crate's
-    // exact API varies by minor version, we keep this in one place and reference
-    // its loopback example verbatim from `wasapi`'s `examples/loopback.rs`.
-    //
-    // Required steps (per wasapi-rs example):
-    //   1. let mut audio_client = device.get_iaudioclient()?;
-    //   2. let desired_format = WaveFormat::new(16, 16, &SampleType::Int, sample_rate as usize, channels as usize, None);
-    //   3. audio_client.initialize_client(&desired_format, blockalign, &Direction::Capture, &ShareMode::Shared, true /*loopback*/)?;
-    //   4. let capture_client = audio_client.get_audiocaptureclient()?;
-    //   5. let event = audio_client.set_get_eventhandle()?;
-    //   6. audio_client.start_stream()?;
-    //   7. Spawn a thread that loops:
-    //        - waits on the event handle (event.wait_for_event(1000)?)
-    //        - reads frames via capture_client.read_from_device(blockalign as usize)
-    //        - converts i16 samples to f32 (sample_i16 as f32 / 32768.0)
-    //        - tx.try_send(buf) — increments `drops` on failure
-    //   8. On shutdown: audio_client.stop_stream()
-    //
-    // The thread holds the AudioClient + CaptureClient. Drop of the JoinHandle
-    // does NOT signal shutdown — wire a `stop` AtomicBool that the loop checks
-    // each iteration and join the thread from `StreamHandle::drop`.
-
-    let handle = std::thread::spawn(move || {
-        // Placeholder loop — actual wasapi init goes here.
-        // The implementation MUST send sample buffers via `tx` until
-        // a shutdown signal arrives. See the wasapi crate's
-        // `examples/loopback.rs` for the exact API.
-        let _ = (device, sample_rate, channels, tx, drops);
-        tracing::info!("WASAPI loopback thread starting");
-        // ...
-    });
+    let handle = std::thread::Builder::new()
+        .name("wasapi-loopback".into())
+        .spawn(move || {
+            if let Err(e) =
+                wasapi_loopback_loop(device, sample_rate, channels, &tx, &drops, &stop)
+            {
+                tracing::error!("WASAPI loopback thread exited with error: {e}");
+            }
+        })
+        .map_err(|e| AudioError::Other(format!("spawn loopback thread: {e}")))?;
     Ok(handle)
+}
+
+fn wasapi_loopback_loop(
+    device: SendDevice,
+    sample_rate: u32,
+    channels: u16,
+    tx: &Sender<Vec<f32>>,
+    drops: &Arc<AtomicU32>,
+    stop: &Arc<AtomicBool>,
+) -> Result<(), AudioError> {
+    use wasapi::{Direction, SampleType, ShareMode, WaveFormat};
+    let _ = wasapi::initialize_mta(); // S_FALSE if already MTA — not an error
+    let device = device.0;
+    let mut audio_client = device.get_iaudioclient().map_err(/* WasapiError pattern */)?;
+    let desired_format = WaveFormat::new(32, 32, &SampleType::Float, sample_rate as usize, channels as usize, None);
+    let (_, min_time) = audio_client.get_periods().map_err(/* WasapiError pattern */)?;
+    audio_client.initialize_client(&desired_format, min_time, &Direction::Capture, &ShareMode::Shared, true).map_err(/* WasapiError pattern */)?;
+    let h_event = audio_client.set_get_eventhandle().map_err(/* WasapiError pattern */)?;
+    let capture_client = audio_client.get_audiocaptureclient().map_err(/* WasapiError pattern */)?;
+    let blockalign = desired_format.get_blockalign() as usize;
+    audio_client.start_stream().map_err(/* WasapiError pattern */)?;
+    let mut raw_buf: Vec<u8> = Vec::new();
+    loop {
+        if stop.load(Ordering::Relaxed) { break; }
+        if h_event.wait_for_event(100).is_err() { continue; } // timeout = no data
+        loop {
+            match capture_client.get_next_nbr_frames() {
+                Ok(Some(0)) | Ok(None) => break,
+                Ok(Some(n)) => {
+                    let needed = n as usize * blockalign;
+                    raw_buf.resize(needed, 0);
+                    if let Ok((read, _)) = capture_client.read_from_device(&mut raw_buf[..needed]) {
+                        if read > 0 {
+                            let bytes = read as usize * blockalign;
+                            let samples: Vec<f32> = raw_buf[..bytes].chunks_exact(4)
+                                .map(|c| f32::from_le_bytes([c[0],c[1],c[2],c[3]]))
+                                .collect();
+                            if tx.try_send(samples).is_err() { drops.fetch_add(1, Ordering::Relaxed); }
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    }
+    let _ = audio_client.stop_stream();
+    Ok(())
 }
 
 #[cfg(test)]
