@@ -141,6 +141,14 @@ pub async fn count(pool: &SqlitePool) -> Result<i64, DbError> {
 pub struct MeetingsRepo<'a>(pub &'a sqlx::SqlitePool);
 
 impl MeetingsRepo<'_> {
+    /// Atomically inserts a meeting row + a meeting-asset row in a single
+    /// SQL transaction. Either both rows persist or neither does.
+    ///
+    /// NOTE: Only the scalar meeting columns (`id`, `title_es/_en`, `template_id`,
+    /// `date`, `duration_sec`, `device_used`, `word_count`, `summary_es/_en`)
+    /// are persisted. The bilingual relation fields on `MeetingDetail`
+    /// (`participants`, `actions`, `decisions`, `blockers`, `transcript`) are
+    /// IGNORED — they must be inserted separately via their respective repos.
     pub async fn create_with_asset(
         &self,
         meeting: &smart_noter_core::MeetingDetail,
@@ -249,5 +257,50 @@ mod tests {
             .unwrap();
         assert_eq!(assets.len(), 1);
         assert_eq!(assets[0].id, "a-tx-1");
+    }
+
+    #[tokio::test]
+    async fn create_with_asset_rolls_back_meeting_when_asset_insert_fails() {
+        use crate::connection::{ensure_schema, in_memory_pool};
+        use smart_noter_core::{Bilingual, MeetingAsset, MeetingDetail};
+
+        let pool = in_memory_pool().await.unwrap();
+        ensure_schema(&pool).await.unwrap();
+        let repo = MeetingsRepo(&pool);
+
+        let meeting = MeetingDetail {
+            id: "m-rollback-1".into(),
+            title: Bilingual { es: "Rollback test".into(), en: None },
+            template: "tecnica".into(),
+            date: "2026-05-19T00:00:00Z".into(),
+            duration_sec: 1,
+            device_used: None,
+            word_count: 0,
+            summary: None,
+            participants: vec![],
+            actions: vec![],
+            decisions: vec![],
+            blockers: vec![],
+            transcript: vec![],
+        };
+        // Asset with invalid `kind` — violates the CHECK constraint on
+        // meeting_assets.kind, forcing the second INSERT to fail.
+        let bad_asset = MeetingAsset {
+            id: "a-rollback-1".into(),
+            meeting_id: "m-rollback-1".into(),
+            kind: "invalid_kind".into(),
+            path: "C:/never.wav".into(),
+            bytes: 0,
+            mime_type: None,
+            created_at: "2026-05-19T00:00:00Z".into(),
+        };
+
+        let result = repo.create_with_asset(&meeting, &bad_asset).await;
+        assert!(result.is_err(), "expected CHECK constraint violation");
+
+        // The meeting must NOT exist — the failed asset insert should have
+        // rolled back the preceding meeting insert.
+        assert_eq!(count(&pool).await.unwrap(), 0,
+            "meeting row leaked despite asset insert failure");
     }
 }
