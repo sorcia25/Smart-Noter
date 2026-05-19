@@ -11,7 +11,7 @@ use crate::capture::meter::Meter;
 use crate::capture::mixer::Mixer;
 use crate::capture::session::{AudioFormat, CaptureMode};
 use crate::capture::stream::{open, StreamHandle};
-use crate::capture::writer::{AudioWriter, FlacWriterImpl, FinalizeResult, WavWriterImpl};
+use crate::capture::writer::{AudioWriter, FinalizeResult, FlacWriterImpl, WavWriterImpl};
 use crate::error::AudioError;
 use crossbeam_channel::bounded;
 use serde::Serialize;

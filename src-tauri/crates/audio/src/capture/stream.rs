@@ -96,8 +96,7 @@ pub fn open(
             // Share a single drops counter across both streams so Task 3.2's recorder
             // sees aggregate pipeline drops from the whole Mix pipeline.
             let shared_drops = Arc::new(AtomicU32::new(0));
-            let loop_handle =
-                open_loopback_with_drops(device_id, tx_a, shared_drops.clone())?;
+            let loop_handle = open_loopback_with_drops(device_id, tx_a, shared_drops.clone())?;
             let mic_handle = open_mic_default_with_drops(tx_b, shared_drops.clone())?;
             // Capture the mic's actual rate before the handle is consumed.
             let mic_sample_rate = mic_handle.sample_rate;
@@ -258,8 +257,7 @@ fn build_cpal_input_stream(
             device.build_input_stream::<i8, _, _>(
                 &stream_cfg,
                 move |data: &[i8], _| {
-                    let f: Vec<f32> =
-                        data.iter().map(|s| *s as f32 / i8::MAX as f32).collect();
+                    let f: Vec<f32> = data.iter().map(|s| *s as f32 / i8::MAX as f32).collect();
                     if tx.try_send(f).is_err() {
                         drops_clone.fetch_add(1, Ordering::Relaxed);
                     }
@@ -274,8 +272,7 @@ fn build_cpal_input_stream(
             device.build_input_stream::<i16, _, _>(
                 &stream_cfg,
                 move |data: &[i16], _| {
-                    let f: Vec<f32> =
-                        data.iter().map(|s| *s as f32 / i16::MAX as f32).collect();
+                    let f: Vec<f32> = data.iter().map(|s| *s as f32 / i16::MAX as f32).collect();
                     if tx.try_send(f).is_err() {
                         drops_clone.fetch_add(1, Ordering::Relaxed);
                     }
@@ -290,8 +287,7 @@ fn build_cpal_input_stream(
             device.build_input_stream::<i32, _, _>(
                 &stream_cfg,
                 move |data: &[i32], _| {
-                    let f: Vec<f32> =
-                        data.iter().map(|s| *s as f32 / i32::MAX as f32).collect();
+                    let f: Vec<f32> = data.iter().map(|s| *s as f32 / i32::MAX as f32).collect();
                     if tx.try_send(f).is_err() {
                         drops_clone.fetch_add(1, Ordering::Relaxed);
                     }
@@ -306,8 +302,7 @@ fn build_cpal_input_stream(
             device.build_input_stream::<i64, _, _>(
                 &stream_cfg,
                 move |data: &[i64], _| {
-                    let f: Vec<f32> =
-                        data.iter().map(|s| *s as f32 / i64::MAX as f32).collect();
+                    let f: Vec<f32> = data.iter().map(|s| *s as f32 / i64::MAX as f32).collect();
                     if tx.try_send(f).is_err() {
                         drops_clone.fetch_add(1, Ordering::Relaxed);
                     }
@@ -493,7 +488,10 @@ fn wasapi_loopback_loop(
     {
         let hr = wasapi::initialize_mta();
         if hr.is_err() {
-            tracing::error!(hresult = hr.0, "initialize_mta failed; loopback thread cannot continue");
+            tracing::error!(
+                hresult = hr.0,
+                "initialize_mta failed; loopback thread cannot continue"
+            );
             return Ok(()); // exit cleanly; recorder will observe silent channel
         }
         // S_OK or S_FALSE — both acceptable
@@ -687,12 +685,7 @@ mod tests {
     #[test]
     fn open_system_with_unknown_device_returns_device_not_found() {
         let (tx, _rx) = crossbeam_channel::bounded::<Vec<f32>>(1);
-        let result = open(
-            CaptureMode::System,
-            "id-that-does-not-exist",
-            tx,
-            None,
-        );
+        let result = open(CaptureMode::System, "id-that-does-not-exist", tx, None);
         match result {
             Err(AudioError::DeviceNotFound(id)) => {
                 assert_eq!(id, "id-that-does-not-exist");
