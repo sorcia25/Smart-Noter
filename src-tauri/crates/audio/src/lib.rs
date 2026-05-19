@@ -1,3 +1,5 @@
-pub fn version() -> &'static str {
-    "0.1.0"
-}
+//! Smart Noter audio capture — WASAPI/cpal-backed crate.
+
+pub mod error;
+
+pub use error::AudioError;
