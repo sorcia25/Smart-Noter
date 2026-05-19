@@ -10,6 +10,7 @@
 //! `try_send(...)` on a bounded channel. Drops are counted and surfaced via
 //! `audio:error` event when they exceed the threshold (see meter thread).
 
+use crate::capture::mixer::TARGET_SAMPLE_RATE;
 use crate::capture::session::CaptureMode;
 use crate::devices::{enumerate, AudioDeviceKind};
 use crate::error::AudioError;
@@ -104,10 +105,13 @@ pub fn open(
             let mut streams = loop_handle._streams;
             streams.extend(mic_handle._streams);
             Ok(StreamHandle {
-                // Keep loopback sample_rate as the Mix output rate: the mixer in
-                // Phase 2 resamples the mic input to match, so the loopback rate
-                // is the authoritative target rate at this level.
-                sample_rate: loop_handle.sample_rate,
+                // The recorder's Mixer thread always outputs at TARGET_SAMPLE_RATE
+                // (48 kHz) regardless of the loopback device's native rate.  The
+                // writer must be configured for that output rate; using
+                // loop_handle.sample_rate would tag 48 kHz audio with the wrong
+                // rate, causing wrong-pitch/tempo playback on any device whose
+                // native loopback rate ≠ 48 kHz.
+                sample_rate: TARGET_SAMPLE_RATE,
                 channels: 1, // mixed output is mono
                 drops: shared_drops,
                 mic_sample_rate: Some(mic_sample_rate),

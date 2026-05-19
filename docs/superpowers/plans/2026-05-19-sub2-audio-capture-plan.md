@@ -2034,7 +2034,9 @@ pub fn open(
             let mut streams = loop_handle._streams;
             streams.extend(mic_handle._streams);
             Ok(StreamHandle {
-                sample_rate: loop_handle.sample_rate,
+                // TARGET_SAMPLE_RATE (48 kHz): the Mixer always outputs at this
+                // rate regardless of the loopback device's native rate.
+                sample_rate: TARGET_SAMPLE_RATE,
                 channels: 1, // mixed output is mono
                 drops: loop_handle.drops,
                 mic_sample_rate: Some(mic_sample_rate),
