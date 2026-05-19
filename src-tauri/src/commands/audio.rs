@@ -8,6 +8,10 @@ use smart_noter_core::AppError;
 /// - `System` / `Mic`: `device_id` selects the device.
 /// - `Mix`: `device_id` selects the **system loopback**; the microphone is
 ///   always the OS default input device. (See Phase 4 boundary decision #5.)
+///
+/// Callers MUST invoke `stop_preview` before `start_recording`: both commands
+/// share a single `Recorder` slot in `AppState`, so a recording attempt while
+/// a preview is live would race for exclusive WASAPI/cpal stream handles.
 #[tauri::command]
 #[specta::specta]
 pub fn start_preview(
