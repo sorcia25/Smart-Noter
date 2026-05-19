@@ -80,7 +80,7 @@ impl AudioWriter for WavWriterImpl {
 fn classify_io_error(e: hound::Error, path: &Path) -> AudioError {
     use std::io::ErrorKind;
     if let hound::Error::IoError(io) = &e {
-        if matches!(io.kind(), ErrorKind::StorageFull | ErrorKind::Other) {
+        if io.kind() == ErrorKind::StorageFull {
             return AudioError::DiskFull {
                 path: path.display().to_string(),
             };
