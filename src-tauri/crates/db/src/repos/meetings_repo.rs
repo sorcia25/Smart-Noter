@@ -154,7 +154,10 @@ impl MeetingsRepo<'_> {
         meeting: &smart_noter_core::MeetingDetail,
         asset: &smart_noter_core::MeetingAsset,
     ) -> Result<(), smart_noter_core::AppError> {
-        let mut tx = self.0.begin().await
+        let mut tx = self
+            .0
+            .begin()
+            .await
             .map_err(|e| smart_noter_core::AppError::Database(e.to_string()))?;
 
         sqlx::query(
@@ -191,7 +194,8 @@ impl MeetingsRepo<'_> {
         .await
         .map_err(|e| smart_noter_core::AppError::Database(e.to_string()))?;
 
-        tx.commit().await
+        tx.commit()
+            .await
             .map_err(|e| smart_noter_core::AppError::Database(e.to_string()))?;
         Ok(())
     }
@@ -226,7 +230,10 @@ mod tests {
 
         let meeting = MeetingDetail {
             id: "m-tx-1".into(),
-            title: Bilingual { es: "TX test".into(), en: None },
+            title: Bilingual {
+                es: "TX test".into(),
+                en: None,
+            },
             template: "tecnica".into(),
             date: "2026-05-19T00:00:00Z".into(),
             duration_sec: 42,
@@ -270,7 +277,10 @@ mod tests {
 
         let meeting = MeetingDetail {
             id: "m-rollback-1".into(),
-            title: Bilingual { es: "Rollback test".into(), en: None },
+            title: Bilingual {
+                es: "Rollback test".into(),
+                en: None,
+            },
             template: "tecnica".into(),
             date: "2026-05-19T00:00:00Z".into(),
             duration_sec: 1,
@@ -300,7 +310,10 @@ mod tests {
 
         // The meeting must NOT exist — the failed asset insert should have
         // rolled back the preceding meeting insert.
-        assert_eq!(count(&pool).await.unwrap(), 0,
-            "meeting row leaked despite asset insert failure");
+        assert_eq!(
+            count(&pool).await.unwrap(),
+            0,
+            "meeting row leaked despite asset insert failure"
+        );
     }
 }

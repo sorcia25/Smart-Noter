@@ -23,25 +23,28 @@ impl MeetingAssetsRepo<'_> {
     }
 
     pub async fn list_by_meeting(&self, meeting_id: &str) -> Result<Vec<MeetingAsset>, AppError> {
-        let rows = sqlx::query_as::<_, (String, String, String, String, i64, Option<String>, String)>(
-            r#"SELECT id, meeting_id, kind, path, bytes, mime_type, created_at
+        let rows =
+            sqlx::query_as::<_, (String, String, String, String, i64, Option<String>, String)>(
+                r#"SELECT id, meeting_id, kind, path, bytes, mime_type, created_at
                FROM meeting_assets WHERE meeting_id = ? ORDER BY created_at"#,
-        )
-        .bind(meeting_id)
-        .fetch_all(self.0)
-        .await
-        .map_err(|e| AppError::Database(e.to_string()))?;
+            )
+            .bind(meeting_id)
+            .fetch_all(self.0)
+            .await
+            .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(rows
             .into_iter()
-            .map(|(id, meeting_id, kind, path, bytes, mime_type, created_at)| MeetingAsset {
-                id,
-                meeting_id,
-                kind,
-                path,
-                bytes,
-                mime_type,
-                created_at,
-            })
+            .map(
+                |(id, meeting_id, kind, path, bytes, mime_type, created_at)| MeetingAsset {
+                    id,
+                    meeting_id,
+                    kind,
+                    path,
+                    bytes,
+                    mime_type,
+                    created_at,
+                },
+            )
             .collect())
     }
 
@@ -83,7 +86,10 @@ mod tests {
             .await
             .unwrap();
         // Keep Bilingual import used to satisfy lint
-        let _ = Bilingual { es: "x".into(), en: None };
+        let _ = Bilingual {
+            es: "x".into(),
+            en: None,
+        };
     }
 
     fn sample_asset(id: &str, meeting_id: &str) -> MeetingAsset {

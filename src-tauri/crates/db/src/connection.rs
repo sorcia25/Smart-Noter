@@ -37,7 +37,9 @@ pub async fn in_memory_pool() -> Result<SqlitePool, DbError> {
         .connect("sqlite::memory:")
         .await?;
     // Ensure FK enforcement (matches init_pool behavior for consistency)
-    sqlx::query("PRAGMA foreign_keys = ON;").execute(&pool).await?;
+    sqlx::query("PRAGMA foreign_keys = ON;")
+        .execute(&pool)
+        .await?;
     Ok(pool)
 }
 
