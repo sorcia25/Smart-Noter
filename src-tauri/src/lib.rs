@@ -53,7 +53,13 @@ pub fn run() {
                     .await
                     .expect("seed");
 
-                app_handle.manage(AppState { pool });
+                app_handle.manage(AppState {
+                    pool,
+                    capture_session: std::sync::Arc::new(parking_lot::Mutex::new(
+                        smart_noter_audio::capture::session::CaptureSession::default(),
+                    )),
+                    recorder: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+                });
             });
             Ok(())
         })

@@ -71,6 +71,8 @@ specta.workspace = true
 specta-typescript.workspace = true
 tauri-specta.workspace = true
 
+parking_lot = "0.12"
+
 smart-noter-core = { path = "crates/core" }
 smart-noter-db = { path = "crates/db" }
 smart-noter-audio = { path = "crates/audio" }

@@ -3870,6 +3870,7 @@ name = "smart-noter"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "parking_lot",
  "serde",
  "serde_json",
  "smart-noter-audio",
