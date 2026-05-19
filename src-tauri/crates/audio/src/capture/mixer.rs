@@ -46,18 +46,16 @@ impl Mixer {
     /// Both buffers are expected to be mono. Returns the mixed mono output at TARGET_SAMPLE_RATE.
     pub fn mix(&mut self, a: &[f32], b: &[f32]) -> Result<Vec<f32>, AudioError> {
         let a_out = if let Some(r) = &mut self.a_resampler {
-            let chunks = vec![a.to_vec()];
             let out = r
-                .process(&chunks, None)
+                .process(&[a], None)
                 .map_err(|e| AudioError::Other(format!("rubato A: {e}")))?;
             out.into_iter().next().unwrap_or_default()
         } else {
             a.to_vec()
         };
         let b_out = if let Some(r) = &mut self.b_resampler {
-            let chunks = vec![b.to_vec()];
             let out = r
-                .process(&chunks, None)
+                .process(&[b], None)
                 .map_err(|e| AudioError::Other(format!("rubato B: {e}")))?;
             out.into_iter().next().unwrap_or_default()
         } else {
@@ -119,10 +117,10 @@ mod tests {
         let a = vec![0.5; 1024];
         let b = vec![0.0; 640];
         let out = m.mix(&a, &b).unwrap();
-        assert!(
-            !out.is_empty() && out.len() != 1024,
-            "expected resampled length, got {}",
-            out.len()
+        assert_eq!(
+            out.len(),
+            640,
+            "rubato 0.15 FFT-chunk arithmetic: 1024 input frames produces 640 output"
         );
     }
 

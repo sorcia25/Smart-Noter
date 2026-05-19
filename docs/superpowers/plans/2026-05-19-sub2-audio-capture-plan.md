@@ -1633,11 +1633,13 @@ mod tests {
     #[test]
     fn resample_44k_to_48k_changes_length() {
         let mut m = Mixer::new(44_100, 48_000).unwrap();
-        // 1024-sample chunk at 44.1 kHz → expects ~1115 at 48 kHz
+        // rubato 0.15 FftFixedIn with chunk=1024, sub_chunks=2 produces FFT chunks
+        // of 588 in / 640 out (gcd=300, fft_chunks=4). For 1024 input frames:
+        // floor(1024/588) * 640 = 640.
         let a = vec![0.5; 1024];
-        let b = vec![0.0; 1115];
+        let b = vec![0.0; 640];
         let out = m.mix(&a, &b).unwrap();
-        assert!(out.len() > 1000 && out.len() <= 1115);
+        assert_eq!(out.len(), 640);
     }
 
     #[test]
