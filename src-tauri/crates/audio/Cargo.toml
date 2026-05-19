@@ -4,3 +4,24 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+wasapi = "0.16"
+cpal = "0.15"
+hound = "3.5"
+claxon = "0.4"
+rubato = "0.15"
+crossbeam-channel = "0.5"
+parking_lot = "0.12"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+specta = { workspace = true, features = ["derive"] }
+smart-noter-core = { path = "../core" }
+
+[dev-dependencies]
+rstest = "0.21"
+serde_json = { workspace = true }
+
+[features]
+default = []
+# Gated integration tests (require real hardware or fake-cpal harness).
+audio-integration = []
