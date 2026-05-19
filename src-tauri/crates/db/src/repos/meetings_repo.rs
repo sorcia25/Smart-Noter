@@ -138,6 +138,57 @@ pub async fn count(pool: &SqlitePool) -> Result<i64, DbError> {
     Ok(row.0)
 }
 
+pub struct MeetingsRepo<'a>(pub &'a sqlx::SqlitePool);
+
+impl MeetingsRepo<'_> {
+    pub async fn create_with_asset(
+        &self,
+        meeting: &smart_noter_core::MeetingDetail,
+        asset: &smart_noter_core::MeetingAsset,
+    ) -> Result<(), smart_noter_core::AppError> {
+        let mut tx = self.0.begin().await
+            .map_err(|e| smart_noter_core::AppError::Database(e.to_string()))?;
+
+        sqlx::query(
+            r#"INSERT INTO meetings (id, title_es, title_en, template_id, date, duration_sec,
+                                     device_used, word_count, summary_es, summary_en)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(&meeting.id)
+        .bind(&meeting.title.es)
+        .bind(meeting.title.en.as_deref())
+        .bind(&meeting.template)
+        .bind(&meeting.date)
+        .bind(meeting.duration_sec)
+        .bind(meeting.device_used.as_deref())
+        .bind(meeting.word_count)
+        .bind(meeting.summary.as_ref().map(|s| s.es.clone()))
+        .bind(meeting.summary.as_ref().and_then(|s| s.en.clone()))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| smart_noter_core::AppError::Database(e.to_string()))?;
+
+        sqlx::query(
+            r#"INSERT INTO meeting_assets (id, meeting_id, kind, path, bytes, mime_type, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(&asset.id)
+        .bind(&asset.meeting_id)
+        .bind(&asset.kind)
+        .bind(&asset.path)
+        .bind(asset.bytes)
+        .bind(asset.mime_type.as_deref())
+        .bind(&asset.created_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| smart_noter_core::AppError::Database(e.to_string()))?;
+
+        tx.commit().await
+            .map_err(|e| smart_noter_core::AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +204,50 @@ mod tests {
     async fn count_zero_on_fresh_db() {
         let pool = init_pool_in_memory().await.unwrap();
         assert_eq!(count(&pool).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn create_with_asset_writes_both_rows_atomically() {
+        use crate::connection::{ensure_schema, in_memory_pool};
+        use crate::repos::MeetingAssetsRepo;
+        use smart_noter_core::{Bilingual, MeetingAsset, MeetingDetail};
+
+        let pool = in_memory_pool().await.unwrap();
+        ensure_schema(&pool).await.unwrap();
+        let repo = MeetingsRepo(&pool);
+
+        let meeting = MeetingDetail {
+            id: "m-tx-1".into(),
+            title: Bilingual { es: "TX test".into(), en: None },
+            template: "tecnica".into(),
+            date: "2026-05-19T00:00:00Z".into(),
+            duration_sec: 42,
+            device_used: None,
+            word_count: 0,
+            summary: None,
+            participants: vec![],
+            actions: vec![],
+            decisions: vec![],
+            blockers: vec![],
+            transcript: vec![],
+        };
+        let asset = MeetingAsset {
+            id: "a-tx-1".into(),
+            meeting_id: "m-tx-1".into(),
+            kind: "audio".into(),
+            path: "C:/tx.wav".into(),
+            bytes: 999,
+            mime_type: Some("audio/wav".into()),
+            created_at: "2026-05-19T00:00:00Z".into(),
+        };
+
+        repo.create_with_asset(&meeting, &asset).await.unwrap();
+
+        let assets = MeetingAssetsRepo(&pool)
+            .list_by_meeting("m-tx-1")
+            .await
+            .unwrap();
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].id, "a-tx-1");
     }
 }

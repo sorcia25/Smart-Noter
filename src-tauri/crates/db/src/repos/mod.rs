@@ -6,3 +6,4 @@ pub mod settings_repo;
 pub mod templates_repo;
 
 pub use meeting_assets_repo::MeetingAssetsRepo;
+pub use meetings_repo::MeetingsRepo;
