@@ -107,8 +107,16 @@ pub struct FlacWriterImpl {
 
 impl FlacWriterImpl {
     pub fn create(path: PathBuf, sample_rate: u32, channels: u16) -> Result<Self, AudioError> {
-        // Verify the file is creatable now so we surface I/O errors early.
-        File::create(&path).map_err(|e| classify_create_error(e, &path))?;
+        // Validate the parent directory is reachable; defer file creation to finalize()
+        // so an interrupted session doesn't leave a 0-byte file at `path`.
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                return Err(AudioError::Other(format!(
+                    "directory does not exist: {}",
+                    parent.display()
+                )));
+            }
+        }
         Ok(Self {
             buf: Vec::new(),
             path,
@@ -156,8 +164,14 @@ impl AudioWriter for FlacWriterImpl {
             .write(&mut sink)
             .map_err(|e| AudioError::Other(format!("FLAC write: {e}")))?;
 
-        std::fs::write(&self.path, sink.as_slice())
-            .map_err(|e| classify_create_error(e, &self.path))?;
+        // Write to a sibling `.tmp` path and atomically rename so a panic or
+        // I/O failure mid-write doesn't leave a corrupted FLAC at the destination.
+        let tmp = self.path.with_extension(match self.path.extension() {
+            Some(ext) => format!("{}.tmp", ext.to_string_lossy()),
+            None => "tmp".to_string(),
+        });
+        std::fs::write(&tmp, sink.as_slice()).map_err(|e| classify_create_error(e, &tmp))?;
+        std::fs::rename(&tmp, &self.path).map_err(|e| classify_create_error(e, &self.path))?;
 
         let bytes = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
 
@@ -233,6 +247,7 @@ mod tests {
         w.write(&[0.0; 480]).unwrap();
         let res = Box::new(w).finalize().unwrap();
         assert!(res.bytes > 0);
+        assert_eq!(res.sample_count, 480);
         // FLAC magic: "fLaC" at offset 0
         let mut file = std::fs::File::open(&path).unwrap();
         let mut magic = [0u8; 4];
