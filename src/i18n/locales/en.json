@@ -158,5 +158,15 @@
   "paste": "Paste to markdown",
   "timestampsOn": "Timestamps",
   "bilingual": "Bilingual",
-  "fileNamePh": "e.g. meeting-2025-11-12"
+  "fileNamePh": "e.g. meeting-2025-11-12",
+  "audioErrorTitle": "Audio capture error",
+  "audioError.DeviceNotFound": "Device unavailable. Pick a different one.",
+  "audioError.WasapiInit": "Failed to start capture. Check that the device is free.",
+  "audioError.FormatUnsupported": "Format not supported by the device. Falling back to WAV.",
+  "audioError.DiskFull": "Not enough disk space. Session stopped with partial audio.",
+  "audioError.MixerOverflow": "System couldn't keep up. Some samples were dropped.",
+  "discard": "Discard",
+  "save": "Save",
+  "saveRecording": "Save recording",
+  "saveRecordingSub": "Give it a name. Transcript and summary are generated afterwards."
 }

@@ -158,5 +158,15 @@
   "paste": "Pegar al markdown",
   "timestampsOn": "Timestamps",
   "bilingual": "Bilingüe",
-  "fileNamePh": "p. ej. reunion-2025-11-12"
+  "fileNamePh": "p. ej. reunion-2025-11-12",
+  "audioErrorTitle": "Error de captura de audio",
+  "audioError.DeviceNotFound": "Dispositivo no disponible. Volvé a elegir uno.",
+  "audioError.WasapiInit": "No se pudo iniciar la captura. Revisá que el dispositivo esté libre.",
+  "audioError.FormatUnsupported": "Formato no soportado por el dispositivo. Usando WAV.",
+  "audioError.DiskFull": "Espacio en disco insuficiente. Sesión detenida con audio parcial.",
+  "audioError.MixerOverflow": "El sistema no pudo seguir el ritmo. Algunas muestras se perdieron.",
+  "discard": "Descartar",
+  "save": "Guardar",
+  "saveRecording": "Guardar grabación",
+  "saveRecordingSub": "Ponele un nombre. La transcripción y resumen se generan después."
 }
