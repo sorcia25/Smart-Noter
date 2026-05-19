@@ -1,0 +1,5 @@
+/* sonner ships its own styles; we keep this module empty so Storybook
+   indexing + check-stories-coverage stay happy. */
+.noop {
+  display: none;
+}

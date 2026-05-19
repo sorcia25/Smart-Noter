@@ -1,7 +1,7 @@
 import { Suspense, useEffect } from 'react';
 import { useLocation, useRoutes } from 'react-router-dom';
-import { Toaster } from 'sonner';
 import styles from './App.module.css';
+import { ToastProvider } from './components/primitives/Toast/Toast';
 import { Sidebar } from './components/shell/Sidebar/Sidebar';
 import { WindowChrome } from './components/shell/WindowChrome/WindowChrome';
 import { useT } from './i18n/useT';
@@ -63,7 +63,7 @@ export default function App() {
             </main>
           </div>
         </div>
-        <Toaster position="bottom-right" />
+        <ToastProvider position="bottom-right" />
       </div>
     </ThemeProvider>
   );
