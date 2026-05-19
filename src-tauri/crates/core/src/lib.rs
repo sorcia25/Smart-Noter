@@ -4,3 +4,4 @@ pub mod models;
 
 pub use error::AppError;
 pub use lang::Bilingual;
+pub use models::MeetingAsset;

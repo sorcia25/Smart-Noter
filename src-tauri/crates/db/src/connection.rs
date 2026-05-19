@@ -31,11 +31,23 @@ pub async fn init_pool(db_path: &Path) -> Result<SqlitePool, DbError> {
     Ok(pool)
 }
 
-pub async fn init_pool_in_memory() -> Result<SqlitePool, DbError> {
+pub async fn in_memory_pool() -> Result<SqlitePool, DbError> {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
         .connect("sqlite::memory:")
         .await?;
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    // Ensure FK enforcement (matches init_pool behavior for consistency)
+    sqlx::query("PRAGMA foreign_keys = ON;").execute(&pool).await?;
+    Ok(pool)
+}
+
+pub async fn ensure_schema(pool: &SqlitePool) -> Result<(), DbError> {
+    sqlx::migrate!("./migrations").run(pool).await?;
+    Ok(())
+}
+
+pub async fn init_pool_in_memory() -> Result<SqlitePool, DbError> {
+    let pool = in_memory_pool().await?;
+    ensure_schema(&pool).await?;
     Ok(pool)
 }

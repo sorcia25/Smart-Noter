@@ -18,6 +18,7 @@ async fn migration_creates_expected_tables() {
             "actions",
             "blockers",
             "decisions",
+            "meeting_assets",
             "meetings",
             "participants",
             "settings",
