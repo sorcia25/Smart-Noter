@@ -1,5 +1,4 @@
-//! Format-agnostic writer trait + concrete WAV implementation.
-//! FLAC follows in the next task.
+//! Format-agnostic writer trait + concrete WAV and FLAC implementations.
 
 use crate::error::AudioError;
 use hound::{SampleFormat, WavSpec, WavWriter};
@@ -89,6 +88,98 @@ fn classify_io_error(e: hound::Error, path: &Path) -> AudioError {
     AudioError::Other(format!("WAV write: {e}"))
 }
 
+// ---------------------------------------------------------------------------
+// FLAC writer (flacenc — pure Rust, no native deps)
+// ---------------------------------------------------------------------------
+
+/// Buffers interleaved i32 samples and encodes to FLAC on `finalize()`.
+///
+/// `flacenc` is a batch encoder: it requires all samples up front, so we
+/// accumulate them in `buf` during `write()` calls and flush to disk in one
+/// shot when `finalize()` is called.
+pub struct FlacWriterImpl {
+    buf: Vec<i32>,
+    path: PathBuf,
+    sample_count: u64,
+    channels: u16,
+    sample_rate: u32,
+}
+
+impl FlacWriterImpl {
+    pub fn create(path: PathBuf, sample_rate: u32, channels: u16) -> Result<Self, AudioError> {
+        // Verify the file is creatable now so we surface I/O errors early.
+        File::create(&path).map_err(|e| classify_create_error(e, &path))?;
+        Ok(Self {
+            buf: Vec::new(),
+            path,
+            sample_count: 0,
+            channels,
+            sample_rate,
+        })
+    }
+}
+
+impl AudioWriter for FlacWriterImpl {
+    fn write(&mut self, samples: &[f32]) -> Result<(), AudioError> {
+        self.buf.extend(
+            samples
+                .iter()
+                .map(|&s| (s.clamp(-1.0, 1.0) * 32_767.0) as i32),
+        );
+        self.sample_count += samples.len() as u64;
+        Ok(())
+    }
+
+    fn finalize(self: Box<Self>) -> Result<FinalizeResult, AudioError> {
+        use flacenc::bitsink::ByteSink;
+        use flacenc::component::BitRepr;
+        use flacenc::error::Verify;
+        use flacenc::source::MemSource;
+
+        let config = flacenc::config::Encoder::default()
+            .into_verified()
+            .map_err(|(_enc, e)| AudioError::Other(format!("FLAC config: {e:?}")))?;
+
+        let block_size = config.block_size;
+        let source = MemSource::from_samples(
+            &self.buf,
+            self.channels as usize,
+            16,
+            self.sample_rate as usize,
+        );
+
+        let stream = flacenc::encode_with_fixed_block_size(&config, source, block_size)
+            .map_err(|e| AudioError::Other(format!("FLAC create: {e}")))?;
+
+        let mut sink = ByteSink::new();
+        stream
+            .write(&mut sink)
+            .map_err(|e| AudioError::Other(format!("FLAC write: {e}")))?;
+
+        std::fs::write(&self.path, sink.as_slice())
+            .map_err(|e| classify_create_error(e, &self.path))?;
+
+        let bytes = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
+
+        Ok(FinalizeResult {
+            path: self.path,
+            bytes,
+            sample_count: self.sample_count,
+        })
+    }
+}
+
+fn classify_create_error(e: std::io::Error, path: &Path) -> AudioError {
+    use std::io::ErrorKind;
+    if matches!(e.kind(), ErrorKind::StorageFull) {
+        AudioError::DiskFull {
+            path: path.display().to_string(),
+        }
+    } else {
+        AudioError::Other(format!("create {}: {}", path.display(), e))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,6 +223,22 @@ mod tests {
         w.write(&[0.0; 1000]).unwrap();
         let res = Box::new(w).finalize().unwrap();
         assert_eq!(res.sample_count, 1000);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn flac_writer_writes_and_finalizes() {
+        let path = std::env::temp_dir().join(format!("sn-flac-test-{}.flac", std::process::id()));
+        let mut w = FlacWriterImpl::create(path.clone(), 48_000, 1).unwrap();
+        w.write(&[0.0; 480]).unwrap();
+        let res = Box::new(w).finalize().unwrap();
+        assert!(res.bytes > 0);
+        // FLAC magic: "fLaC" at offset 0
+        let mut file = std::fs::File::open(&path).unwrap();
+        let mut magic = [0u8; 4];
+        use std::io::Read;
+        file.read_exact(&mut magic).unwrap();
+        assert_eq!(&magic, b"fLaC");
         std::fs::remove_file(&path).ok();
     }
 }

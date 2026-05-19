@@ -7,7 +7,7 @@ edition.workspace = true
 wasapi = "0.16"
 cpal = "0.15"
 hound = "3.5"
-claxon = "0.4"
+flacenc = { version = "0.5.1", default-features = false }
 rubato = "0.15"
 crossbeam-channel = "0.5"
 parking_lot = "0.12"
