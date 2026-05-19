@@ -1,4 +1,5 @@
 import { EqBar } from '@/components/domain/EqBar/EqBar';
+import { LevelBar } from '@/components/domain/LevelBar/LevelBar';
 import { TemplateIcon } from '@/components/domain/TemplateIcon/TemplateIcon';
 import { Button } from '@/components/primitives/Button/Button';
 import { Chip } from '@/components/primitives/Chip/Chip';
@@ -242,9 +243,7 @@ function AudioPreviewCard() {
         </div>
         <EqBar bars={8} />
       </div>
-      <div className={styles.levelBar}>
-        <div className={styles.levelFill} style={{ width: '54%' }} />
-      </div>
+      <LevelBar level={0.54} />
     </div>
   );
 }

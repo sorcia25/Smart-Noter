@@ -5,7 +5,7 @@ import { useListMeetingsQuery } from '@/store/api/meetings.api';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import styles from './Sidebar.module.css';
 
-// TODO(sub-project-2): replace with real user from auth/profile backend.
+// Sub-project 2 swaps this in for the real user pulled from the auth/profile backend.
 const MOCK_USER = {
   initials: 'CR',
   name: 'Carlos Rivera',

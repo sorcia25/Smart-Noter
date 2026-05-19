@@ -23,42 +23,6 @@
   gap: 12px;
 }
 
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 100px;
-  color: #ef4444;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.recDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ef4444;
-  animation: pulse 1.5s var(--ease) infinite;
-}
-
-.recDotPaused {
-  animation: none;
-  opacity: 0.4;
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
-
 .meetingName {
   font-size: 15px;
   font-weight: 600;
@@ -125,35 +89,6 @@
   font-size: 14px;
   color: var(--text-muted);
   margin-bottom: 32px;
-}
-
-.waveform {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 80px;
-  margin: 16px 0 32px;
-}
-
-.waveform span {
-  width: 4px;
-  border-radius: 2px;
-  background: var(--accent);
-  animation: wave 1.2s var(--ease) infinite alternate;
-}
-
-.waveformPaused span {
-  animation: none;
-}
-
-@keyframes wave {
-  from {
-    height: 8%;
-  }
-  to {
-    height: 100%;
-  }
 }
 
 .controls {

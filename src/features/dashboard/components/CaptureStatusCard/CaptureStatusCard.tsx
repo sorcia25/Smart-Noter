@@ -1,18 +1,19 @@
 import { DevicePill } from '@/components/domain/DevicePill/DevicePill';
 import { EqBar } from '@/components/domain/EqBar/EqBar';
+import { LevelBar } from '@/components/domain/LevelBar/LevelBar';
 import { useT } from '@/i18n/useT';
 import type { AudioDevice } from '@/ipc/bindings';
 import styles from './CaptureStatusCard.module.css';
 
 export interface CaptureStatusCardProps {
   device: AudioDevice | undefined;
-  levelPct?: number;
+  level?: number;
   levelDb?: string;
 }
 
 export function CaptureStatusCard({
   device,
-  levelPct = 62,
+  level = 0.62,
   levelDb = '−12 dB',
 }: CaptureStatusCardProps) {
   const { t } = useT();
@@ -33,9 +34,7 @@ export function CaptureStatusCard({
         <span>{t('inputLevel')}</span>
         <span className={styles.levelDb}>{levelDb}</span>
       </div>
-      <div className={styles.levelBar}>
-        <div className={styles.levelFill} style={{ width: `${levelPct}%` }} />
-      </div>
+      <LevelBar level={level} />
     </div>
   );
 }

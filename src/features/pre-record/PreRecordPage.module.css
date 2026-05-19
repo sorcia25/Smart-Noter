@@ -194,20 +194,6 @@
   margin-top: 2px;
 }
 
-.levelBar {
-  height: 8px;
-  background: var(--bg-inset);
-  border-radius: 4px;
-  overflow: hidden;
-  position: relative;
-}
-
-.levelFill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), #34d399 70%, #fbbf24 90%, #ef4444);
-  transition: width 100ms linear;
-}
-
 .tmplCard {
   padding: 16px;
   background: var(--bg-surface);

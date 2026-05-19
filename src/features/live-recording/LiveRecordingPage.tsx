@@ -1,4 +1,6 @@
+import { LivePill } from '@/components/domain/LivePill/LivePill';
 import { TemplateIcon } from '@/components/domain/TemplateIcon/TemplateIcon';
+import { Waveform } from '@/components/domain/Waveform/Waveform';
 import { AvatarStack } from '@/components/primitives/Avatar/Avatar';
 import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
 import { useT } from '@/i18n/useT';
@@ -7,7 +9,7 @@ import { Paths } from '@/router/paths';
 import { useListAudioDevicesQuery } from '@/store/api/devices.api';
 import { useListTemplatesQuery } from '@/store/api/templates.api';
 import { fmtDuration, pickL } from '@/utils/format';
-import { useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import styles from './LiveRecordingPage.module.css';
 import { useLiveTimer } from './useLiveTimer';
@@ -58,13 +60,6 @@ export default function LiveRecordingPage() {
   const { data: devices = [] } = useListAudioDevicesQuery();
   const { data: templates = [] } = useListTemplatesQuery();
 
-  // Stable waveform heights for this session.
-  const barsRef = useRef<number[] | null>(null);
-  if (!barsRef.current) {
-    barsRef.current = Array.from({ length: 36 }, () => 0.25 + Math.random() * 0.75);
-  }
-  const bars = barsRef.current;
-
   const tmpl = useMemo(
     () =>
       templates.find((t) => t.id === navState.templateId) ??
@@ -83,10 +78,7 @@ export default function LiveRecordingPage() {
     <div className={styles.page} data-screen-label="04 Live recording">
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <div className={styles.pill}>
-            <div className={`${styles.recDot} ${paused ? styles.recDotPaused : ''}`} />
-            {paused ? (lang === 'es' ? 'PAUSADO' : 'PAUSED') : t('liveStatus')}
-          </div>
+          <LivePill paused={paused} />
           <div>
             <div className={styles.meetingName}>{meetingName}</div>
             {tmpl && (
@@ -115,19 +107,7 @@ export default function LiveRecordingPage() {
                 : 'Paused'
               : `${t('speaking')} — ${lang === 'es' ? 'Sujeto 2' : 'Subject 2'}`}
           </div>
-          <div className={`${styles.waveform} ${paused ? styles.waveformPaused : ''}`}>
-            {bars.map((b, i) => (
-              <span
-                // biome-ignore lint/suspicious/noArrayIndexKey: bars are positional and never reorder
-                key={i}
-                style={{
-                  height: `${Math.round((paused ? 0.2 : b) * 100)}%`,
-                  animationDelay: `${(i * 60) % 1200}ms`,
-                  opacity: paused ? 0.3 : 1,
-                }}
-              />
-            ))}
-          </div>
+          <Waveform paused={paused} bars={36} />
           <div className={styles.controls}>
             <button
               type="button"

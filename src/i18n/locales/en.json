@@ -1,4 +1,5 @@
 {
+  "liveStatusPaused": "PAUSED",
   "loading": "Loading…",
   "errorTitle": "Something went wrong",
   "winMinimize": "Minimize",

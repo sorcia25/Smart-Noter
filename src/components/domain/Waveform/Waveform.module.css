@@ -1,0 +1,28 @@
+.wave {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 80px;
+  margin: 16px 0 32px;
+}
+
+.wave span {
+  width: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: wave 1.2s var(--ease) infinite alternate;
+}
+
+.paused span {
+  animation: none;
+}
+
+@keyframes wave {
+  from {
+    height: 8%;
+  }
+  to {
+    height: 100%;
+  }
+}
