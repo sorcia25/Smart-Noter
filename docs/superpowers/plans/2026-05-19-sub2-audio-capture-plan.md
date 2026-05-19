@@ -1472,10 +1472,7 @@ mod tests {
     #[test]
     fn elapsed_advances_per_sample_count() {
         let mut m = Meter::new(48_000, 2); // stereo
-        m.push(&vec![0.0; 96_000]); // 0.5 s of stereo
-        assert_eq!(m.elapsed_sec(), 0); // 96_000 / (48_000 * 2) = 1 second? no = 1
-        // Recompute: 96000 samples / 48000 sr / 2 ch = 1 sec
-        // (the comment was misleading; the assertion below verifies)
+        m.push(&vec![0.0; 96_000]); // 1 s of stereo (96000 samples / 48000 sr / 2 ch)
         assert_eq!(m.elapsed_sec(), 1);
     }
 }
