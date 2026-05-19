@@ -54,14 +54,14 @@ fn enumerate_loopback() -> Result<Vec<AudioDevice>, AudioError> {
         .ok()
         .and_then(|d| d.get_id().ok());
 
-    let collection = DeviceCollection::new(&Direction::Render).map_err(|e| {
-        // wasapi 0.16.0: WasapiError wraps windows_core::Error; extract HRESULT from the
-        // Windows variant, fall back to 0 for all other variants.
-        let hresult = match e {
-            wasapi::WasapiError::Windows(inner) => inner.code().0,
-            _ => 0,
-        };
-        AudioError::WasapiInit { hresult }
+    let collection = DeviceCollection::new(&Direction::Render).map_err(|e| match e {
+        // wasapi 0.16.0: WasapiError wraps windows_core::Error; the Windows variant
+        // carries an HRESULT. Other variants are unreachable today for this call,
+        // but route them through Other so we never silently lose the message.
+        wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
+            hresult: inner.code().0,
+        },
+        other => AudioError::Other(format!("WASAPI: {other}")),
     })?;
 
     let mut out = Vec::new();
