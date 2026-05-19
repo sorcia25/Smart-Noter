@@ -2,8 +2,10 @@
 
 pub mod meter;
 pub mod mixer;
+pub mod recorder;
 pub mod session;
 pub mod stream;
 pub mod writer;
 
+pub use recorder::{ElapsedEvent, LevelEvent, Recorder, WaveformEvent};
 pub use session::{AudioFormat, CaptureMode, CaptureSession, CaptureState};

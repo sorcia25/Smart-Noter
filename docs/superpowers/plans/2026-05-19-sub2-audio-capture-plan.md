@@ -2340,6 +2340,7 @@ git commit -m "feat(audio): stream.rs — open WASAPI loopback / cpal mic / both
 **Files:**
 - Create: `src-tauri/crates/audio/src/capture/recorder.rs`
 - Modify: `src-tauri/crates/audio/src/capture/mod.rs`
+- Modify: `src-tauri/crates/audio/Cargo.toml` — add `tauri = { workspace = true }` (required because `Recorder` uses `tauri::{AppHandle, Emitter}` directly)
 
 This is the "wire everything together" task. The `Recorder` struct owns the stream(s), spawns the writer + meter worker threads, and emits events through a Tauri `AppHandle`.
 

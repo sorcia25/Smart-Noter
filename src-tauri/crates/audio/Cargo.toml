@@ -11,6 +11,7 @@ flacenc = { version = "0.5.1", default-features = false }
 rubato = "0.15"
 crossbeam-channel = "0.5"
 parking_lot = "0.12"
+tauri = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
