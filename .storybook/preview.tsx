@@ -1,6 +1,6 @@
 import type { Preview } from '@storybook/react';
 import '../src/assets/fonts/fonts.css';
-import '../src/theme/tokens.module.css';
+import '../src/theme/tokens.css';
 import '../src/styles/reset.css';
 import '../src/styles/globals.css';
 

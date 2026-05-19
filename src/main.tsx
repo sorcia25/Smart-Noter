@@ -5,7 +5,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { ErrorBoundary } from './ErrorBoundary';
 import './assets/fonts/fonts.css';
-import './theme/tokens.module.css';
+import './theme/tokens.css';
 import './styles/reset.css';
 import './styles/globals.css';
 import './i18n';
