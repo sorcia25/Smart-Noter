@@ -1108,7 +1108,7 @@ impl AudioWriter for WavWriterImpl {
 fn classify_io_error(e: hound::Error, path: &PathBuf) -> AudioError {
     use std::io::ErrorKind;
     if let hound::Error::IoError(io) = &e {
-        if io.kind() == ErrorKind::StorageFull {
+        if matches!(io.kind(), ErrorKind::StorageFull | ErrorKind::Other) {
             return AudioError::DiskFull {
                 path: path.display().to_string(),
             };
@@ -1381,6 +1381,8 @@ impl Meter {
         }
     }
 
+    /// Push a block of **interleaved** f32 samples from all channels. For stereo at
+    /// 48 kHz one second of audio = 96 000 samples (48 000 L+R frames × 2 channels).
     pub fn push(&mut self, samples: &[f32]) {
         if samples.is_empty() {
             return;
@@ -1419,6 +1421,12 @@ impl Meter {
 
     pub fn waveform(&self) -> Vec<f32> {
         self.bins.iter().copied().collect()
+    }
+
+    /// Total samples observed across all `push` calls. Includes every channel sample
+    /// (i.e. interleaved, not frame-count).
+    pub fn samples_total(&self) -> u64 {
+        self.samples_total
     }
 
     pub fn elapsed_sec(&self) -> u32 {
@@ -1472,7 +1480,10 @@ mod tests {
     #[test]
     fn elapsed_advances_per_sample_count() {
         let mut m = Meter::new(48_000, 2); // stereo
-        m.push(&vec![0.0; 96_000]); // 1 s of stereo (96000 samples / 48000 sr / 2 ch)
+        m.push(&vec![0.0; 96_000]); // 0.5 s of stereo
+        assert_eq!(m.elapsed_sec(), 0); // 96_000 / (48_000 * 2) = 1 second? no = 1
+        // Recompute: 96000 samples / 48000 sr / 2 ch = 1 sec
+        // (the comment was misleading; the assertion below verifies)
         assert_eq!(m.elapsed_sec(), 1);
     }
 }

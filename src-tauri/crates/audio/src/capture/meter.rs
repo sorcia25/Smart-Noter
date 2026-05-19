@@ -40,6 +40,8 @@ impl Meter {
         }
     }
 
+    /// Push a block of **interleaved** f32 samples from all channels. For stereo at
+    /// 48 kHz one second of audio = 96 000 samples (48 000 L+R frames × 2 channels).
     pub fn push(&mut self, samples: &[f32]) {
         if samples.is_empty() {
             return;
@@ -78,6 +80,12 @@ impl Meter {
 
     pub fn waveform(&self) -> Vec<f32> {
         self.bins.iter().copied().collect()
+    }
+
+    /// Total samples observed across all `push` calls. Includes every channel sample
+    /// (i.e. interleaved, not frame-count).
+    pub fn samples_total(&self) -> u64 {
+        self.samples_total
     }
 
     pub fn elapsed_sec(&self) -> u32 {
