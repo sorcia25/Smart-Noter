@@ -30,7 +30,9 @@ pub fn start_preview(
         .begin_preview(device_id.clone())
         .map_err(AppError::from)?;
 
-    let tmp = std::env::temp_dir().join(format!("sn-preview-{}.wav", std::process::id()));
+    // Lives in the audio dir with `tmp-preview-` prefix so the startup sweep
+    // (Task 4.6) can reclaim it if the app crashed mid-preview.
+    let tmp = audio_dir(&app)?.join(format!("tmp-preview-{}.wav", std::process::id()));
     match Recorder::start(app, capture_mode, device_id, AudioFormat::Wav, tmp) {
         Ok(recorder) => {
             *state.recorder.lock() = Some(recorder);

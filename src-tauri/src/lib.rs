@@ -8,6 +8,21 @@ pub mod state;
 
 use crate::state::AppState;
 
+/// Delete any `tmp-*` files left in `audio_dir` by a previous crash, partial
+/// finalize, or compensating-rename failure. Called once at startup before the
+/// async DB block so orphans are removed before any new recording can begin.
+fn sweep_orphan_tmp_files(audio_dir: &std::path::Path) {
+    if let Ok(entries) = std::fs::read_dir(audio_dir) {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with("tmp-") {
+                let _ = std::fs::remove_file(e.path());
+                tracing::info!("swept orphan {name}");
+            }
+        }
+    }
+}
+
 pub fn specta_builder() -> Builder {
     Builder::<tauri::Wry>::new().commands(collect_commands![
         commands::audio::discard_recording,
@@ -41,6 +56,11 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
+
+            // Sweep orphaned tmp-* files before any DB or UI work.
+            if let Ok(app_data) = app.handle().path().app_data_dir() {
+                sweep_orphan_tmp_files(&app_data.join("audio"));
+            }
 
             let app_handle = app.handle().clone();
             tauri::async_runtime::block_on(async move {
