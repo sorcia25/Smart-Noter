@@ -73,7 +73,6 @@ tauri-specta.workspace = true
 
 parking_lot = "0.12"
 uuid = { version = "1", features = ["v4"] }
-dirs = "5"
 
 smart-noter-core = { path = "crates/core" }
 smart-noter-db = { path = "crates/db" }

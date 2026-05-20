@@ -255,4 +255,13 @@ mod tests {
         s.begin_recording("sess-1".into()).unwrap();
         assert!(matches!(s.state, CaptureState::Recording { .. }));
     }
+
+    #[test]
+    fn cancel_recording_works_from_paused() {
+        let mut s = CaptureSession::default();
+        s.begin_recording("sess-1".into()).unwrap();
+        s.pause().unwrap();
+        s.cancel_recording();
+        assert_eq!(s.state, CaptureState::Idle);
+    }
 }
