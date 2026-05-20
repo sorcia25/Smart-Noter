@@ -239,6 +239,13 @@ pub fn stop_recording(
 /// payload (caller likely got a stale state out of order). Returns
 /// `AppError::Internal("no finished session to finalize")` if no Stopped
 /// payload exists.
+///
+/// On DB insert failure after the file rename has succeeded, the function
+/// attempts a compensating rename back to `tmp-{session_id}.{ext}` so the
+/// startup sweep (Task 4.6) can reclaim the file. If the compensating
+/// rename also fails, the original DB error is returned and the file
+/// remains under its final name as an orphan (rare; user must clean up
+/// manually).
 #[tauri::command]
 #[specta::specta]
 pub async fn finalize_recording(
@@ -258,17 +265,22 @@ pub async fn finalize_recording(
             "session_id mismatch: have {sess_id}, got {session_id}"
         )));
     }
-    let meeting_id = format!("m-{}", chrono::Utc::now().format("%Y%m%d"));
-    let meeting_id = format!("{meeting_id}-{}", &sess_id[5..13]);
+    // sess_id is "sess-<32 hex chars>"; bytes 5..13 are the first 8 hex chars of the UUID.
+    // UUIDv4 → random 8-char suffix; collisions possible but ~2^-32 / day. Document only.
+    let meeting_id = format!(
+        "m-{}-{}",
+        chrono::Utc::now().format("%Y%m%d"),
+        &sess_id[5..13]
+    );
     let ext = tmp_path
         .extension()
         .and_then(|s| s.to_str())
-        .unwrap_or("wav");
+        .ok_or_else(|| AppError::Internal(format!("tmp_path missing extension: {tmp_path:?}")))?;
     let final_path = audio_dir(&app)?.join(format!("{meeting_id}.{ext}"));
     std::fs::rename(&tmp_path, &final_path)
         .map_err(|e| AppError::Internal(format!("rename {tmp_path:?}: {e}")))?;
 
-    let mime = match ext {
+    let mime = match ext.to_ascii_lowercase().as_str() {
         "wav" => Some("audio/wav".to_string()),
         "flac" => Some("audio/flac".to_string()),
         _ => None,
@@ -301,10 +313,19 @@ pub async fn finalize_recording(
         mime_type: mime,
         created_at: now,
     };
-    smart_noter_db::repos::MeetingsRepo(&state.pool)
+    match smart_noter_db::repos::MeetingsRepo(&state.pool)
         .create_with_asset(&meeting, &asset)
-        .await?;
-    Ok(meeting)
+        .await
+    {
+        Ok(()) => Ok(meeting),
+        Err(db_err) => {
+            // Compensating rename so the next startup sweep (Task 4.6) can clean up
+            // the tmp file. If the compensating rename also fails, accept the orphan
+            // and propagate the original DB error (the second failure isn't actionable).
+            let _ = std::fs::rename(&final_path, &tmp_path);
+            Err(db_err)
+        }
+    }
 }
 
 /// Tear down any in-flight recording or pending Stopped payload, deleting
@@ -315,18 +336,34 @@ pub async fn finalize_recording(
 /// after `stop_recording`, callers that choose not to finalize MUST call
 /// `discard_recording` before they can call `start_recording` again
 /// (see Phase 4 boundary decision #3 / `start_recording` doc-comment).
+///
+/// Also recovers from the inconsistent state left when `stop_recording` fails
+/// mid-flight (recorder extracted + `rec.stop()` errors, leaving the session
+/// machine in `Recording` with `recorder = None`). `cancel_recording()` is
+/// silent and idempotent: it only flips `Recording → Idle`; Stopped and Idle
+/// are left unchanged.
 #[tauri::command]
 #[specta::specta]
 pub fn discard_recording(state: tauri::State<'_, crate::state::AppState>) -> Result<(), AppError> {
+    // Recorder cleanup (separate lock, drops before fs I/O on tmp path).
     let rec_opt = state.recorder.lock().take();
     if let Some(rec) = rec_opt {
         if let Ok((path, _, _)) = rec.stop() {
             let _ = std::fs::remove_file(path);
         }
     }
-    if let Some((_, tmp_path, _, _)) = state.capture_session.lock().take_finished() {
+
+    // Session-machine cleanup: take any Stopped payload first (needs lock), then
+    // run the two no-op methods (end_preview, cancel_recording) under the same lock.
+    let tmp_to_remove = {
+        let mut sess = state.capture_session.lock();
+        let stopped_path = sess.take_finished().map(|(_, tmp_path, _, _)| tmp_path);
+        sess.end_preview(); // safe no-op if not in Preview
+        sess.cancel_recording(); // safe no-op if not in Recording — recovers from rec.stop() failure
+        stopped_path
+    };
+    if let Some(tmp_path) = tmp_to_remove {
         let _ = std::fs::remove_file(tmp_path);
     }
-    state.capture_session.lock().end_preview(); // safe no-op if not in preview
     Ok(())
 }
