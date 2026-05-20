@@ -10,7 +10,10 @@ use crate::state::AppState;
 
 pub fn specta_builder() -> Builder {
     Builder::<tauri::Wry>::new().commands(collect_commands![
+        commands::audio::pause_recording,
+        commands::audio::resume_recording,
         commands::audio::start_preview,
+        commands::audio::start_recording,
         commands::audio::stop_preview,
         commands::meetings::list_meetings,
         commands::meetings::get_meeting,

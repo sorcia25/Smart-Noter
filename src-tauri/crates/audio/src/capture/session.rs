@@ -106,6 +106,12 @@ impl CaptureSession {
         }
     }
 
+    pub fn cancel_recording(&mut self) {
+        if matches!(self.state, CaptureState::Recording { .. }) {
+            self.state = CaptureState::Idle;
+        }
+    }
+
     pub fn is_paused(&self) -> bool {
         matches!(self.state, CaptureState::Recording { paused: true, .. })
     }
@@ -215,6 +221,31 @@ mod tests {
         assert_eq!(first.2, 999);
         assert!(s.take_finished().is_none());
         assert_eq!(s.state, CaptureState::Idle);
+    }
+
+    #[test]
+    fn cancel_recording_from_recording_returns_to_idle() {
+        let mut s = CaptureSession::default();
+        s.begin_recording("sess-1".into()).unwrap();
+        s.cancel_recording();
+        assert_eq!(s.state, CaptureState::Idle);
+    }
+
+    #[test]
+    fn cancel_recording_is_no_op_when_idle() {
+        let mut s = CaptureSession::default();
+        s.cancel_recording();
+        assert_eq!(s.state, CaptureState::Idle);
+    }
+
+    #[test]
+    fn cancel_recording_is_no_op_when_stopped() {
+        let mut s = CaptureSession::default();
+        s.begin_recording("sess-1".into()).unwrap();
+        s.stop(std::path::PathBuf::from("/tmp/x.wav"), 1024, 5)
+            .unwrap();
+        s.cancel_recording();
+        assert!(matches!(s.state, CaptureState::Stopped { .. }));
     }
 
     #[test]

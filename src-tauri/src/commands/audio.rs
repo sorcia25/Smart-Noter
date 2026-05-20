@@ -52,3 +52,107 @@ pub fn stop_preview(state: tauri::State<'_, crate::state::AppState>) -> Result<(
     }
     Ok(())
 }
+
+#[derive(serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingStartedDto {
+    pub session_id: String,
+    pub sample_rate: u32,
+    pub channels: u16,
+}
+
+/// Start a real recording. The captured samples are written to a tmp file
+/// inside `%APPDATA%\com.smartnoter.app\audio\` (`tmp-{session_id}.wav|flac`),
+/// then promoted by `finalize_recording` or removed by `discard_recording`.
+///
+/// - `System` / `Mic`: `device_id` selects the device.
+/// - `Mix`: `device_id` selects the **system loopback**; the microphone is
+///   always the OS default input device. (See Phase 4 boundary decision #5.)
+///
+/// Callers MUST `finalize_recording` or `discard_recording` after stopping;
+/// a new `start_recording` while a `Stopped` payload is pending will return
+/// `AlreadyRecording`. (See Phase 4 boundary decision #3.)
+#[tauri::command]
+#[specta::specta]
+pub fn start_recording(
+    state: tauri::State<'_, crate::state::AppState>,
+    app: tauri::AppHandle,
+    device_id: String,
+    capture_mode: CaptureMode,
+    format: AudioFormat,
+) -> Result<RecordingStartedDto, AppError> {
+    let session_id = format!("sess-{}", uuid::Uuid::new_v4());
+
+    // If a preview is running, stop it first (clean transition).
+    let _ = stop_preview(state.clone());
+
+    state
+        .capture_session
+        .lock()
+        .begin_recording(session_id.clone())
+        .map_err(AppError::from)?;
+
+    let tmp_path = audio_dir()?.join(format!("tmp-{session_id}.{ext}", ext = ext_for(format)));
+    match Recorder::start(app, capture_mode, device_id, format, tmp_path) {
+        Ok(recorder) => {
+            let sample_rate = recorder.stream.sample_rate;
+            let channels = recorder.stream.channels;
+            *state.recorder.lock() = Some(recorder);
+            Ok(RecordingStartedDto {
+                session_id,
+                sample_rate,
+                channels,
+            })
+        }
+        Err(e) => {
+            // Recorder failed to open the stream(s); revert state machine.
+            state.capture_session.lock().cancel_recording();
+            Err(AppError::from(e))
+        }
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn pause_recording(state: tauri::State<'_, crate::state::AppState>) -> Result<(), AppError> {
+    state
+        .capture_session
+        .lock()
+        .pause()
+        .map_err(AppError::from)?;
+    if let Some(rec) = state.recorder.lock().as_ref() {
+        rec.pause();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn resume_recording(state: tauri::State<'_, crate::state::AppState>) -> Result<(), AppError> {
+    state
+        .capture_session
+        .lock()
+        .resume()
+        .map_err(AppError::from)?;
+    if let Some(rec) = state.recorder.lock().as_ref() {
+        rec.resume();
+    }
+    Ok(())
+}
+
+fn audio_dir() -> Result<std::path::PathBuf, AppError> {
+    let dir = dirs::data_dir()
+        .ok_or_else(|| AppError::Internal("no APPDATA dir".into()))?
+        .join("com.smartnoter.app")
+        .join("audio");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| AppError::Internal(format!("create audio dir: {e}")))?;
+    Ok(dir)
+}
+
+fn ext_for(fmt: AudioFormat) -> &'static str {
+    match fmt {
+        AudioFormat::Wav => "wav",
+        AudioFormat::Flac => "flac",
+    }
+}
