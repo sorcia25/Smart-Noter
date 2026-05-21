@@ -9,7 +9,10 @@ pub struct AppSettings {
     pub language: Language,
     pub avatar_style: AvatarStyle,
     pub ai_chat_visible: bool,
-    pub capture_mode: CaptureMode,
+    /// Wire format mirrors `audio::capture::session::CaptureMode` ("system" | "mic" | "mix").
+    /// Kept as `String` here so the persistence layer doesn't depend on the audio crate
+    /// and the IPC bindings emit only one `CaptureMode` type alias.
+    pub capture_mode: String,
     pub default_device: String,
     pub recording_quality: String,
     pub run_local: bool,
@@ -40,14 +43,6 @@ pub enum AvatarStyle {
     Square,
 }
 
-#[derive(Debug, Clone, Type, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum CaptureMode {
-    System,
-    Mic,
-    Mix,
-}
-
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -56,7 +51,7 @@ impl Default for AppSettings {
             language: Language::Es,
             avatar_style: AvatarStyle::Circle,
             ai_chat_visible: true,
-            capture_mode: CaptureMode::System,
+            capture_mode: "system".into(),
             default_device: "system-loopback".into(),
             recording_quality: "WAV 48k".into(),
             run_local: true,

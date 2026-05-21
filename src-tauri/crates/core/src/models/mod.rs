@@ -11,5 +11,5 @@ pub use audio_device::AudioDevice;
 pub use meeting::{MeetingDetail, MeetingSummary, TranscriptLine};
 pub use meeting_asset::*;
 pub use participant::Participant;
-pub use settings::{AppSettings, AvatarStyle, CaptureMode, Language, Theme};
+pub use settings::{AppSettings, AvatarStyle, Language, Theme};
 pub use template::Template;
