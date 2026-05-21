@@ -4,6 +4,7 @@ import styles from './SegmentedControl.module.css';
 export interface SegmentedOption<T extends string> {
   value: T;
   label: ReactNode;
+  disabled?: boolean;
 }
 
 export interface SegmentedControlProps<T extends string> {
@@ -29,8 +30,11 @@ export function SegmentedControl<T extends string>({
             type="button"
             role="tab"
             aria-selected={active}
+            aria-disabled={o.disabled || undefined}
+            disabled={o.disabled}
             className={`${styles.btn} ${active ? styles.active : ''}`}
-            onClick={() => onChange(o.value)}
+            onClick={() => !o.disabled && onChange(o.value)}
+            title={o.disabled ? 'Próximamente' : undefined}
           >
             {o.label}
           </button>

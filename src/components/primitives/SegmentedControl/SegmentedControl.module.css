@@ -28,3 +28,8 @@
   color: var(--text);
   box-shadow: var(--shadow-sm);
 }
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
