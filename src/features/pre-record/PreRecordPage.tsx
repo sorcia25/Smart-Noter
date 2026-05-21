@@ -7,11 +7,14 @@ import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
 import { Input } from '@/components/primitives/Input/Input';
 import { Toggle } from '@/components/primitives/Toggle/Toggle';
 import { useT } from '@/i18n/useT';
-import type { AudioDevice, Template } from '@/ipc/bindings';
+import type { AudioDevice, AudioDeviceKind, Template } from '@/ipc/bindings';
 import { Paths } from '@/router/paths';
 import { useListAudioDevicesQuery } from '@/store/api/devices.api';
+import { useGetSettingsQuery } from '@/store/api/settings.api';
 import { useListTemplatesQuery } from '@/store/api/templates.api';
 import { pickL } from '@/utils/format';
+import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import styles from './PreRecordPage.module.css';
@@ -23,6 +26,9 @@ function genSessionId(): string {
   return `sess-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 }
 
+const iconFor = (kind: AudioDeviceKind): IconName =>
+  kind === 'loopback' ? 'monitor' : 'headphones';
+
 export default function PreRecordPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -30,6 +36,7 @@ export default function PreRecordPage() {
 
   const { data: devices = [] } = useListAudioDevicesQuery();
   const { data: templates = [] } = useListTemplatesQuery();
+  const { data: settings } = useGetSettingsQuery();
 
   const [deviceId, setDeviceId] = useState<string>('');
   const [templateId, setTemplateId] = useState<string>(searchParams.get('tpl') ?? 'tecnica');
@@ -40,16 +47,25 @@ export default function PreRecordPage() {
 
   useEffect(() => {
     if (!deviceId && devices.length > 0) {
-      const active = devices.find((d) => d.active) ?? devices[0];
-      if (active) setDeviceId(active.id);
+      const def = devices.find((d) => d.isDefault) ?? devices[0];
+      if (def) setDeviceId(def.id);
     }
   }, [deviceId, devices]);
+
+  useEffect(() => {
+    if (!deviceId) return;
+    void invoke('start_preview', { deviceId, captureMode: 'system' });
+    return () => { void invoke('stop_preview'); };
+  }, [deviceId]);
 
   function start() {
     navigate(Paths.LiveRecording(genSessionId()), {
       state: {
         name: name.trim() || (lang === 'es' ? 'Reunión sin título' : 'Untitled meeting'),
         templateId,
+        deviceId,
+        captureMode: 'system',
+        format: settings?.recordingQuality === 'FLAC' ? 'flac' : 'wav',
       },
     });
   }
@@ -170,7 +186,6 @@ function DeviceCard({
   onSelect: () => void;
 }) {
   const { lang } = useT();
-  const iconName = (device.icon as IconName) ?? 'monitor';
   return (
     <button
       type="button"
@@ -178,18 +193,20 @@ function DeviceCard({
       onClick={onSelect}
     >
       <div className={styles.iconBox}>
-        <Icon name={iconName} size={18} />
+        <Icon name={iconFor(device.kind)} size={18} />
       </div>
       <div className={styles.optMeta}>
         <div className={styles.optName}>
-          <span>{pickL(device.name, lang)}</span>
+          <span>{device.name}</span>
           {device.recommended && (
             <Chip variant="accent" disabled>
               {lang === 'es' ? 'Recomendado' : 'Recommended'}
             </Chip>
           )}
         </div>
-        <div className={styles.optDesc}>{pickL(device.desc, lang)}</div>
+        <div className={styles.optDesc}>
+          {device.sampleRate / 1000}kHz · {device.channels === 1 ? 'mono' : 'stereo'}
+        </div>
       </div>
       <div className={styles.radio} />
     </button>
@@ -228,6 +245,12 @@ function TemplateCard({
 
 function AudioPreviewCard() {
   const { lang } = useT();
+  const [level, setLevel] = useState(0);
+  useEffect(() => {
+    const un = listen<{ rms: number; peak: number }>('audio:level', e => setLevel(e.payload.rms));
+    return () => { un.then(fn => fn()); };
+  }, []);
+
   return (
     <div className={styles.previewCard}>
       <div className={styles.previewHead}>
@@ -243,7 +266,7 @@ function AudioPreviewCard() {
         </div>
         <EqBar bars={8} />
       </div>
-      <LevelBar level={0.54} />
+      <LevelBar level={level} />
     </div>
   );
 }
