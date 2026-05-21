@@ -1,5 +1,5 @@
 import { store } from '@/store';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -37,13 +37,15 @@ function setup() {
 }
 
 describe('LiveRecordingPage', () => {
-  it('renders the GRABANDO pill', () => {
+  it('renders the GRABANDO pill', async () => {
     setup();
-    expect(screen.getByText(/GRABANDO/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/GRABANDO/i)).toBeInTheDocument());
   });
 
-  it('exposes data-screen-label', () => {
+  it('exposes data-screen-label', async () => {
     const { container } = setup();
-    expect(container.querySelector('[data-screen-label="04 Live recording"]')).toBeTruthy();
+    await waitFor(() =>
+      expect(container.querySelector('[data-screen-label="04 Live recording"]')).toBeTruthy()
+    );
   });
 });

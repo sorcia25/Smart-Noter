@@ -5,11 +5,9 @@ import { AvatarStack } from '@/components/primitives/Avatar/Avatar';
 import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
 import { useT } from '@/i18n/useT';
 import type {
-  AudioDevice,
   AudioDeviceKind,
   AudioFormat,
   CaptureMode,
-  CaptureResult,
   Participant,
   RecordingStartedDto,
 } from '@/ipc/bindings';
@@ -69,11 +67,7 @@ export default function LiveRecordingPage() {
 
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
-  const [level, setLevel] = useState(0);
   const [bars, setBars] = useState<number[]>(Array(36).fill(0));
-  const [session, setSession] = useState<{ sessionId: string } | null>(null);
-  const [stopResult, setStopResult] = useState<CaptureResult | null>(null);
-  const [stopModalOpen, setStopModalOpen] = useState(false);
 
   // 1. Start on mount, defensive discard on unmount
   useEffect(() => {
@@ -83,9 +77,8 @@ export default function LiveRecordingPage() {
       captureMode: navState.captureMode ?? 'system',
       format: navState.format ?? 'wav',
     })
-      .then((dto) => {
+      .then(() => {
         if (cancelled) void invoke('discard_recording');
-        else setSession(dto);
       })
       .catch(() => {
         /* error already surfaces via audio:error toast in Task 5.6 */
@@ -98,16 +91,9 @@ export default function LiveRecordingPage() {
 
   // 2. Subscribe to events
   useEffect(() => {
-    let unl: (() => void) | null = null;
     let unw: (() => void) | null = null;
     let une: (() => void) | null = null;
     let cancelled = false;
-    listen<{ rms: number; peak: number }>('audio:level', (e) => {
-      if (!cancelled) setLevel(e.payload.rms);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unl = fn;
-    });
     listen<{ bins: number[] }>('audio:waveform-bin', (e) => {
       if (!cancelled) setBars(e.payload.bins);
     }).then((fn) => {
@@ -122,7 +108,6 @@ export default function LiveRecordingPage() {
     });
     return () => {
       cancelled = true;
-      unl?.();
       unw?.();
       une?.();
     };
@@ -132,12 +117,6 @@ export default function LiveRecordingPage() {
     if (paused) await invoke('resume_recording');
     else await invoke('pause_recording');
     setPaused(!paused);
-  };
-
-  const onStop = async () => {
-    const result = await invoke<CaptureResult>('stop_recording');
-    setStopResult(result);
-    setStopModalOpen(true);
   };
 
   const { data: devices = [] } = useListAudioDevicesQuery();
@@ -208,7 +187,7 @@ export default function LiveRecordingPage() {
             <button
               type="button"
               className={`${styles.ctrlBtn} ${styles.ctrlStop}`}
-              onClick={onStop}
+              onClick={() => navigate(Paths.Dashboard)}
               title={t('liveStopHint')}
               aria-label="Stop"
             >
@@ -227,7 +206,7 @@ export default function LiveRecordingPage() {
         </div>
       </div>
 
-      {/* TODO Task 5.4: render <StopConfirmModal open={stopModalOpen} ... capture={stopResult!} ... /> */}
+      {/* TODO Task 5.4: add stopResult/stopModalOpen state + onStop handler that calls stop_recording, then render <StopConfirmModal open={stopModalOpen} capture={stopResult} onClose={...} suggestedTitle={navState.name ?? ''} templateId={navState.templateId ?? 'tecnica'} />. Until then, the Stop button is a navigate-back placeholder. */}
 
       <div className={styles.meta}>
         <div className={styles.metaBlock}>
