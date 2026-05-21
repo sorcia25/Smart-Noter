@@ -4,19 +4,31 @@ import { Waveform } from '@/components/domain/Waveform/Waveform';
 import { AvatarStack } from '@/components/primitives/Avatar/Avatar';
 import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
 import { useT } from '@/i18n/useT';
-import type { Participant } from '@/ipc/bindings';
+import type {
+  AudioDevice,
+  AudioDeviceKind,
+  AudioFormat,
+  CaptureMode,
+  CaptureResult,
+  Participant,
+  RecordingStartedDto,
+} from '@/ipc/bindings';
 import { Paths } from '@/router/paths';
 import { useListAudioDevicesQuery } from '@/store/api/devices.api';
 import { useListTemplatesQuery } from '@/store/api/templates.api';
 import { fmtDuration, pickL } from '@/utils/format';
-import { useMemo } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import styles from './LiveRecordingPage.module.css';
-import { useLiveTimer } from './useLiveTimer';
 
 interface NavState {
   name?: string;
   templateId?: string;
+  deviceId?: string;
+  captureMode?: CaptureMode;
+  format?: AudioFormat;
 }
 
 const MOCK_SPEAKERS: Participant[] = [
@@ -55,7 +67,78 @@ export default function LiveRecordingPage() {
   const { t, lang } = useT();
   const navState = (location.state ?? {}) as NavState;
 
-  const { elapsed, paused, togglePause } = useLiveTimer(143); // start at 2:23 like the prototype
+  const [elapsed, setElapsed] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [level, setLevel] = useState(0);
+  const [bars, setBars] = useState<number[]>(Array(36).fill(0));
+  const [session, setSession] = useState<{ sessionId: string } | null>(null);
+  const [stopResult, setStopResult] = useState<CaptureResult | null>(null);
+  const [stopModalOpen, setStopModalOpen] = useState(false);
+
+  // 1. Start on mount, defensive discard on unmount
+  useEffect(() => {
+    let cancelled = false;
+    invoke<RecordingStartedDto>('start_recording', {
+      deviceId: navState.deviceId,
+      captureMode: navState.captureMode ?? 'system',
+      format: navState.format ?? 'wav',
+    })
+      .then((dto) => {
+        if (cancelled) void invoke('discard_recording');
+        else setSession(dto);
+      })
+      .catch(() => {
+        /* error already surfaces via audio:error toast in Task 5.6 */
+      });
+    return () => {
+      cancelled = true;
+      void invoke('discard_recording').catch(() => {});
+    };
+  }, []);
+
+  // 2. Subscribe to events
+  useEffect(() => {
+    let unl: (() => void) | null = null;
+    let unw: (() => void) | null = null;
+    let une: (() => void) | null = null;
+    let cancelled = false;
+    listen<{ rms: number; peak: number }>('audio:level', (e) => {
+      if (!cancelled) setLevel(e.payload.rms);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unl = fn;
+    });
+    listen<{ bins: number[] }>('audio:waveform-bin', (e) => {
+      if (!cancelled) setBars(e.payload.bins);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unw = fn;
+    });
+    listen<{ elapsedSec: number }>('audio:elapsed', (e) => {
+      if (!cancelled) setElapsed(e.payload.elapsedSec);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else une = fn;
+    });
+    return () => {
+      cancelled = true;
+      unl?.();
+      unw?.();
+      une?.();
+    };
+  }, []);
+
+  const onPauseToggle = async () => {
+    if (paused) await invoke('resume_recording');
+    else await invoke('pause_recording');
+    setPaused(!paused);
+  };
+
+  const onStop = async () => {
+    const result = await invoke<CaptureResult>('stop_recording');
+    setStopResult(result);
+    setStopModalOpen(true);
+  };
 
   const { data: devices = [] } = useListAudioDevicesQuery();
   const { data: templates = [] } = useListTemplatesQuery();
@@ -69,8 +152,12 @@ export default function LiveRecordingPage() {
   );
 
   const device =
-    devices.find((d) => d.id === 'system-loopback') ?? devices.find((d) => d.active) ?? devices[0];
-  const deviceIcon: IconName = (device?.icon as IconName) ?? 'monitor';
+    devices.find((d) => d.id === navState.deviceId) ??
+    devices.find((d) => d.isDefault) ??
+    devices[0];
+
+  const iconFor = (kind: AudioDeviceKind): IconName =>
+    kind === 'loopback' ? 'monitor' : 'headphones';
 
   const meetingName = navState.name ?? (lang === 'es' ? 'Reunión sin título' : 'Untitled meeting');
 
@@ -107,12 +194,12 @@ export default function LiveRecordingPage() {
                 : 'Paused'
               : `${t('speaking')} — ${lang === 'es' ? 'Sujeto 2' : 'Subject 2'}`}
           </div>
-          <Waveform paused={paused} bars={36} />
+          <Waveform paused={paused} bars={36} externalBins={bars} />
           <div className={styles.controls}>
             <button
               type="button"
               className={styles.ctrlBtn}
-              onClick={togglePause}
+              onClick={onPauseToggle}
               title={paused ? t('play') : t('livePauseHint')}
               aria-label={paused ? 'Resume' : 'Pause'}
             >
@@ -121,7 +208,7 @@ export default function LiveRecordingPage() {
             <button
               type="button"
               className={`${styles.ctrlBtn} ${styles.ctrlStop}`}
-              onClick={() => navigate(Paths.MeetingDetail('m-001'))}
+              onClick={onStop}
               title={t('liveStopHint')}
               aria-label="Stop"
             >
@@ -140,12 +227,14 @@ export default function LiveRecordingPage() {
         </div>
       </div>
 
+      {/* TODO Task 5.4: render <StopConfirmModal open={stopModalOpen} ... capture={stopResult!} ... /> */}
+
       <div className={styles.meta}>
         <div className={styles.metaBlock}>
-          <Icon name={deviceIcon} size={14} />
+          <Icon name={device ? iconFor(device.kind) : 'monitor'} size={14} />
           <span>{t('sourceLabel')}:</span>
           <span className={styles.metaStrong}>
-            {device ? pickL(device.name, lang) : lang === 'es' ? 'Sin dispositivo' : 'No device'}
+            {device ? device.name : lang === 'es' ? 'Sin dispositivo' : 'No device'}
           </span>
         </div>
         <div className={styles.metaBlock}>

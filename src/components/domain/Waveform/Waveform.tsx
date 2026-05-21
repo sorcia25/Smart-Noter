@@ -7,19 +7,22 @@ export interface WaveformProps {
   /** When true, freezes the animation and dims the bars to ~30% opacity. */
   paused?: boolean;
   className?: string;
+  /** When provided, overrides the internal random heights with real audio data (0..1 per bin). */
+  externalBins?: number[];
 }
 
 /**
  * Animated equalizer-style waveform used by the live recording screen.
  * Bar heights are randomized once per mount so the visual stays stable
- * for the session.
+ * for the session. When `externalBins` is provided, real audio data is
+ * used instead.
  */
-export function Waveform({ bars = 36, paused = false, className }: WaveformProps) {
+export function Waveform({ bars = 36, paused = false, className, externalBins }: WaveformProps) {
   const heightsRef = useRef<number[] | null>(null);
   if (!heightsRef.current || heightsRef.current.length !== bars) {
     heightsRef.current = Array.from({ length: bars }, () => 0.25 + Math.random() * 0.75);
   }
-  const heights = heightsRef.current;
+  const heights = externalBins ?? heightsRef.current;
 
   return (
     <div

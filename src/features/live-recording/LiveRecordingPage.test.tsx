@@ -6,11 +6,20 @@ import { describe, expect, it, vi } from 'vitest';
 import '@/i18n';
 import LiveRecordingPage from './LiveRecordingPage';
 
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async () => () => {}),
+}));
+
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async (cmd: string) => {
     if (cmd === 'list_audio_devices') return [];
     if (cmd === 'list_templates') return [];
     if (cmd === 'get_settings') return null;
+    if (cmd === 'start_recording') return { sessionId: 'sess-test', sampleRate: 48000, channels: 2 };
+    if (cmd === 'pause_recording') return null;
+    if (cmd === 'resume_recording') return null;
+    if (cmd === 'stop_recording') return { sessionId: 'sess-test', path: '', bytes: 0, durationSec: 0 };
+    if (cmd === 'discard_recording') return null;
     return null;
   }),
 }));
