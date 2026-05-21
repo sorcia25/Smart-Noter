@@ -53,4 +53,19 @@ describe('PreRecordPage', () => {
     const { container } = setup();
     expect(container.querySelector('[data-screen-label="03 Pre-record"]')).toBeTruthy();
   });
+
+  it('starts preview on device auto-select and stops on unmount', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockClear();
+    const { unmount } = setup();
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('start_preview', {
+        deviceId: 'd-L-test',
+        captureMode: 'system',
+      })
+    );
+    unmount();
+    expect(invokeMock).toHaveBeenCalledWith('stop_preview');
+  });
 });

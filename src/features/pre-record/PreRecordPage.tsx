@@ -7,7 +7,7 @@ import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
 import { Input } from '@/components/primitives/Input/Input';
 import { Toggle } from '@/components/primitives/Toggle/Toggle';
 import { useT } from '@/i18n/useT';
-import type { AudioDevice, AudioDeviceKind, Template } from '@/ipc/bindings';
+import type { AudioDevice, AudioDeviceKind, CaptureMode, Template } from '@/ipc/bindings';
 import { Paths } from '@/router/paths';
 import { useListAudioDevicesQuery } from '@/store/api/devices.api';
 import { useGetSettingsQuery } from '@/store/api/settings.api';
@@ -39,6 +39,9 @@ export default function PreRecordPage() {
   const { data: settings } = useGetSettingsQuery();
 
   const [deviceId, setDeviceId] = useState<string>('');
+  const selectedDevice = devices.find((d) => d.id === deviceId);
+  const captureMode: CaptureMode = selectedDevice?.kind === 'input' ? 'mic' : 'system';
+
   const [templateId, setTemplateId] = useState<string>(searchParams.get('tpl') ?? 'tecnica');
   const [name, setName] = useState('');
   const [autoId, setAutoId] = useState(true);
@@ -54,9 +57,9 @@ export default function PreRecordPage() {
 
   useEffect(() => {
     if (!deviceId) return;
-    void invoke('start_preview', { deviceId, captureMode: 'system' });
+    void invoke('start_preview', { deviceId, captureMode });
     return () => { void invoke('stop_preview'); };
-  }, [deviceId]);
+  }, [deviceId, captureMode]);
 
   function start() {
     navigate(Paths.LiveRecording(genSessionId()), {
@@ -64,7 +67,7 @@ export default function PreRecordPage() {
         name: name.trim() || (lang === 'es' ? 'Reunión sin título' : 'Untitled meeting'),
         templateId,
         deviceId,
-        captureMode: 'system',
+        captureMode,
         format: settings?.recordingQuality === 'FLAC' ? 'flac' : 'wav',
       },
     });
@@ -247,8 +250,18 @@ function AudioPreviewCard() {
   const { lang } = useT();
   const [level, setLevel] = useState(0);
   useEffect(() => {
-    const un = listen<{ rms: number; peak: number }>('audio:level', e => setLevel(e.payload.rms));
-    return () => { un.then(fn => fn()); };
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    listen<{ rms: number; peak: number }>('audio:level', (e) => {
+      if (!cancelled) setLevel(e.payload.rms);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   return (
