@@ -410,8 +410,9 @@ impl Recorder {
     /// 4. Join fan-out — it drains `source_rx` until `Disconnected`, then exits,
     ///    dropping `writer_tx` and `meter_tx`.
     /// 5. Join writer — it drains `writer_rx` until `Disconnected` (all queued
-    ///    buffers written), calls `finalize()`. For FLAC the whole-recording
-    ///    in-RAM encode is paid here.
+    ///    buffers written), calls `finalize()`. FLAC now writes frames
+    ///    incrementally during `write()`; `finalize()` only encodes the final
+    ///    partial block and patches the STREAMINFO header (cheap).
     /// 6. Join meter — exits on `Disconnected` from the fan-out drop.
     ///
     /// **Lossless guarantee:** every buffer queued in `source_rx` and `writer_rx`
