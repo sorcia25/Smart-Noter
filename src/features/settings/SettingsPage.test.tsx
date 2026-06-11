@@ -60,4 +60,14 @@ describe('SettingsPage', () => {
       expect(container.querySelector('[data-provider="local"]')).toBeTruthy();
     });
   });
+
+  it('renders MP3 quality options as disabled (deferred to Sub-7 Export)', async () => {
+    setup();
+    await waitFor(() => {
+      const mp3192 = screen.getByRole('tab', { name: 'MP3 192k' });
+      const mp3320 = screen.getByRole('tab', { name: 'MP3 320k' });
+      expect(mp3192).toBeDisabled();
+      expect(mp3320).toBeDisabled();
+    });
+  });
 });

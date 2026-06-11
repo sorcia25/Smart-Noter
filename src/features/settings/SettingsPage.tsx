@@ -99,11 +99,11 @@ export default function SettingsPage() {
     { value: 'mix', label: lang === 'es' ? 'Mezcla' : 'Mix' },
   ];
 
-  const qualityOptions: { value: string; label: string }[] = [
-    { value: 'MP3 192k', label: 'MP3 192k' },
-    { value: 'MP3 320k', label: 'MP3 320k' },
+  const qualityOptions: { value: string; label: string; disabled?: boolean }[] = [
     { value: 'WAV 48k', label: 'WAV 48k' },
     { value: 'FLAC', label: 'FLAC' },
+    { value: 'MP3 192k', label: 'MP3 192k', disabled: true },
+    { value: 'MP3 320k', label: 'MP3 320k', disabled: true },
   ];
 
   const themeOptions: { value: Theme; label: string }[] = [
@@ -224,8 +224,10 @@ export default function SettingsPage() {
               <div className={styles.rowLabel}>{t('captureMode')}</div>
               <div className={styles.rowDesc}>{t('captureModeDesc')}</div>
             </div>
+            {/* AppSettings stores captureMode as plain string (dedup of bindings type);
+                'system'|'mic'|'mix' remains the authoritative CaptureMode enum. */}
             <SegmentedControl<CaptureMode>
-              value={draft.captureMode}
+              value={draft.captureMode as CaptureMode}
               options={captureModes}
               onChange={(v) => patch({ captureMode: v })}
             />
@@ -241,12 +243,9 @@ export default function SettingsPage() {
             </div>
             <div className={styles.selectTrigger}>
               <span>
-                {pickL(
-                  devices.find((d) => d.id === draft.defaultDevice)?.name ??
-                    devices[0]?.name ??
-                    null,
-                  lang
-                ) || (lang === 'es' ? 'Sin dispositivo' : 'No device')}
+                {devices.find((d) => d.id === draft.defaultDevice)?.name ??
+                  devices[0]?.name ??
+                  (lang === 'es' ? 'Sin dispositivo' : 'No device')}
               </span>
               <Icon name="chevDown" size={14} />
             </div>
