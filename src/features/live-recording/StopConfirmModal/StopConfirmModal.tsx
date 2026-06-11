@@ -22,7 +22,8 @@ export interface StopConfirmModalProps {
 function fmtBytes(b: number): string {
   if (b < 1024) return `${b} B`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-  return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  if (b < 1024 ** 3) return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  return `${(b / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
 export function StopConfirmModal({
@@ -35,35 +36,53 @@ export function StopConfirmModal({
   const { t } = useT();
   const navigate = useNavigate();
   const [title, setTitle] = useState(suggestedTitle);
+  const [busy, setBusy] = useState(false);
 
   const onSave = async () => {
-    const meeting = await invoke<MeetingDetail>('finalize_recording', {
-      sessionId: capture.sessionId,
-      title: title.trim(),
-      templateId,
-    });
-    onClose();
-    navigate(Paths.MeetingDetail(meeting.id));
+    if (busy) return;
+    setBusy(true);
+    try {
+      const meeting = await invoke<MeetingDetail>('finalize_recording', {
+        sessionId: capture.sessionId,
+        title: title.trim(),
+        templateId,
+      });
+      onClose();
+      navigate(Paths.MeetingDetail(meeting.id));
+    } catch {
+      /* failure feedback lands with Task 5.6 toast helper; Discard remains the exit */
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onDiscard = async () => {
-    await invoke('discard_recording');
-    onClose();
-    navigate(Paths.Dashboard);
+    if (busy) return;
+    setBusy(true);
+    try {
+      await invoke('discard_recording');
+    } catch {
+      // Even on failure we close and navigate: the page's unmount discard and
+      // the startup tmp-sweep reclaim the file, so the user is never soft-locked.
+    } finally {
+      setBusy(false);
+      onClose();
+      navigate(Paths.Dashboard);
+    }
   };
 
   return (
     <Modal
       open={open}
-      onClose={onDiscard}
+      onClose={busy ? () => {} : onDiscard}
       title={t('saveRecording')}
       subtitle={t('saveRecordingSub')}
       footer={
         <>
-          <Button variant="danger" onClick={onDiscard}>
+          <Button variant="danger" onClick={onDiscard} disabled={busy}>
             {t('discard')}
           </Button>
-          <Button variant="primary" onClick={onSave} disabled={title.trim() === ''}>
+          <Button variant="primary" onClick={onSave} loading={busy} disabled={title.trim() === ''}>
             {t('save')}
           </Button>
         </>

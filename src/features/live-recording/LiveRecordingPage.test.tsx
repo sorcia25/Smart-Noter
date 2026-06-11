@@ -5,6 +5,7 @@ import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import '@/i18n';
+import * as tauriCore from '@tauri-apps/api/core';
 import LiveRecordingPage from './LiveRecordingPage';
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -53,9 +54,11 @@ describe('LiveRecordingPage', () => {
   });
 
   it('clicking Stop invokes stop_recording and opens the save modal', async () => {
+    const invokeMock = vi.mocked(tauriCore.invoke);
     setup();
     await waitFor(() => expect(screen.getByText(/GRABANDO/i)).toBeInTheDocument());
     await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(invokeMock).toHaveBeenCalledWith('stop_recording');
     await waitFor(() => expect(screen.getByText(/Guardar grabación/i)).toBeInTheDocument());
   });
 });

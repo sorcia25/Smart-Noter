@@ -30,6 +30,8 @@ interface NavState {
   format?: AudioFormat;
 }
 
+const DEFAULT_TEMPLATE_ID = 'tecnica';
+
 const MOCK_SPEAKERS: Participant[] = [
   {
     id: 's1',
@@ -138,7 +140,7 @@ export default function LiveRecordingPage() {
   const tmpl = useMemo(
     () =>
       templates.find((t) => t.id === navState.templateId) ??
-      templates.find((t) => t.id === 'tecnica') ??
+      templates.find((t) => t.id === DEFAULT_TEMPLATE_ID) ??
       templates[0],
     [templates, navState.templateId]
   );
@@ -225,7 +227,7 @@ export default function LiveRecordingPage() {
           onClose={() => setStopModalOpen(false)}
           capture={stopResult}
           suggestedTitle={navState.name ?? ''}
-          templateId={navState.templateId ?? 'tecnica'}
+          templateId={navState.templateId ?? DEFAULT_TEMPLATE_ID}
         />
       )}
 
