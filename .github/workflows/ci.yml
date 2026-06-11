@@ -53,6 +53,9 @@ jobs:
       - name: cargo test
         working-directory: src-tauri
         run: cargo test --workspace
+      - name: cargo check audio integration (compile gate)
+        working-directory: src-tauri
+        run: cargo check -p smart-noter-audio --features audio-integration --all-targets
       - name: cargo test audio integration
         working-directory: src-tauri
         run: cargo test -p smart-noter-audio --features audio-integration -- --include-ignored
