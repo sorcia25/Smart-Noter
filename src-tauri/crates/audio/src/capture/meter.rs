@@ -3,7 +3,7 @@
 //! Consumes f32 sample buffers and exposes:
 //! * `level()`        — last-block RMS + peak (0..1 normalised)
 //! * `waveform()`     — rolling buffer of 36 normalised bins (one per ~100 ms)
-//! * `samples_total()` — running count of samples observed (driver of `elapsed`)
+//! * `samples_total()` — running count of samples observed (lossy diagnostic; elapsed is RecordedClock-driven in recorder.rs)
 
 use std::collections::VecDeque;
 
