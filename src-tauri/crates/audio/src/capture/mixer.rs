@@ -40,6 +40,12 @@
 //!   both sources with timeouts/try_recv so short silences are handled cleanly —
 //!   no spurious overflow toast.
 //!
+//! * **Mic stream death mid-recording:** the mirror image of system idle. Lane B
+//!   stops producing, so no further overlap exists and mixed output stalls
+//!   (nothing more reaches the file). System samples accumulate in `a_ready`
+//!   until `MAX_READY_SAMPLES`, then count as drops and trigger the one overflow
+//!   toast. Recovery requires stopping the session.
+//!
 //! * **Silence-fill:** not implemented. The mixer returns an empty Vec during the
 //!   solo-prefix phase and emits nothing to the writer. Short silences are thus
 //!   implicitly trimmed from the output. Future work.

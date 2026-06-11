@@ -32,8 +32,8 @@ impl WavWriterImpl {
             bits_per_sample: 16,
             sample_format: SampleFormat::Int,
         };
-        let writer = WavWriter::create(&path, spec)
-            .map_err(|e| AudioError::Other(format!("WAV create: {e}")))?;
+        let writer =
+            WavWriter::create(&path, spec).map_err(|e| classify_io_error("create", e, &path))?;
         Ok(Self {
             inner: Some(writer),
             path,
@@ -53,7 +53,7 @@ impl AudioWriter for WavWriterImpl {
             let i = (clipped * 32_767.0) as i16;
             writer
                 .write_sample(i)
-                .map_err(|e| classify_io_error(e, &self.path))?;
+                .map_err(|e| classify_io_error("write", e, &self.path))?;
         }
         self.sample_count += samples.len() as u64;
         Ok(())
@@ -66,7 +66,7 @@ impl AudioWriter for WavWriterImpl {
             .ok_or_else(|| AudioError::Other("writer already finalized".into()))?;
         inner
             .finalize()
-            .map_err(|e| AudioError::Other(format!("WAV finalize: {e}")))?;
+            .map_err(|e| classify_io_error("finalize", e, &self.path))?;
         let bytes = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
         Ok(FinalizeResult {
             path: self.path,
@@ -76,7 +76,11 @@ impl AudioWriter for WavWriterImpl {
     }
 }
 
-fn classify_io_error(e: hound::Error, path: &Path) -> AudioError {
+/// Map a hound error to `AudioError`, classifying StorageFull as `DiskFull`
+/// regardless of which WAV operation hit it (create / write / finalize) —
+/// symmetric with the FLAC path's `classify_io_error_at`, so the user gets the
+/// localized DiskFull toast instead of a raw English `Other(...)` message.
+fn classify_io_error(op: &str, e: hound::Error, path: &Path) -> AudioError {
     use std::io::ErrorKind;
     if let hound::Error::IoError(io) = &e {
         if io.kind() == ErrorKind::StorageFull {
@@ -85,7 +89,7 @@ fn classify_io_error(e: hound::Error, path: &Path) -> AudioError {
             };
         }
     }
-    AudioError::Other(format!("WAV write: {e}"))
+    AudioError::Other(format!("WAV {op}: {e}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -565,6 +569,31 @@ mod tests {
             single_bytes, multi_bytes,
             "multi-write must produce identical bytes to single write"
         );
+    }
+
+    /// WAV DiskFull classification: StorageFull must map to AudioError::DiskFull
+    /// from every hound operation (create / write / finalize) — symmetric with
+    /// the FLAC path below.
+    #[test]
+    fn wav_disk_full_classification() {
+        use std::io;
+        let path = PathBuf::from("/tmp/test.wav");
+        for op in ["create", "write", "finalize"] {
+            let storage_full =
+                hound::Error::IoError(io::Error::new(io::ErrorKind::StorageFull, "no space"));
+            let err = classify_io_error(op, storage_full, &path);
+            assert!(
+                matches!(err, AudioError::DiskFull { .. }),
+                "WAV {op}: StorageFull must map to AudioError::DiskFull, got: {err:?}"
+            );
+        }
+        // Non-StorageFull errors keep the op string in the Other message.
+        let generic = hound::Error::IoError(io::Error::other("boom"));
+        let err = classify_io_error("finalize", generic, &path);
+        match err {
+            AudioError::Other(msg) => assert!(msg.contains("finalize"), "msg: {msg}"),
+            other => panic!("expected Other, got {other:?}"),
+        }
     }
 
     /// DiskFull classification unit test: verify classify_io_error_at maps

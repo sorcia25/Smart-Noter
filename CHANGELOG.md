@@ -7,14 +7,14 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 #### Added
 
 - Real audio capture via WASAPI loopback (system) + cpal input (mic) + rubato-based mix
-- 3 capture modes: System / Mic / Mix
-- WAV (default) and FLAC formats; MP3 options remain in Settings as `disabled` placeholders (Sub-7)
+- 3 capture modes: System / Mic / Mix (Mix follows the Settings capture-mode preference and records system + default mic as one mono 48 kHz track)
+- WAV (default) and FLAC formats — FLAC encodes to disk in streaming blocks, so memory stays bounded on long recordings; MP3 options remain in Settings as `disabled` placeholders (Sub-7)
 - Real-time level meter and waveform driven by Tauri events (`audio:level @20Hz`, `audio:waveform-bin @10Hz`, `audio:elapsed @1Hz`)
-- Pause/Resume that omits the paused span from the resulting file
+- Pause/Resume that omits the paused span from the resulting file and the on-screen timer
 - `StopConfirmModal` with Save (commits meeting + asset) and Discard (deletes tmp)
 - New `meeting_assets` table (migration 0002) — 1:N relation, prepared for Sub-3/Sub-7 future assets
 - 8 new Tauri commands + 1 reworked (`list_audio_devices` now returns real devices, `start/stop_preview`, `start/pause/resume/stop_recording`, `finalize/discard_recording`)
-- Global `audio:error` event listener routing to translated Toast in App.tsx
+- Mid-recording failures surface as toasts: the backend emits `audio:error` (pipeline overflow, disk full / writer death) and a global App.tsx listener routes it to a translated Toast, deduplicated per error code
 - Startup sweep of orphan `tmp-*` files in `%APPDATA%\com.smartnoter.app\audio\`
 
 #### Changed

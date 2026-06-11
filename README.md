@@ -2,7 +2,7 @@
 
 Windows desktop app for AI-powered meeting notes with 100% local processing by default.
 
-This release (**Foundation, v0.1.0**) covers the full UI, the typed IPC contract, and SQLite persistence. Real audio capture, transcription, AI summarization, and cloud providers ship in subsequent sub-projects.
+This release (**Sub-2 Audio Capture, v0.2.0**) adds real audio capture (WASAPI loopback, microphone, and mix) on top of the Foundation UI, the typed IPC contract, and SQLite persistence. Transcription, AI summarization, and cloud providers ship in subsequent sub-projects.
 
 ### Requirements
 

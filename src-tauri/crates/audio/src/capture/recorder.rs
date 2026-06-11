@@ -12,9 +12,11 @@
 //! — both are the sole owners of `source_tx` clones, so dropping them closes
 //! `source_rx`. The fan-out observes `Disconnected`, drains its internal channel,
 //! and exits (dropping `writer_tx`/`meter_tx`). The writer then drains `writer_rx`
-//! and calls `finalize()`. The meter exits on its own `Disconnected`. The
-//! `stop_flag` is set before the stream drop as a safety net in case a `source_tx`
-//! clone is ever inadvertently retained; normal exit is via channel disconnect.
+//! and calls `finalize()`. The meter checks `stop_flag` at the top of its loop, so
+//! during a normal stop it usually exits via the flag (set before the stream drop);
+//! `Disconnected` on `meter_rx` is its backstop (e.g. pipeline death mid-recording).
+//! For the fan-out and writer the flag is a safety net only — in case a `source_tx`
+//! clone is ever inadvertently retained — and their normal exit is channel disconnect.
 //!
 //! Emits Tauri events on a background thread via `AppHandle::emit`.
 
@@ -225,8 +227,11 @@ impl Recorder {
 
                     // Mic (B) side: with A paced at ~10 ms (or 50 ms during silence),
                     // try_recv drain is enough — no blocking wait needed. B Disconnected
-                    // (mic death) → empty Vec: recording continues with system audio only
-                    // until ready-buffer cap; this is the documented Sub-2 semantics.
+                    // (mic death) → empty Vec: the mixer keeps consuming system audio but
+                    // produces no further overlap, so nothing more reaches the file; the
+                    // system lane accumulates to the ready-buffer cap, then drops count up
+                    // and fire the one-shot overflow toast. Documented Sub-2 semantics —
+                    // see mixer.rs "Known Sub-2 limitations".
                     let mut b_buf: Vec<f32> = b_rx.try_recv().unwrap_or_default();
                     while let Ok(more) = b_rx.try_recv() {
                         b_buf.extend(more);
@@ -420,15 +425,20 @@ impl Recorder {
     ///    buffers written), calls `finalize()`. FLAC now writes frames
     ///    incrementally during `write()`; `finalize()` only encodes the final
     ///    partial block and patches the STREAMINFO header (cheap).
-    /// 6. Join meter — exits on `Disconnected` from the fan-out drop.
+    /// 6. Join meter — usually exits via its stop-flag check (the flag was set in
+    ///    step 2 and the meter polls it first each iteration); `Disconnected` from
+    ///    the fan-out drop is the backstop.
     ///
     /// **Lossless guarantee:** every buffer queued in `source_rx` and `writer_rx`
-    /// before the stream drops is delivered to the file. Crossbeam yields queued
-    /// messages before reporting `Disconnected`.
+    /// before the stream drops is delivered to the file — except buffers received
+    /// while paused, which the writer intentionally skips (pause is a
+    /// "discard samples" flag; see `pause()`). Crossbeam yields queued messages
+    /// before reporting `Disconnected`.
     ///
-    /// **Stop flag role:** safety net only. Normal exit for every thread is the
-    /// `Disconnected` arm. The flag ensures termination even if a `source_tx`
-    /// clone is inadvertently retained elsewhere (50 ms Timeout arm fires).
+    /// **Stop flag role:** safety net for the fan-out and writer (their normal
+    /// exit is the `Disconnected` arm; the flag ensures termination even if a
+    /// `source_tx` clone is inadvertently retained elsewhere — the 50 ms Timeout
+    /// arm fires). For the meter the flag is the *normal* exit path during stop.
     pub fn stop(self) -> Result<(PathBuf, u64, u32), AudioError> {
         // Destructure to allow partial moves (drop stream before joining threads).
         let Recorder {
