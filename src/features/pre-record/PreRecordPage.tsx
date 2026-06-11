@@ -5,9 +5,11 @@ import { Button } from '@/components/primitives/Button/Button';
 import { Chip } from '@/components/primitives/Chip/Chip';
 import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
 import { Input } from '@/components/primitives/Input/Input';
+import { toast } from '@/components/primitives/Toast/Toast';
 import { Toggle } from '@/components/primitives/Toggle/Toggle';
 import { useT } from '@/i18n/useT';
 import type { AudioDevice, AudioDeviceKind, CaptureMode, Template } from '@/ipc/bindings';
+import { errorMessage, toAppError } from '@/ipc/error';
 import { Paths } from '@/router/paths';
 import { useListAudioDevicesQuery } from '@/store/api/devices.api';
 import { useGetSettingsQuery } from '@/store/api/settings.api';
@@ -57,11 +59,18 @@ export default function PreRecordPage() {
 
   useEffect(() => {
     if (!deviceId) return;
-    void invoke('start_preview', { deviceId, captureMode });
+    let cancelled = false;
+    invoke('start_preview', { deviceId, captureMode }).catch((err) => {
+      if (!cancelled) {
+        const ae = toAppError(err);
+        toast.error(t('audioErrorTitle'), { description: errorMessage(ae, t) });
+      }
+    });
     return () => {
+      cancelled = true;
       void invoke('stop_preview');
     };
-  }, [deviceId, captureMode]);
+  }, [deviceId, captureMode, t]);
 
   function start() {
     navigate(Paths.LiveRecording(genSessionId()), {

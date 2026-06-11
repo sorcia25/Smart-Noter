@@ -2,8 +2,10 @@ import { store } from '@/store';
 import { render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@/i18n';
+import { toast } from '@/components/primitives/Toast/Toast';
+import * as tauriCore from '@tauri-apps/api/core';
 import PreRecordPage from './PreRecordPage';
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -29,6 +31,10 @@ vi.mock('@tauri-apps/api/core', () => ({
   }),
 }));
 
+vi.mock('@/components/primitives/Toast/Toast', () => ({
+  toast: { error: vi.fn() },
+}));
+
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }));
@@ -44,6 +50,10 @@ function setup() {
 }
 
 describe('PreRecordPage', () => {
+  beforeEach(() => {
+    vi.mocked(toast.error).mockClear();
+  });
+
   it('renders the pre-record title', async () => {
     setup();
     await waitFor(() => {
@@ -57,8 +67,7 @@ describe('PreRecordPage', () => {
   });
 
   it('starts preview on device auto-select and stops on unmount', async () => {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const invokeMock = vi.mocked(invoke);
+    const invokeMock = vi.mocked(tauriCore.invoke);
     invokeMock.mockClear();
     const { unmount } = setup();
     await waitFor(() =>
@@ -69,5 +78,33 @@ describe('PreRecordPage', () => {
     );
     unmount();
     expect(invokeMock).toHaveBeenCalledWith('stop_preview');
+  });
+
+  it('start_preview rejection shows toast.error', async () => {
+    const invokeMock = vi.mocked(tauriCore.invoke);
+    invokeMock.mockImplementationOnce(async (cmd: string) => {
+      if (cmd === 'list_audio_devices') {
+        return [
+          {
+            id: 'd-L-test',
+            name: 'Test Speakers',
+            kind: 'loopback',
+            sampleRate: 48000,
+            channels: 2,
+            isDefault: true,
+            recommended: true,
+          },
+        ];
+      }
+      if (cmd === 'start_preview')
+        throw { code: 'audio', message: { code: 'DeviceNotFound', message: 'no device' } };
+      if (cmd === 'stop_preview') return null;
+      if (cmd === 'list_templates') return [];
+      if (cmd === 'get_settings') return null;
+      return null;
+    });
+    setup();
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toBe('Error de captura de audio');
   });
 });

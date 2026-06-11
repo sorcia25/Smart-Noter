@@ -23,7 +23,8 @@
     "generate:i18n-keys": "node scripts/generate-i18n-keys.mjs",
     "generate:bindings": "cd src-tauri && cargo run --bin specta-export",
     "check:hardcoded-strings": "node scripts/check-no-hardcoded-strings.mjs",
-    "check:stories": "node scripts/check-stories-coverage.mjs"
+    "check:stories": "node scripts/check-stories-coverage.mjs",
+    "check:node-types": "tsc -p tsconfig.node.json --noEmit"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.3.0",

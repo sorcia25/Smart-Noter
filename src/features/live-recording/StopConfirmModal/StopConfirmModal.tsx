@@ -7,6 +7,8 @@ import { useT } from '@/i18n/useT';
 import type { CaptureResult, MeetingDetail } from '@/ipc/bindings';
 import { errorMessage, toAppError } from '@/ipc/error';
 import { Paths } from '@/router/paths';
+import { baseApi } from '@/store/api/base';
+import { useAppDispatch } from '@/store/hooks';
 import { fmtDuration } from '@/utils/format';
 import { invoke } from '@tauri-apps/api/core';
 import { useState } from 'react';
@@ -37,6 +39,7 @@ export function StopConfirmModal({
 }: StopConfirmModalProps) {
   const { t } = useT();
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const [title, setTitle] = useState(suggestedTitle);
   const [busy, setBusy] = useState(false);
 
@@ -49,6 +52,7 @@ export function StopConfirmModal({
         title: title.trim(),
         templateId,
       });
+      dispatch(baseApi.util.invalidateTags(['Meeting']));
       onClose();
       navigate(Paths.MeetingDetail(meeting.id));
     } catch (err) {

@@ -33,6 +33,8 @@ pub enum AppError {
 }
 
 impl AppError {
+    /// NOTE: informational only — the authoritative code→i18n-key mapping lives in src/ipc/error.ts (frontend).
+    /// Keys for AlreadyRecording/NotRecording/Other are not present in the locale files; unmapped codes fall back to the raw message.
     pub fn i18n_key(&self) -> &'static str {
         match self {
             AppError::NotFound(_) => "errors.notFound",

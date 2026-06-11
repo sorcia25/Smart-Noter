@@ -85,7 +85,7 @@ export default function LiveRecordingPage() {
       format: navState.format ?? 'wav',
     })
       .then(() => {
-        if (cancelled) void invoke('discard_recording');
+        if (cancelled) void invoke('discard_recording').catch(() => {});
       })
       .catch((err) => {
         /* start failures are invoke rejections (never audio:error events) — surface them here */

@@ -36,6 +36,13 @@ test-results/
 src/ipc/bindings.ts
 src/i18n/keys.ts
 *.tsbuildinfo
+# tsc -b emit-shadow guard (composite removed; belt-and-suspenders)
+vite.config.js
+vite.config.d.ts
+vitest.config.js
+vitest.config.d.ts
+playwright.config.js
+playwright.config.d.ts
 
 # Note: src-tauri/.sqlx/ is committed so offline cargo builds work without DATABASE_URL.
 # Regenerate after schema/query changes via:

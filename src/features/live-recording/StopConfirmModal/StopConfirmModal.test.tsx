@@ -1,5 +1,7 @@
+import { store } from '@/store';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@/i18n';
@@ -29,15 +31,17 @@ const capture: CaptureResult = {
 
 function setup(onClose?: () => void) {
   return render(
-    <MemoryRouter>
-      <StopConfirmModal
-        open
-        onClose={onClose ?? (() => {})}
-        capture={capture}
-        suggestedTitle="Q4 review"
-        templateId="tecnica"
-      />
-    </MemoryRouter>
+    <Provider store={store}>
+      <MemoryRouter>
+        <StopConfirmModal
+          open
+          onClose={onClose ?? (() => {})}
+          capture={capture}
+          suggestedTitle="Q4 review"
+          templateId="tecnica"
+        />
+      </MemoryRouter>
+    </Provider>
   );
 }
 
