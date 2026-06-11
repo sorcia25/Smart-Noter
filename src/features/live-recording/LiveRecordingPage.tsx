@@ -3,6 +3,7 @@ import { TemplateIcon } from '@/components/domain/TemplateIcon/TemplateIcon';
 import { Waveform } from '@/components/domain/Waveform/Waveform';
 import { AvatarStack } from '@/components/primitives/Avatar/Avatar';
 import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
+import { toast } from '@/components/primitives/Toast/Toast';
 import { useT } from '@/i18n/useT';
 import type {
   AudioDeviceKind,
@@ -12,6 +13,7 @@ import type {
   Participant,
   RecordingStartedDto,
 } from '@/ipc/bindings';
+import { errorMessage, toAppError } from '@/ipc/error';
 import { useListAudioDevicesQuery } from '@/store/api/devices.api';
 import { useListTemplatesQuery } from '@/store/api/templates.api';
 import { fmtDuration, pickL } from '@/utils/format';
@@ -129,8 +131,13 @@ export default function LiveRecordingPage() {
       const res = await invoke<CaptureResult>('stop_recording');
       setStopResult(res);
       setStopModalOpen(true);
-    } catch {
-      /* audio:error toast (Task 5.6) surfaces failure; stay responsive */
+    } catch (err) {
+      const ae = toAppError(err);
+      // NotRecording is the benign double-click race — second click after the
+      // first already stopped the session. Suppress the toast for this case.
+      if (ae.code !== 'NotRecording') {
+        toast.error(t('audioErrorTitle'), { description: errorMessage(ae, t) });
+      }
     }
   };
 

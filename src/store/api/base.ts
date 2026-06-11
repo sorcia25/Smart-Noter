@@ -1,3 +1,4 @@
+import { toAppError } from '@/ipc/error';
 import type { BaseQueryFn } from '@reduxjs/toolkit/query';
 import { createApi } from '@reduxjs/toolkit/query/react';
 import { invoke } from '@tauri-apps/api/core';
@@ -17,10 +18,7 @@ const tauriBaseQuery: BaseQueryFn<InvokeArgs, unknown, AppError> = async ({ cmd,
     const data = await invoke(cmd, args ?? {});
     return { data };
   } catch (e) {
-    if (typeof e === 'object' && e !== null && 'code' in e) {
-      return { error: e as AppError };
-    }
-    return { error: { code: 'internal', message: String(e) } };
+    return { error: toAppError(e) };
   }
 };
 

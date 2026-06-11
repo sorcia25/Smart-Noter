@@ -1,10 +1,13 @@
+import { listen } from '@tauri-apps/api/event';
 import { Suspense, useEffect } from 'react';
 import { useLocation, useRoutes } from 'react-router-dom';
 import styles from './App.module.css';
-import { ToastProvider } from './components/primitives/Toast/Toast';
+import { ToastProvider, toast } from './components/primitives/Toast/Toast';
 import { Sidebar } from './components/shell/Sidebar/Sidebar';
 import { WindowChrome } from './components/shell/WindowChrome/WindowChrome';
 import { useT } from './i18n/useT';
+import type { AudioErrorCode } from './ipc/bindings';
+import { errorMessage } from './ipc/error';
 import { routes } from './router/routes';
 import { useGetSettingsQuery } from './store/api/settings.api';
 import { useAppDispatch, useAppSelector } from './store/hooks';
@@ -44,6 +47,22 @@ export default function App() {
   useEffect(() => {
     if (ui.language !== lang) setLang(ui.language);
   }, [ui.language, lang, setLang]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let un: (() => void) | null = null;
+    listen<{ code: AudioErrorCode; message: string }>('audio:error', (e) => {
+      if (cancelled) return;
+      toast.error(t('audioErrorTitle'), { description: errorMessage(e.payload, t) });
+    }).then((fn) => {
+      if (cancelled) fn();
+      else un = fn;
+    });
+    return () => {
+      cancelled = true;
+      un?.();
+    };
+  }, [t]);
 
   const element = useRoutes(routes);
   const titleKey = TITLES_KEY[location.pathname];

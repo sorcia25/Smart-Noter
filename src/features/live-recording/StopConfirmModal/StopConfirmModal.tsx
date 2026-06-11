@@ -2,8 +2,10 @@ import { Button } from '@/components/primitives/Button/Button';
 import { Icon } from '@/components/primitives/Icon/Icon';
 import { Input } from '@/components/primitives/Input/Input';
 import { Modal } from '@/components/primitives/Modal/Modal';
+import { toast } from '@/components/primitives/Toast/Toast';
 import { useT } from '@/i18n/useT';
 import type { CaptureResult, MeetingDetail } from '@/ipc/bindings';
+import { errorMessage, toAppError } from '@/ipc/error';
 import { Paths } from '@/router/paths';
 import { fmtDuration } from '@/utils/format';
 import { invoke } from '@tauri-apps/api/core';
@@ -49,8 +51,9 @@ export function StopConfirmModal({
       });
       onClose();
       navigate(Paths.MeetingDetail(meeting.id));
-    } catch {
-      /* failure feedback lands with Task 5.6 toast helper; Discard remains the exit */
+    } catch (err) {
+      // Modal stays open — Discard remains the exit. Surface the error via toast.
+      toast.error(t('audioErrorTitle'), { description: errorMessage(toAppError(err), t) });
     } finally {
       setBusy(false);
     }
@@ -61,9 +64,11 @@ export function StopConfirmModal({
     setBusy(true);
     try {
       await invoke('discard_recording');
-    } catch {
+    } catch (err) {
       // Even on failure we close and navigate: the page's unmount discard and
       // the startup tmp-sweep reclaim the file, so the user is never soft-locked.
+      // Surface the error via toast for visibility.
+      toast.error(t('audioErrorTitle'), { description: errorMessage(toAppError(err), t) });
     } finally {
       setBusy(false);
       onClose();

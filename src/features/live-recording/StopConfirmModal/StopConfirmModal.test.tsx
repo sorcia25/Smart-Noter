@@ -3,9 +3,14 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@/i18n';
+import { toast } from '@/components/primitives/Toast/Toast';
 import type { CaptureResult } from '@/ipc/bindings';
 import * as tauriCore from '@tauri-apps/api/core';
 import { StopConfirmModal } from './StopConfirmModal';
+
+vi.mock('@/components/primitives/Toast/Toast', () => ({
+  toast: { error: vi.fn() },
+}));
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async (cmd: string) => {
@@ -43,6 +48,7 @@ describe('StopConfirmModal', () => {
       if (cmd === 'discard_recording') return null;
       return null;
     });
+    vi.mocked(toast.error).mockClear();
   });
 
   it('renders title input pre-filled and Save enabled', () => {
@@ -106,5 +112,8 @@ describe('StopConfirmModal', () => {
     );
     expect(screen.getByDisplayValue('Q4 review')).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+    // Toast should fire with the audio error title (es locale)
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toBe('Error de captura de audio');
   });
 });
