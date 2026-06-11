@@ -24,6 +24,15 @@ use std::sync::{
 pub struct StreamHandle {
     pub sample_rate: u32,
     pub channels: u16,
+    /// Cumulative drop counter shared across all streams for this handle.
+    ///
+    /// **Unit asymmetry:** stream callbacks (System/Mic mode) increment this by 1
+    /// per *dropped buffer* (~480 frames / ~10 ms each). The Mix path's mixer
+    /// thread adds *sample counts* directly from `Mixer::dropped_frames()`. The
+    /// ≥ 100 threshold that fires the overflow toast therefore means ~1 s of loss
+    /// in System/Mic mode (100 × 480 frames) but only ~2 ms via mixer overflow
+    /// (100 individual samples). Changing the unit is out of scope; callers should
+    /// be aware of this asymmetry when interpreting the counter.
     pub drops: Arc<AtomicU32>,
     /// Populated only in Mix mode: the actual sample rate of the mic input.
     ///

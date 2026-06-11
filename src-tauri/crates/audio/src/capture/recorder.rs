@@ -193,16 +193,46 @@ impl Recorder {
                         return;
                     }
                 };
+
+                // Drain the b_rx (mic) startup backlog before entering the main loop.
+                // The mic callback fires immediately on stream open and can accumulate
+                // up to 64 buffers (~640 ms) before the loopback thread starts. Those
+                // buffered samples pre-date the first loopback callback, so the sync
+                // logic in Mixer::mix() would have to discard them anyway — we discard
+                // cheaply here instead of paying the full downmix+resample cost first.
+                while b_rx.try_recv().is_ok() {}
+
                 let mut last_synced: u32 = 0;
                 loop {
-                    let a = match a_rx.recv() {
+                    // A (loopback) paces the loop via recv_timeout so that transient
+                    // system silence (no app rendering audio → WASAPI delivers nothing)
+                    // does not block the thread and starve B (mic). Old shape used
+                    // a_rx.recv() (blocking) + b_rx.recv_timeout(50ms), which caused
+                    // b_rx to fill (~64 buffers ≈ 640 ms) during silence → mic callback
+                    // drops → spurious MixerOverflow toast at ~1.6 s of silence.
+                    let mut a_buf = match a_rx.recv_timeout(Duration::from_millis(50)) {
                         Ok(v) => v,
-                        Err(_) => return,
+                        Err(crossbeam_channel::RecvTimeoutError::Timeout) => Vec::new(),
+                        // Teardown cascade: loopback stream dropped → a_rx disconnected.
+                        // MUST exit here to allow the fan-out to observe Disconnected
+                        // on source_rx and begin its own drain-exit.
+                        Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
                     };
-                    let b: Vec<f32> = b_rx
-                        .recv_timeout(Duration::from_millis(50))
-                        .unwrap_or_default();
-                    if let Ok(mixed) = mixer.mix(&a, &b) {
+                    // Catch up loopback bursts / uneven callback cadences.
+                    while let Ok(more) = a_rx.try_recv() {
+                        a_buf.extend(more);
+                    }
+
+                    // Mic (B) side: with A paced at ~10 ms (or 50 ms during silence),
+                    // try_recv drain is enough — no blocking wait needed. B Disconnected
+                    // (mic death) → empty Vec: recording continues with system audio only
+                    // until ready-buffer cap; this is the documented Sub-2 semantics.
+                    let mut b_buf: Vec<f32> = b_rx.try_recv().unwrap_or_default();
+                    while let Ok(more) = b_rx.try_recv() {
+                        b_buf.extend(more);
+                    }
+
+                    if let Ok(mixed) = mixer.mix(&a_buf, &b_buf) {
                         // Skip empty outputs — one side is waiting for the other.
                         if !mixed.is_empty() {
                             let _ = source_tx_for_mixer.try_send(mixed);
