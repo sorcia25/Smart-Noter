@@ -9,15 +9,17 @@ import PreRecordPage from './PreRecordPage';
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async (cmd: string) => {
     if (cmd === 'list_audio_devices') {
-      return [{
-        id: 'd-L-test',
-        name: 'Test Speakers',
-        kind: 'loopback',
-        sampleRate: 48000,
-        channels: 2,
-        isDefault: true,
-        recommended: true,
-      }];
+      return [
+        {
+          id: 'd-L-test',
+          name: 'Test Speakers',
+          kind: 'loopback',
+          sampleRate: 48000,
+          channels: 2,
+          isDefault: true,
+          recommended: true,
+        },
+      ];
     }
     if (cmd === 'start_preview') return null;
     if (cmd === 'stop_preview') return null;

@@ -35,6 +35,7 @@ test-results/
 # Generated
 src/ipc/bindings.ts
 src/i18n/keys.ts
+*.tsbuildinfo
 
 # Note: src-tauri/.sqlx/ is committed so offline cargo builds work without DATABASE_URL.
 # Regenerate after schema/query changes via:

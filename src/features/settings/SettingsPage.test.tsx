@@ -68,6 +68,7 @@ describe('SettingsPage', () => {
       const mp3320 = screen.getByRole('tab', { name: 'MP3 320k' });
       expect(mp3192).toBeDisabled();
       expect(mp3320).toBeDisabled();
+      expect(screen.getByRole('tab', { name: 'WAV 48k' })).toBeEnabled();
     });
   });
 });

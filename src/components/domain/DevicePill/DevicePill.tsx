@@ -1,6 +1,5 @@
 import { useT } from '@/i18n/useT';
 import type { AudioDevice } from '@/ipc/bindings';
-import { pickL } from '@/utils/format';
 import type { ReactNode } from 'react';
 import styles from './DevicePill.module.css';
 
@@ -26,8 +25,17 @@ export function DevicePill({ device, trailing }: DevicePillProps) {
     <div className={styles.pill}>
       <div className={styles.dot} />
       <div className={styles.meta}>
-        <div className={styles.name}>{pickL(device.name, lang)}</div>
-        <div className={styles.desc}>{pickL(device.desc, lang)}</div>
+        <div className={styles.name}>{device.name}</div>
+        <div className={styles.desc}>
+          {device.kind === 'loopback'
+            ? lang === 'es'
+              ? 'Audio del sistema'
+              : 'System audio'
+            : lang === 'es'
+              ? 'Micrófono'
+              : 'Microphone'}
+          {device.isDefault ? ` · ${lang === 'es' ? 'Predeterminado' : 'Default'}` : ''}
+        </div>
       </div>
       {trailing}
     </div>

@@ -107,16 +107,20 @@ export default function LiveRecordingPage() {
     let cancelled = false;
     listen<{ bins: number[] }>('audio:waveform-bin', (e) => {
       if (!cancelled) setBars(e.payload.bins);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unw = fn;
-    });
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unw = fn;
+      })
+      .catch(() => {}); // mirror of App.tsx M4 fix — suppress unhandled rejection on early unmount
     listen<{ elapsedSec: number }>('audio:elapsed', (e) => {
       if (!cancelled) setElapsed(e.payload.elapsedSec);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else une = fn;
-    });
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else une = fn;
+      })
+      .catch(() => {}); // mirror of App.tsx M4 fix — suppress unhandled rejection on early unmount
     return () => {
       cancelled = true;
       unw?.();
@@ -124,10 +128,16 @@ export default function LiveRecordingPage() {
     };
   }, []);
 
+  // Backend pause/resume are state-aware; benign double-click races resolve without rejecting.
   const onPauseToggle = async () => {
-    if (paused) await invoke('resume_recording');
-    else await invoke('pause_recording');
-    setPaused(!paused);
+    try {
+      if (paused) await invoke('resume_recording');
+      else await invoke('pause_recording');
+      setPaused(!paused);
+    } catch (err) {
+      const ae = toAppError(err);
+      toast.error(t('audioErrorTitle'), { description: errorMessage(ae, t) });
+    }
   };
 
   const onStop = async () => {

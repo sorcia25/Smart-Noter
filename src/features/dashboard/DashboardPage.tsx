@@ -25,7 +25,7 @@ export default function DashboardPage() {
 
   const totalHours = (meetings.reduce((s, m) => s + m.durationSec, 0) / 3600).toFixed(1);
   const totalWords = meetings.reduce((s, m) => s + (m.wordCount ?? 0), 0);
-  const activeDevice = devices.find((d) => d.active) ?? devices[0];
+  const activeDevice = devices.find((d) => d.isDefault) ?? devices[0];
 
   const stats: Stat[] = [
     { label: t('statTotal'), value: String(meetings.length), delta: `+3 ${t('thisWeek')}` },

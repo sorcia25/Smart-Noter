@@ -1,5 +1,4 @@
 pub mod action;
-pub mod audio_device;
 pub mod meeting;
 pub mod meeting_asset;
 pub mod participant;
@@ -7,7 +6,6 @@ pub mod settings;
 pub mod template;
 
 pub use action::Action;
-pub use audio_device::AudioDevice;
 pub use meeting::{MeetingDetail, MeetingSummary, TranscriptLine};
 pub use meeting_asset::*;
 pub use participant::Participant;

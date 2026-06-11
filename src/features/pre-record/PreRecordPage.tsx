@@ -13,8 +13,8 @@ import { useListAudioDevicesQuery } from '@/store/api/devices.api';
 import { useGetSettingsQuery } from '@/store/api/settings.api';
 import { useListTemplatesQuery } from '@/store/api/templates.api';
 import { pickL } from '@/utils/format';
-import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import styles from './PreRecordPage.module.css';
@@ -58,7 +58,9 @@ export default function PreRecordPage() {
   useEffect(() => {
     if (!deviceId) return;
     void invoke('start_preview', { deviceId, captureMode });
-    return () => { void invoke('stop_preview'); };
+    return () => {
+      void invoke('stop_preview');
+    };
   }, [deviceId, captureMode]);
 
   function start() {
@@ -254,10 +256,12 @@ function AudioPreviewCard() {
     let cancelled = false;
     listen<{ rms: number; peak: number }>('audio:level', (e) => {
       if (!cancelled) setLevel(e.payload.rms);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {}); // mirror of App.tsx M4 fix — suppress unhandled rejection on early unmount
     return () => {
       cancelled = true;
       unlisten?.();
