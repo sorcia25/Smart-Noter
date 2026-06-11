@@ -8,18 +8,19 @@ import type {
   AudioDeviceKind,
   AudioFormat,
   CaptureMode,
+  CaptureResult,
   Participant,
   RecordingStartedDto,
 } from '@/ipc/bindings';
-import { Paths } from '@/router/paths';
 import { useListAudioDevicesQuery } from '@/store/api/devices.api';
 import { useListTemplatesQuery } from '@/store/api/templates.api';
 import { fmtDuration, pickL } from '@/utils/format';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import styles from './LiveRecordingPage.module.css';
+import { StopConfirmModal } from './StopConfirmModal/StopConfirmModal';
 
 interface NavState {
   name?: string;
@@ -60,7 +61,6 @@ const MOCK_SPEAKERS: Participant[] = [
 ];
 
 export default function LiveRecordingPage() {
-  const navigate = useNavigate();
   const location = useLocation();
   const { t, lang } = useT();
   const navState = (location.state ?? {}) as NavState;
@@ -68,8 +68,11 @@ export default function LiveRecordingPage() {
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
   const [bars, setBars] = useState<number[]>(Array(36).fill(0));
+  const [stopResult, setStopResult] = useState<CaptureResult | null>(null);
+  const [stopModalOpen, setStopModalOpen] = useState(false);
 
   // 1. Start on mount, defensive discard on unmount
+  // biome-ignore lint/correctness/useExhaustiveDependencies: navState is navigation state captured at mount; intentionally run only once
   useEffect(() => {
     let cancelled = false;
     invoke<RecordingStartedDto>('start_recording', {
@@ -117,6 +120,16 @@ export default function LiveRecordingPage() {
     if (paused) await invoke('resume_recording');
     else await invoke('pause_recording');
     setPaused(!paused);
+  };
+
+  const onStop = async () => {
+    try {
+      const res = await invoke<CaptureResult>('stop_recording');
+      setStopResult(res);
+      setStopModalOpen(true);
+    } catch {
+      /* audio:error toast (Task 5.6) surfaces failure; stay responsive */
+    }
   };
 
   const { data: devices = [] } = useListAudioDevicesQuery();
@@ -187,7 +200,7 @@ export default function LiveRecordingPage() {
             <button
               type="button"
               className={`${styles.ctrlBtn} ${styles.ctrlStop}`}
-              onClick={() => navigate(Paths.Dashboard)}
+              onClick={onStop}
               title={t('liveStopHint')}
               aria-label="Stop"
             >
@@ -206,7 +219,15 @@ export default function LiveRecordingPage() {
         </div>
       </div>
 
-      {/* TODO Task 5.4: add stopResult/stopModalOpen state + onStop handler that calls stop_recording, then render <StopConfirmModal open={stopModalOpen} capture={stopResult} onClose={...} suggestedTitle={navState.name ?? ''} templateId={navState.templateId ?? 'tecnica'} />. Until then, the Stop button is a navigate-back placeholder. */}
+      {stopResult && (
+        <StopConfirmModal
+          open={stopModalOpen}
+          onClose={() => setStopModalOpen(false)}
+          capture={stopResult}
+          suggestedTitle={navState.name ?? ''}
+          templateId={navState.templateId ?? 'tecnica'}
+        />
+      )}
 
       <div className={styles.meta}>
         <div className={styles.metaBlock}>

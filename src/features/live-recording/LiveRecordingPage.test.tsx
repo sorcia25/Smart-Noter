@@ -1,5 +1,6 @@
 import { store } from '@/store';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -15,10 +16,12 @@ vi.mock('@tauri-apps/api/core', () => ({
     if (cmd === 'list_audio_devices') return [];
     if (cmd === 'list_templates') return [];
     if (cmd === 'get_settings') return null;
-    if (cmd === 'start_recording') return { sessionId: 'sess-test', sampleRate: 48000, channels: 2 };
+    if (cmd === 'start_recording')
+      return { sessionId: 'sess-test', sampleRate: 48000, channels: 2 };
     if (cmd === 'pause_recording') return null;
     if (cmd === 'resume_recording') return null;
-    if (cmd === 'stop_recording') return { sessionId: 'sess-test', path: '', bytes: 0, durationSec: 0 };
+    if (cmd === 'stop_recording')
+      return { sessionId: 'sess-test', path: 'C:/tmp.wav', bytes: 2048, durationSec: 10 };
     if (cmd === 'discard_recording') return null;
     return null;
   }),
@@ -47,5 +50,12 @@ describe('LiveRecordingPage', () => {
     await waitFor(() =>
       expect(container.querySelector('[data-screen-label="04 Live recording"]')).toBeTruthy()
     );
+  });
+
+  it('clicking Stop invokes stop_recording and opens the save modal', async () => {
+    setup();
+    await waitFor(() => expect(screen.getByText(/GRABANDO/i)).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(screen.getByText(/Guardar grabación/i)).toBeInTheDocument());
   });
 });
