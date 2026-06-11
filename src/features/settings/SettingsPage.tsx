@@ -90,7 +90,7 @@ export default function SettingsPage() {
   }, [draft, serverSettings, updateSettings]);
 
   function patch(p: Partial<AppSettings>) {
-    setDraft((prev) => ({ ...prev, ...p }));
+    setDraft((prev: AppSettings) => ({ ...prev, ...p }));
   }
 
   const captureModes: { value: CaptureMode; label: string }[] = [

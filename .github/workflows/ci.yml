@@ -21,13 +21,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Generate IPC bindings stub for type-check
         # The Rust job below regenerates the real one. For the frontend pipeline we ship
-        # a minimal stub so `tsc -b` can succeed without running the cargo binary.
+        # a minimal stub so `tsc --noEmit` can succeed without running the cargo binary.
         shell: bash
         run: |
           mkdir -p src/ipc
-          printf '// @ts-nocheck\n/* eslint-disable */\nexport const commands = {} as any;\nexport type Action = any;\nexport type AppError = any;\nexport type AppSettings = any;\nexport type AudioDevice = any;\nexport type AvatarStyle = any;\nexport type Bilingual = any;\nexport type CaptureMode = any;\nexport type Language = any;\nexport type MeetingDetail = any;\nexport type MeetingSummary = any;\nexport type Participant = any;\nexport type Template = any;\nexport type Theme = any;\nexport type TranscriptLine = any;\nexport type Result<T, E> = any;\n' > src/ipc/bindings.ts
+          printf '// @ts-nocheck\n/* eslint-disable */\nexport const commands = {} as any;\nexport type Action = any;\nexport type AppError = any;\nexport type AppSettings = any;\nexport type AudioDevice = any;\nexport type AudioDeviceKind = any;\nexport type AudioErrorCode = any;\nexport type AudioFormat = any;\nexport type AvatarStyle = any;\nexport type Bilingual = any;\nexport type CaptureMode = any;\nexport type CaptureResult = any;\nexport type Language = any;\nexport type MeetingDetail = any;\nexport type MeetingSummary = any;\nexport type Participant = any;\nexport type RecordingStartedDto = any;\nexport type Template = any;\nexport type Theme = any;\nexport type TranscriptLine = any;\nexport type Result<T, E> = any;\n' > src/ipc/bindings.ts
       - run: pnpm generate:i18n-keys
       - run: pnpm lint
+      - run: pnpm check:node-types
       - run: pnpm check:hardcoded-strings
       - run: pnpm check:stories
       - run: pnpm test:coverage
@@ -52,6 +53,10 @@ jobs:
       - name: cargo test
         working-directory: src-tauri
         run: cargo test --workspace
+      - name: cargo test audio integration
+        working-directory: src-tauri
+        run: cargo test -p smart-noter-audio --features audio-integration -- --include-ignored
+        continue-on-error: true   # CI runners may not have audio hardware; gate softly
 
   e2e:
     needs: [frontend, backend]
