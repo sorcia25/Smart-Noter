@@ -2,6 +2,35 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+### [0.2.0] — Sub-2 Audio Capture — 2026-06-10
+
+#### Added
+
+- Real audio capture via WASAPI loopback (system) + cpal input (mic) + rubato-based mix
+- 3 capture modes: System / Mic / Mix
+- WAV (default) and FLAC formats; MP3 options remain in Settings as `disabled` placeholders (Sub-7)
+- Real-time level meter and waveform driven by Tauri events (`audio:level @20Hz`, `audio:waveform-bin @10Hz`, `audio:elapsed @1Hz`)
+- Pause/Resume that omits the paused span from the resulting file
+- `StopConfirmModal` with Save (commits meeting + asset) and Discard (deletes tmp)
+- New `meeting_assets` table (migration 0002) — 1:N relation, prepared for Sub-3/Sub-7 future assets
+- 9 new Tauri commands (`enumerate_audio_devices` reworked, `start/stop_preview`, `start/pause/resume/stop_recording`, `finalize/discard_recording`)
+- Global `audio:error` event listener routing to translated Toast in App.tsx
+- Startup sweep of orphan `tmp-*` files in `%APPDATA%\com.smartnoter.app\audio\`
+
+#### Changed
+
+- `AudioDevice` shape: `name` is now plain string, `kind` enum replaces `icon: string` (UI derives the icon)
+- The Foundation seed for `audio_devices` is no longer used (table orphaned, kept for backward compatibility)
+- `SegmentedControl` primitive supports per-option `disabled` with "Próximamente" tooltip
+
+#### Out of scope (still)
+
+- Whisper transcription (Sub-3)
+- AI summaries / RAG (Sub-5)
+- MP3 export (Sub-7)
+- Multiple parallel sessions
+- Hot-plug device detection
+
 ### [0.1.0] — Foundation — 2026-05-18
 
 #### Added
