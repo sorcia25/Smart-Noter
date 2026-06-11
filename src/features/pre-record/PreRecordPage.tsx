@@ -42,7 +42,12 @@ export default function PreRecordPage() {
 
   const [deviceId, setDeviceId] = useState<string>('');
   const selectedDevice = devices.find((d) => d.id === deviceId);
-  const captureMode: CaptureMode = selectedDevice?.kind === 'input' ? 'mic' : 'system';
+  const previewMode: CaptureMode = selectedDevice?.kind === 'input' ? 'mic' : 'system';
+  // The Settings-level Mix preference applies to the RECORDING only — preview stays
+  // single-source (the level bar meters the selected device). Mix needs the selected
+  // device to be a loopback: picking an input device is an explicit mic-only choice.
+  const recordMode: CaptureMode =
+    settings?.captureMode === 'mix' && previewMode === 'system' ? 'mix' : previewMode;
 
   const [templateId, setTemplateId] = useState<string>(searchParams.get('tpl') ?? 'tecnica');
   const [name, setName] = useState('');
@@ -60,7 +65,7 @@ export default function PreRecordPage() {
   useEffect(() => {
     if (!deviceId) return;
     let cancelled = false;
-    invoke('start_preview', { deviceId, captureMode }).catch((err) => {
+    invoke('start_preview', { deviceId, captureMode: previewMode }).catch((err) => {
       if (!cancelled) {
         const ae = toAppError(err);
         toast.error(t('audioErrorTitle'), { description: errorMessage(ae, t) });
@@ -70,7 +75,7 @@ export default function PreRecordPage() {
       cancelled = true;
       void invoke('stop_preview');
     };
-  }, [deviceId, captureMode, t]);
+  }, [deviceId, previewMode, t]);
 
   function start() {
     navigate(Paths.LiveRecording(genSessionId()), {
@@ -78,7 +83,7 @@ export default function PreRecordPage() {
         name: name.trim() || (lang === 'es' ? 'Reunión sin título' : 'Untitled meeting'),
         templateId,
         deviceId,
-        captureMode,
+        captureMode: recordMode,
         format: settings?.recordingQuality === 'FLAC' ? 'flac' : 'wav',
       },
     });
