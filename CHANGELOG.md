@@ -13,14 +13,14 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - Pause/Resume that omits the paused span from the resulting file
 - `StopConfirmModal` with Save (commits meeting + asset) and Discard (deletes tmp)
 - New `meeting_assets` table (migration 0002) — 1:N relation, prepared for Sub-3/Sub-7 future assets
-- 9 new Tauri commands (`enumerate_audio_devices` reworked, `start/stop_preview`, `start/pause/resume/stop_recording`, `finalize/discard_recording`)
+- 8 new Tauri commands + 1 reworked (`list_audio_devices` now returns real devices, `start/stop_preview`, `start/pause/resume/stop_recording`, `finalize/discard_recording`)
 - Global `audio:error` event listener routing to translated Toast in App.tsx
 - Startup sweep of orphan `tmp-*` files in `%APPDATA%\com.smartnoter.app\audio\`
 
 #### Changed
 
 - `AudioDevice` shape: `name` is now plain string, `kind` enum replaces `icon: string` (UI derives the icon)
-- The Foundation seed for `audio_devices` is no longer used (table orphaned, kept for backward compatibility)
+- `list_audio_devices` returns real WASAPI render + cpal input devices instead of the Foundation mock list; the unused `audioDevices` block in the seed JSON is kept so existing seed files still parse
 - `SegmentedControl` primitive supports per-option `disabled` with "Próximamente" tooltip
 
 #### Out of scope (still)
