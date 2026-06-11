@@ -100,7 +100,10 @@ describe('StopConfirmModal', () => {
   });
 
   it('save failure keeps modal open and does not call onClose', async () => {
-    vi.mocked(tauriCore.invoke).mockRejectedValueOnce(new Error('no finished session'));
+    vi.mocked(tauriCore.invoke).mockRejectedValueOnce({
+      code: 'internal',
+      message: 'no finished session to finalize',
+    });
     const onClose = vi.fn();
     setup(onClose);
     await userEvent.click(screen.getByRole('button', { name: /Guardar/i }));
@@ -115,5 +118,8 @@ describe('StopConfirmModal', () => {
     // Toast should fire with the audio error title (es locale)
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toBe('Error de captura de audio');
+    expect(vi.mocked(toast.error).mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ description: 'no finished session to finalize' })
+    );
   });
 });

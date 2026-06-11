@@ -1,8 +1,9 @@
+import type { TKey } from '@/i18n/keys';
 import { describe, expect, it } from 'vitest';
 import { errorMessage, toAppError } from './error';
 
-// Stub t that echoes keys — makes assertions readable without loading i18n
-const t = (k: string) => k;
+// Typed stub t that echoes keys — makes assertions readable without loading i18n
+const t = (k: TKey): string => k;
 
 describe('toAppError', () => {
   it('flattens nested audio rejection (adjacently-tagged AppError::Audio)', () => {
@@ -29,14 +30,18 @@ describe('toAppError', () => {
     const raw = { code: 'validation', message: 123 };
     expect(toAppError(raw)).toEqual({ code: 'validation', message: '123' });
   });
+
+  it('outer-audio with non-object message keeps outer code (plain string, not nested)', () => {
+    // Distinguishes nested AppError::Audio vs a plain message that happens to have code:'audio'
+    const raw = { code: 'audio', message: 'plain string' };
+    expect(toAppError(raw)).toEqual({ code: 'audio', message: 'plain string' });
+  });
 });
 
 describe('errorMessage', () => {
   it('returns translated key for a mapped audio code (DiskFull)', () => {
     const err = toAppError({ code: 'audio', message: { code: 'DiskFull', message: 'fallback' } });
-    expect(errorMessage(err, t as (k: import('@/i18n/keys').TKey) => string)).toBe(
-      'audioError.DiskFull'
-    );
+    expect(errorMessage(err, t)).toBe('audioError.DiskFull');
   });
 
   it('falls back to raw message for unmapped code AlreadyRecording', () => {
@@ -44,14 +49,12 @@ describe('errorMessage', () => {
       code: 'audio',
       message: { code: 'AlreadyRecording', message: 'already active' },
     });
-    expect(errorMessage(err, t as (k: import('@/i18n/keys').TKey) => string)).toBe(
-      'already active'
-    );
+    expect(errorMessage(err, t)).toBe('already active');
   });
 
   it('falls back to raw message for outer internal error', () => {
     const err = toAppError({ code: 'internal', message: 'db locked' });
-    expect(errorMessage(err, t as (k: import('@/i18n/keys').TKey) => string)).toBe('db locked');
+    expect(errorMessage(err, t)).toBe('db locked');
   });
 
   it('covers all 5 mapped codes', () => {
@@ -64,9 +67,7 @@ describe('errorMessage', () => {
     ] as const;
     for (const code of codes) {
       const err = { code, message: 'fallback' };
-      expect(errorMessage(err, t as (k: import('@/i18n/keys').TKey) => string)).toBe(
-        `audioError.${code}`
-      );
+      expect(errorMessage(err, t)).toBe(`audioError.${code}`);
     }
   });
 });

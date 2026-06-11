@@ -87,8 +87,12 @@ export default function LiveRecordingPage() {
       .then(() => {
         if (cancelled) void invoke('discard_recording');
       })
-      .catch(() => {
-        /* error already surfaces via audio:error toast in Task 5.6 */
+      .catch((err) => {
+        /* start failures are invoke rejections (never audio:error events) — surface them here */
+        if (!cancelled) {
+          const ae = toAppError(err);
+          toast.error(t('audioErrorTitle'), { description: errorMessage(ae, t) });
+        }
       });
     return () => {
       cancelled = true;

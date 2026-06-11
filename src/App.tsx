@@ -1,5 +1,5 @@
 import { listen } from '@tauri-apps/api/event';
-import { Suspense, useEffect } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import { useLocation, useRoutes } from 'react-router-dom';
 import styles from './App.module.css';
 import { ToastProvider, toast } from './components/primitives/Toast/Toast';
@@ -7,7 +7,7 @@ import { Sidebar } from './components/shell/Sidebar/Sidebar';
 import { WindowChrome } from './components/shell/WindowChrome/WindowChrome';
 import { useT } from './i18n/useT';
 import type { AudioErrorCode } from './ipc/bindings';
-import { errorMessage } from './ipc/error';
+import { errorMessage, toAppError } from './ipc/error';
 import { routes } from './router/routes';
 import { useGetSettingsQuery } from './store/api/settings.api';
 import { useAppDispatch, useAppSelector } from './store/hooks';
@@ -29,6 +29,9 @@ export default function App() {
   const { data: settings } = useGetSettingsQuery();
   const location = useLocation();
   const { t, setLang, lang } = useT();
+  // listener registered once; tRef keeps translations current without re-subscribing
+  const tRef = useRef(t);
+  tRef.current = t;
 
   useEffect(() => {
     if (settings) {
@@ -53,16 +56,20 @@ export default function App() {
     let un: (() => void) | null = null;
     listen<{ code: AudioErrorCode; message: string }>('audio:error', (e) => {
       if (cancelled) return;
-      toast.error(t('audioErrorTitle'), { description: errorMessage(e.payload, t) });
-    }).then((fn) => {
-      if (cancelled) fn();
-      else un = fn;
-    });
+      toast.error(tRef.current('audioErrorTitle'), {
+        description: errorMessage(toAppError(e.payload), tRef.current),
+      });
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else un = fn;
+      })
+      .catch(() => {}); // swallow rejection in browser/test environments without Tauri
     return () => {
       cancelled = true;
       un?.();
     };
-  }, [t]);
+  }, []);
 
   const element = useRoutes(routes);
   const titleKey = TITLES_KEY[location.pathname];
