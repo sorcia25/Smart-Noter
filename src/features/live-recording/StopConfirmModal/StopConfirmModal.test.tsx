@@ -123,7 +123,10 @@ describe('StopConfirmModal', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toBe('Error de captura de audio');
     expect(vi.mocked(toast.error).mock.calls[0]?.[1]).toEqual(
-      expect.objectContaining({ description: 'no finished session to finalize' })
+      expect.objectContaining({
+        id: expect.stringMatching(/^audio-error:/),
+        description: 'no finished session to finalize',
+      })
     );
   });
 });

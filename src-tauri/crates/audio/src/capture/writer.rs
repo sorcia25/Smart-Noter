@@ -164,11 +164,11 @@ impl FlacWriterImpl {
         let header_len = header_bytes.len();
 
         let mut file = std::io::BufWriter::new(
-            std::fs::File::create(&path).map_err(|e| classify_create_error(e, &path))?,
+            std::fs::File::create(&path).map_err(|e| classify_io_error_at("create", e, &path))?,
         );
         use std::io::Write;
         file.write_all(&header_bytes)
-            .map_err(|e| classify_create_error(e, &path))?;
+            .map_err(|e| classify_io_error_at("create", e, &path))?;
 
         Ok(Self {
             file: Some(file),
@@ -226,7 +226,7 @@ impl FlacWriterImpl {
             .ok_or_else(|| AudioError::Other("writer already finalized".into()))?;
         use std::io::Write;
         file.write_all(sink.as_slice())
-            .map_err(|e| classify_create_error(e, &self.path))?;
+            .map_err(|e| classify_io_error_at("write frame", e, &self.path))?;
 
         self.frame_number += 1;
         self.pending.drain(..self.block_size * ch);
@@ -297,7 +297,7 @@ impl AudioWriter for FlacWriterImpl {
                 .as_mut()
                 .ok_or_else(|| AudioError::Other("writer already finalized".into()))?;
             file.write_all(sink.as_slice())
-                .map_err(|e| classify_create_error(e, &self.path))?;
+                .map_err(|e| classify_io_error_at("write frame", e, &self.path))?;
         }
 
         // Finalize StreamInfo: total_samples is per-channel frame count.
@@ -311,7 +311,7 @@ impl AudioWriter for FlacWriterImpl {
             .as_mut()
             .ok_or_else(|| AudioError::Other("writer already finalized".into()))?;
         file.flush()
-            .map_err(|e| classify_create_error(e, &self.path))?;
+            .map_err(|e| classify_io_error_at("flush", e, &self.path))?;
 
         // Re-serialize header with updated StreamInfo — must be same byte length.
         let mut new_sink = ByteSink::new();
@@ -331,13 +331,13 @@ impl AudioWriter for FlacWriterImpl {
         let inner = file.get_mut();
         inner
             .seek(SeekFrom::Start(0))
-            .map_err(|e| classify_create_error(e, &self.path))?;
+            .map_err(|e| classify_io_error_at("patch header", e, &self.path))?;
         inner
             .write_all(new_header)
-            .map_err(|e| classify_create_error(e, &self.path))?;
+            .map_err(|e| classify_io_error_at("patch header", e, &self.path))?;
         inner
             .flush()
-            .map_err(|e| classify_create_error(e, &self.path))?;
+            .map_err(|e| classify_io_error_at("flush", e, &self.path))?;
 
         // Take the file out to allow drop.
         drop(self.file.take());
@@ -351,14 +351,14 @@ impl AudioWriter for FlacWriterImpl {
     }
 }
 
-fn classify_create_error(e: std::io::Error, path: &Path) -> AudioError {
+fn classify_io_error_at(op: &str, e: std::io::Error, path: &Path) -> AudioError {
     use std::io::ErrorKind;
     if matches!(e.kind(), ErrorKind::StorageFull) {
         AudioError::DiskFull {
             path: path.display().to_string(),
         }
     } else {
-        AudioError::Other(format!("create {}: {}", path.display(), e))
+        AudioError::Other(format!("{op} {}: {e}", path.display()))
     }
 }
 
@@ -567,14 +567,14 @@ mod tests {
         );
     }
 
-    /// DiskFull classification unit test: verify classify_create_error maps
-    /// StorageFull to AudioError::DiskFull.
+    /// DiskFull classification unit test: verify classify_io_error_at maps
+    /// StorageFull to AudioError::DiskFull regardless of op string.
     #[test]
     fn disk_full_classification() {
         use std::io;
         let path = PathBuf::from("/tmp/test.flac");
         let storage_full = io::Error::new(io::ErrorKind::StorageFull, "no space");
-        let err = classify_create_error(storage_full, &path);
+        let err = classify_io_error_at("write frame", storage_full, &path);
         assert!(
             matches!(err, AudioError::DiskFull { .. }),
             "StorageFull must map to AudioError::DiskFull, got: {err:?}"

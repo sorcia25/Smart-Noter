@@ -65,8 +65,14 @@ pub fn stop_preview(state: tauri::State<'_, crate::state::AppState>) -> Result<(
     state.capture_session.lock().end_preview();
     let rec_opt = state.recorder.lock().take();
     if let Some(rec) = rec_opt {
-        if let Ok((path, _, _)) = rec.stop() {
-            let _ = std::fs::remove_file(path);
+        let tmp = rec.tmp_path.clone();
+        match rec.stop() {
+            Ok((path, _, _)) => {
+                let _ = std::fs::remove_file(path);
+            }
+            Err(_) => {
+                let _ = std::fs::remove_file(&tmp);
+            }
         }
     }
     Ok(())
@@ -219,7 +225,14 @@ pub fn stop_recording(
         .take()
         .ok_or(smart_noter_audio::AudioError::NotRecording)
         .map_err(AppError::from)?;
-    let (path, bytes, duration_sec) = rec.stop().map_err(AppError::from)?;
+    let tmp = rec.tmp_path.clone();
+    let (path, bytes, duration_sec) = rec.stop().map_err(|e| {
+        // rec.stop() failed (writer error); remove the partial tmp file so a full
+        // disk does not permanently block a retry. Session machine stays in Recording
+        // (cancel_recording via discard_recording is the recovery path).
+        let _ = std::fs::remove_file(&tmp);
+        AppError::from(e)
+    })?;
     state
         .capture_session
         .lock()
@@ -350,8 +363,14 @@ pub fn discard_recording(state: tauri::State<'_, crate::state::AppState>) -> Res
     // Recorder cleanup (separate lock, drops before fs I/O on tmp path).
     let rec_opt = state.recorder.lock().take();
     if let Some(rec) = rec_opt {
-        if let Ok((path, _, _)) = rec.stop() {
-            let _ = std::fs::remove_file(path);
+        let tmp = rec.tmp_path.clone();
+        match rec.stop() {
+            Ok((path, _, _)) => {
+                let _ = std::fs::remove_file(path);
+            }
+            Err(_) => {
+                let _ = std::fs::remove_file(&tmp);
+            }
         }
     }
 

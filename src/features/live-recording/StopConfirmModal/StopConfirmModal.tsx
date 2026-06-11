@@ -57,7 +57,11 @@ export function StopConfirmModal({
       navigate(Paths.MeetingDetail(meeting.id));
     } catch (err) {
       // Modal stays open — Discard remains the exit. Surface the error via toast.
-      toast.error(t('audioErrorTitle'), { description: errorMessage(toAppError(err), t) });
+      const ae = toAppError(err);
+      toast.error(t('audioErrorTitle'), {
+        id: `audio-error:${ae.code}`,
+        description: errorMessage(ae, t),
+      });
     } finally {
       setBusy(false);
     }
@@ -72,7 +76,11 @@ export function StopConfirmModal({
       // Even on failure we close and navigate: the page's unmount discard and
       // the startup tmp-sweep reclaim the file, so the user is never soft-locked.
       // Surface the error via toast for visibility.
-      toast.error(t('audioErrorTitle'), { description: errorMessage(toAppError(err), t) });
+      const ae = toAppError(err);
+      toast.error(t('audioErrorTitle'), {
+        id: `audio-error:${ae.code}`,
+        description: errorMessage(ae, t),
+      });
     } finally {
       setBusy(false);
       onClose();

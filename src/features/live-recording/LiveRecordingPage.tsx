@@ -91,7 +91,10 @@ export default function LiveRecordingPage() {
         /* start failures are invoke rejections (never audio:error events) — surface them here */
         if (!cancelled) {
           const ae = toAppError(err);
-          toast.error(t('audioErrorTitle'), { description: errorMessage(ae, t) });
+          toast.error(t('audioErrorTitle'), {
+            id: `audio-error:${ae.code}`,
+            description: errorMessage(ae, t),
+          });
         }
       });
     return () => {
@@ -136,7 +139,10 @@ export default function LiveRecordingPage() {
       setPaused(!paused);
     } catch (err) {
       const ae = toAppError(err);
-      toast.error(t('audioErrorTitle'), { description: errorMessage(ae, t) });
+      toast.error(t('audioErrorTitle'), {
+        id: `audio-error:${ae.code}`,
+        description: errorMessage(ae, t),
+      });
     }
   };
 
@@ -150,7 +156,10 @@ export default function LiveRecordingPage() {
       // NotRecording is the benign double-click race — second click after the
       // first already stopped the session. Suppress the toast for this case.
       if (ae.code !== 'NotRecording') {
-        toast.error(t('audioErrorTitle'), { description: errorMessage(ae, t) });
+        toast.error(t('audioErrorTitle'), {
+          id: `audio-error:${ae.code}`,
+          description: errorMessage(ae, t),
+        });
       }
     }
   };

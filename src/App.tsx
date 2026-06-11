@@ -57,6 +57,7 @@ export default function App() {
     listen<{ code: AudioErrorCode; message: string }>('audio:error', (e) => {
       if (cancelled) return;
       toast.error(tRef.current('audioErrorTitle'), {
+        id: `audio-error:${e.payload.code}`,
         description: errorMessage(toAppError(e.payload), tRef.current),
       });
     })

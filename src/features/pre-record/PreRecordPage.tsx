@@ -68,7 +68,10 @@ export default function PreRecordPage() {
     invoke('start_preview', { deviceId, captureMode: previewMode }).catch((err) => {
       if (!cancelled) {
         const ae = toAppError(err);
-        toast.error(t('audioErrorTitle'), { description: errorMessage(ae, t) });
+        toast.error(t('audioErrorTitle'), {
+          id: `audio-error:${ae.code}`,
+          description: errorMessage(ae, t),
+        });
       }
     });
     return () => {

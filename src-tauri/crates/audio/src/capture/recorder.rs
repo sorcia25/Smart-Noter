@@ -282,29 +282,36 @@ impl Recorder {
             )?),
         };
 
+        let writer_app = app.clone();
         let writer_paused = paused.clone();
         let writer_stop = stop_flag.clone();
         let writer_join = std::thread::spawn(move || -> Result<FinalizeResult, AudioError> {
-            loop {
-                match writer_rx.recv_timeout(Duration::from_millis(50)) {
-                    Ok(buf) => {
-                        if !writer_paused.load(Ordering::Relaxed) {
-                            writer.write(&buf)?;
+            let result = (|| -> Result<FinalizeResult, AudioError> {
+                loop {
+                    match writer_rx.recv_timeout(Duration::from_millis(50)) {
+                        Ok(buf) => {
+                            if !writer_paused.load(Ordering::Relaxed) {
+                                writer.write(&buf)?;
+                            }
                         }
-                    }
-                    // Safety net: only reachable if a source sender leaks; normal
-                    // exit is the Disconnected arm below.
-                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                        if writer_stop.load(Ordering::Relaxed) {
-                            break;
+                        // Safety net: only reachable if a source sender leaks; normal
+                        // exit is the Disconnected arm below.
+                        Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                            if writer_stop.load(Ordering::Relaxed) {
+                                break;
+                            }
                         }
+                        // Normal drain-exit: fan-out dropped writer_tx AND all queued
+                        // buffers have been consumed (crossbeam semantic).
+                        Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
                     }
-                    // Normal drain-exit: fan-out dropped writer_tx AND all queued
-                    // buffers have been consumed (crossbeam semantic).
-                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
                 }
+                writer.finalize()
+            })();
+            if let Err(ref e) = result {
+                let _ = writer_app.emit("audio:error", AudioErrorEvent::from(e));
             }
-            writer.finalize()
+            result
         });
 
         // Spawn meter thread — consumes meter_rx (sole consumer of its own channel).
