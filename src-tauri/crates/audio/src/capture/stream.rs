@@ -30,6 +30,10 @@ pub struct StreamHandle {
     /// The mixer's b-side resampler must be configured with this rate.
     /// `None` in System and Mic modes (no resampling needed).
     pub mic_sample_rate: Option<u32>,
+    /// Native rate/channels of the Mix sources (None outside Mix mode).
+    pub loop_sample_rate: Option<u32>,
+    pub loop_channels: Option<u16>,
+    pub mic_channels: Option<u16>,
     /// Keep handles alive so the OS doesn't drop the stream.
     _streams: Vec<Box<dyn KeepAlive>>,
 }
@@ -99,8 +103,11 @@ pub fn open(
             let shared_drops = Arc::new(AtomicU32::new(0));
             let loop_handle = open_loopback_with_drops(device_id, tx_a, shared_drops.clone())?;
             let mic_handle = open_mic_default_with_drops(tx_b, shared_drops.clone())?;
-            // Capture the mic's actual rate before the handle is consumed.
+            // Capture the Mix source metadata before the handles are consumed.
             let mic_sample_rate = mic_handle.sample_rate;
+            let loop_sample_rate = loop_handle.sample_rate;
+            let loop_channels = loop_handle.channels;
+            let mic_channels = mic_handle.channels;
             // Combine streams' keepalive boxes
             let mut streams = loop_handle._streams;
             streams.extend(mic_handle._streams);
@@ -115,6 +122,9 @@ pub fn open(
                 channels: 1, // mixed output is mono
                 drops: shared_drops,
                 mic_sample_rate: Some(mic_sample_rate),
+                loop_sample_rate: Some(loop_sample_rate),
+                loop_channels: Some(loop_channels),
+                mic_channels: Some(mic_channels),
                 _streams: streams,
             })
         }
@@ -178,6 +188,9 @@ fn open_loopback_with_drops(
         channels,
         drops,
         mic_sample_rate: None,
+        loop_sample_rate: None,
+        loop_channels: None,
+        mic_channels: None,
         _streams: vec![Box::new(WasapiStreamThread {
             stop,
             handle: Some(handle),
@@ -425,6 +438,9 @@ fn build_cpal_input_stream(
         channels,
         drops,
         mic_sample_rate: None,
+        loop_sample_rate: None,
+        loop_channels: None,
+        mic_channels: None,
         _streams: vec![Box::new(CpalStream(stream))],
     })
 }
@@ -655,6 +671,9 @@ mod tests {
             channels: 2,
             drops: drops.clone(),
             mic_sample_rate: None,
+            loop_sample_rate: None,
+            loop_channels: None,
+            mic_channels: None,
             _streams: vec![],
         };
         assert_eq!(h.sample_rate, 48_000);

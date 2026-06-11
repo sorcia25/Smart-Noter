@@ -23,12 +23,12 @@ use crate::capture::mixer::Mixer;
 use crate::capture::session::{AudioFormat, CaptureMode};
 use crate::capture::stream::{open, StreamHandle};
 use crate::capture::writer::{AudioWriter, FinalizeResult, FlacWriterImpl, WavWriterImpl};
-use crate::error::AudioError;
+use crate::error::{AudioError, AudioErrorEvent};
 use crossbeam_channel::bounded;
 use serde::Serialize;
 use specta::Type;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -155,19 +155,45 @@ impl Recorder {
             let (b_tx, b_rx) = bounded::<Vec<f32>>(64);
             let handle = open(mode, &device_id, a_tx, Some(b_tx))?;
 
-            // Spawn mixer thread.
-            let mixer_sample_rate_a = handle.sample_rate;
-            // Falls back to 48 kHz only if Mix branch didn't populate it (shouldn't happen).
-            let mixer_sample_rate_b = handle.mic_sample_rate.unwrap_or(48_000);
+            // Read the real source formats from the handle; warn on fallback (shouldn't happen).
+            let loop_sample_rate = handle.loop_sample_rate.unwrap_or_else(|| {
+                tracing::warn!(
+                    "loop_sample_rate not populated in Mix handle; falling back to TARGET"
+                );
+                crate::capture::mixer::TARGET_SAMPLE_RATE
+            });
+            let loop_channels = handle.loop_channels.unwrap_or_else(|| {
+                tracing::warn!("loop_channels not populated in Mix handle; falling back to 2");
+                2
+            });
+            let mic_sample_rate = handle.mic_sample_rate.unwrap_or_else(|| {
+                tracing::warn!(
+                    "mic_sample_rate not populated in Mix handle; falling back to 48000"
+                );
+                48_000
+            });
+            let mic_channels = handle.mic_channels.unwrap_or_else(|| {
+                tracing::warn!("mic_channels not populated in Mix handle; falling back to 1");
+                1
+            });
+
+            // Clone the drops Arc for the mixer thread to sync dropped_frames back.
+            let mixer_drops = handle.drops.clone();
             let source_tx_for_mixer = source_tx.clone();
             std::thread::spawn(move || {
-                let mut mixer = match Mixer::new(mixer_sample_rate_a, mixer_sample_rate_b) {
+                let mut mixer = match Mixer::new(
+                    loop_sample_rate,
+                    loop_channels,
+                    mic_sample_rate,
+                    mic_channels,
+                ) {
                     Ok(m) => m,
                     Err(e) => {
                         tracing::error!(?e, "mixer init");
                         return;
                     }
                 };
+                let mut last_synced: u32 = 0;
                 loop {
                     let a = match a_rx.recv() {
                         Ok(v) => v,
@@ -177,7 +203,16 @@ impl Recorder {
                         .recv_timeout(Duration::from_millis(50))
                         .unwrap_or_default();
                     if let Ok(mixed) = mixer.mix(&a, &b) {
-                        let _ = source_tx_for_mixer.try_send(mixed);
+                        // Skip empty outputs — one side is waiting for the other.
+                        if !mixed.is_empty() {
+                            let _ = source_tx_for_mixer.try_send(mixed);
+                        }
+                    }
+                    // Sync mixer overflow counter into the shared drops Arc.
+                    let d = mixer.dropped_frames();
+                    if d > last_synced {
+                        mixer_drops.fetch_add(d - last_synced, Ordering::Relaxed);
+                        last_synced = d;
                     }
                 }
             });
@@ -248,12 +283,16 @@ impl Recorder {
         let meter_paused = paused.clone();
         let meter_sample_rate = stream.sample_rate;
         let meter_channels = stream.channels;
+        // Clone the drops Arc so the meter thread can emit audio:error when pipeline overflows.
+        let meter_drops: Arc<AtomicU32> = stream.drops.clone();
         let meter_join = std::thread::spawn(move || {
             let mut meter = Meter::new(meter_sample_rate, meter_channels);
             let mut clock = RecordedClock::new(Instant::now());
             let mut last_level = Instant::now();
             let mut last_wave = Instant::now();
             let mut last_elapsed = Instant::now();
+            // Guard: emit audio:error at most once per session when drops >= 100.
+            let mut overflow_emitted = false;
             loop {
                 if meter_stop.load(Ordering::Relaxed) {
                     break;
@@ -296,6 +335,16 @@ impl Recorder {
                             elapsed_sec: recorded.as_secs() as u32,
                         },
                     );
+                    // Check drops in the 1 Hz gate (cheap cadence). Emit audio:error
+                    // exactly once per session when the pipeline drops >= 100.
+                    if !overflow_emitted {
+                        let dropped = meter_drops.load(Ordering::Relaxed);
+                        if dropped >= 100 {
+                            overflow_emitted = true;
+                            let err = AudioError::MixerOverflow { dropped };
+                            let _ = meter_app.emit("audio:error", AudioErrorEvent::from(&err));
+                        }
+                    }
                 }
             }
         });
