@@ -185,6 +185,15 @@ export default function LiveRecordingPage() {
 
   const meetingName = navState.name ?? (lang === 'es' ? 'Reunión sin título' : 'Untitled meeting');
 
+  // Mix records the loopback device plus the default mic — the source line says so.
+  const sourceName = device
+    ? navState.captureMode === 'mix'
+      ? `${device.name} ${t('sourceMixSuffix')}`
+      : device.name
+    : lang === 'es'
+      ? 'Sin dispositivo'
+      : 'No device';
+
   return (
     <div className={styles.page} data-screen-label="04 Live recording">
       <div className={styles.header}>
@@ -265,9 +274,7 @@ export default function LiveRecordingPage() {
         <div className={styles.metaBlock}>
           <Icon name={device ? iconFor(device.kind) : 'monitor'} size={14} />
           <span>{t('sourceLabel')}:</span>
-          <span className={styles.metaStrong}>
-            {device ? device.name : lang === 'es' ? 'Sin dispositivo' : 'No device'}
-          </span>
+          <span className={styles.metaStrong}>{sourceName}</span>
         </div>
         <div className={styles.metaBlock}>
           <Icon name="user" size={14} />

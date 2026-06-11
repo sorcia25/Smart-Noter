@@ -243,5 +243,41 @@ describe('PreRecordPage', () => {
         })
       );
     });
+
+    // Case 5: resolved mix mode is surfaced in the UI near the device grid
+    it('settings.captureMode mix + loopback device → shows the mix recording hint', async () => {
+      setupWithSettings('mix', 'loopback');
+      expect(
+        await screen.findByText(
+          'Modo Mezcla: se grabará el audio del sistema + tu micrófono predeterminado.'
+        )
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText('Modo Mezcla ignorado: se grabará sólo el micrófono seleccionado.')
+      ).not.toBeInTheDocument();
+    });
+
+    // Case 6: mix preference overridden by an input device → the override is surfaced
+    it('settings.captureMode mix + input device → shows the mix override hint', async () => {
+      setupWithSettings('mix', 'input');
+      expect(
+        await screen.findByText('Modo Mezcla ignorado: se grabará sólo el micrófono seleccionado.')
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          'Modo Mezcla: se grabará el audio del sistema + tu micrófono predeterminado.'
+        )
+      ).not.toBeInTheDocument();
+    });
+
+    // Case 7: non-mix settings → no mode hint at all
+    it('settings.captureMode system + loopback device → shows no mix hint', async () => {
+      const invokeMock = setupWithSettings('system', 'loopback');
+      // Settle: device auto-selected (preview fired) — settings resolve in the same mock pass.
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith('start_preview', expect.anything())
+      );
+      expect(screen.queryByText(/Modo Mezcla/)).not.toBeInTheDocument();
+    });
   });
 });

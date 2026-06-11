@@ -127,6 +127,10 @@ export default function PreRecordPage() {
                 />
               ))}
             </div>
+            {recordMode === 'mix' && <div className={styles.modeHint}>{t('mixRecordHint')}</div>}
+            {settings?.captureMode === 'mix' && recordMode === 'mic' && (
+              <div className={styles.modeHint}>{t('mixOverrideHint')}</div>
+            )}
             <AudioPreviewCard />
           </div>
 
