@@ -19,7 +19,7 @@ import { useListTemplatesQuery } from '@/store/api/templates.api';
 import { fmtDuration, pickL } from '@/utils/format';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import styles from './LiveRecordingPage.module.css';
 import { StopConfirmModal } from './StopConfirmModal/StopConfirmModal';
@@ -75,31 +75,54 @@ export default function LiveRecordingPage() {
   const [stopResult, setStopResult] = useState<CaptureResult | null>(null);
   const [stopModalOpen, setStopModalOpen] = useState(false);
 
-  // 1. Start on mount, defensive discard on unmount
+  // Refs guarding the StrictMode-safe start/discard lifecycle (see effect below).
+  const startedRef = useRef(false);
+  const mountedRef = useRef(false);
+  const teardownTimer = useRef<number | null>(null);
+
+  // 1. Start on mount (exactly once), discard on a REAL unmount only.
+  //
+  // The backend recording session is a global singleton, so the naive
+  // "start on mount / discard on cleanup" pattern self-destructs under React
+  // StrictMode (dev double-mount: mount → cleanup → mount). The cleanup's
+  // global discard tears down the session the remount relies on, leaving the
+  // recording dead (timer frozen, pause → NotRecording). Guard start with a ref
+  // so it fires once, and DEFER the discard one macrotask: a StrictMode remount
+  // (or a fast back/forward navigation) clears the pending timer before it runs,
+  // so the live session survives. A real unmount has no remount → discard fires.
+  // The deferred discard double-guards on `mountedRef`: even if the clear loses
+  // the timing race, a remount that flipped us back to mounted skips the discard.
   // biome-ignore lint/correctness/useExhaustiveDependencies: navState is navigation state captured at mount; intentionally run only once
   useEffect(() => {
-    let cancelled = false;
-    invoke<RecordingStartedDto>('start_recording', {
-      deviceId: navState.deviceId,
-      captureMode: navState.captureMode ?? 'system',
-      format: navState.format ?? 'wav',
-    })
-      .then(() => {
-        if (cancelled) void invoke('discard_recording').catch(() => {});
-      })
-      .catch((err) => {
+    mountedRef.current = true;
+    if (teardownTimer.current !== null) {
+      clearTimeout(teardownTimer.current);
+      teardownTimer.current = null;
+    }
+    if (!startedRef.current) {
+      startedRef.current = true;
+      invoke<RecordingStartedDto>('start_recording', {
+        deviceId: navState.deviceId,
+        captureMode: navState.captureMode ?? 'system',
+        format: navState.format ?? 'wav',
+      }).catch((err) => {
         /* start failures are invoke rejections (never audio:error events) — surface them here */
-        if (!cancelled) {
-          const ae = toAppError(err);
-          toast.error(t('audioErrorTitle'), {
-            id: `audio-error:${ae.code}`,
-            description: errorMessage(ae, t),
-          });
-        }
+        startedRef.current = false;
+        const ae = toAppError(err);
+        toast.error(t('audioErrorTitle'), {
+          id: `audio-error:${ae.code}`,
+          description: errorMessage(ae, t),
+        });
       });
+    }
     return () => {
-      cancelled = true;
-      void invoke('discard_recording').catch(() => {});
+      mountedRef.current = false;
+      teardownTimer.current = window.setTimeout(() => {
+        teardownTimer.current = null;
+        if (mountedRef.current) return; // remounted (StrictMode / fast nav) → keep the session
+        startedRef.current = false;
+        void invoke('discard_recording').catch(() => {});
+      }, 0);
     };
   }, []);
 
