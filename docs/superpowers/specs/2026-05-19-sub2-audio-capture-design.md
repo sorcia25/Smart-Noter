@@ -1,6 +1,6 @@
 # Sub-project 2 — Audio Capture (Design)
 
-> Status: **Spec approved 2026-05-19**, awaiting implementation plan.
+> Status: **Implemented 2026-06-15** — tag `v0.2.0-sub2-audio`.
 > Depends on: Foundation v0.1.0 (this branch's `main` after merge).
 > Unblocks: Sub-3 (Whisper transcription), Sub-7 (Export to MD/PDF/MP3).
 
