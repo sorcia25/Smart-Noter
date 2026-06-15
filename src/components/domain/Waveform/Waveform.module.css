@@ -18,6 +18,14 @@
   animation: none;
 }
 
+/* Live mode: real audio bins drive the inline height, so the generic keyframe
+   animation is disabled (it animates `height` and would clobber the data).
+   A short transition keeps the 100ms-cadence updates from looking jumpy. */
+.live span {
+  animation: none;
+  transition: height 0.1s linear;
+}
+
 @keyframes wave {
   from {
     height: 8%;

@@ -23,10 +23,17 @@ export function Waveform({ bars = 36, paused = false, className, externalBins }:
     heightsRef.current = Array.from({ length: bars }, () => 0.25 + Math.random() * 0.75);
   }
   const heights = externalBins ?? heightsRef.current;
+  // With real audio data the inline per-bar height carries the signal, so the
+  // generic CSS keyframe animation (which animates `height` and would override
+  // the inline value) must be turned off — otherwise the bars just bounce
+  // 8%↔100% and ignore `externalBins` entirely.
+  const live = externalBins != null;
 
   return (
     <div
-      className={[styles.wave, paused && styles.paused, className].filter(Boolean).join(' ')}
+      className={[styles.wave, paused && styles.paused, live && styles.live, className]
+        .filter(Boolean)
+        .join(' ')}
       aria-label="audio waveform"
     >
       {heights.map((h, i) => (
