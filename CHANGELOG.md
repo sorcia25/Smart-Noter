@@ -2,7 +2,7 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-### [0.2.0] — Sub-2 Audio Capture — 2026-06-10
+### [0.2.0] — Sub-2 Audio Capture — 2026-06-15
 
 #### Added
 

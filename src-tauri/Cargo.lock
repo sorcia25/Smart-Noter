@@ -3867,7 +3867,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3896,7 +3896,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-audio"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cpal",
  "crossbeam-channel",
@@ -3917,7 +3917,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",
@@ -3929,7 +3929,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-db"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",
@@ -3945,11 +3945,11 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-providers"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "smart-noter-whisper"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "socket2"
