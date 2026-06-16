@@ -87,6 +87,8 @@ pub fn run() {
                         smart_noter_audio::capture::session::CaptureSession::default(),
                     )),
                     recorder: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+                    transcription: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+                    download: std::sync::Arc::new(parking_lot::Mutex::new(None)),
                 });
             });
             Ok(())

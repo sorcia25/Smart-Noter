@@ -2,6 +2,7 @@ use parking_lot::Mutex;
 use smart_noter_audio::capture::recorder::Recorder;
 use smart_noter_audio::capture::session::CaptureSession;
 use sqlx::SqlitePool;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::Arc;
 
 /// Application-wide shared state, accessed through `tauri::State<'_, AppState>`
@@ -24,4 +25,23 @@ pub struct AppState {
     pub pool: SqlitePool,
     pub capture_session: Arc<Mutex<CaptureSession>>,
     pub recorder: Arc<Mutex<Option<Recorder>>>,
+    pub transcription: Arc<Mutex<Option<TranscriptionHandle>>>,
+    pub download: Arc<Mutex<Option<DownloadHandle>>>,
+}
+
+/// Live transcription job (one at a time). `pct` is updated by the progress
+/// callback so `get_transcription_state` can report it; `abort` is polled by
+/// whisper.cpp to cancel.
+#[derive(Clone)]
+pub struct TranscriptionHandle {
+    pub meeting_id: String,
+    pub abort: Arc<AtomicBool>,
+    pub pct: Arc<AtomicU32>,
+}
+
+/// Live model download (one at a time).
+#[derive(Clone)]
+pub struct DownloadHandle {
+    pub id: String,
+    pub abort: Arc<AtomicBool>,
 }
