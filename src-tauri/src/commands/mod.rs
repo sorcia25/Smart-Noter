@@ -4,3 +4,4 @@ pub mod log;
 pub mod meetings;
 pub mod settings;
 pub mod templates;
+pub mod transcription;
