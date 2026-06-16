@@ -13,6 +13,7 @@ import { setAccent, setLanguage, setTheme } from '@/store/slices/ui.slice';
 import { pickL } from '@/utils/format';
 import { useEffect, useState } from 'react';
 import styles from './SettingsPage.module.css';
+import { TranscriptionPanel } from './TranscriptionPanel';
 import { PROVIDERS, type ProviderId } from './providers';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -412,6 +413,11 @@ export default function SettingsPage() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Whisper model management */}
+        <div className={styles.group}>
+          <TranscriptionPanel draft={draft} patch={patch} />
         </div>
 
         {/* Privacy + storage */}
