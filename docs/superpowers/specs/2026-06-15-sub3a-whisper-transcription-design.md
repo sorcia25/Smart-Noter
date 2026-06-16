@@ -1,6 +1,6 @@
 # Sub-project 3a — Whisper Local Transcription (Design)
 
-> Status: **Spec approved 2026-06-15**, awaiting implementation plan.
+> Status: **Implemented 2026-06-16** — tag `v0.3.0-sub3a-transcription`.
 > Depends on: Sub-2 Audio Capture (`v0.2.0-sub2-audio`) — provides the saved `.wav`/`.flac` per meeting.
 > Unblocks: Sub-3b (Speaker Diarization), Sub-5 (AI Summary + Chat — also owns transcript translation).
 
