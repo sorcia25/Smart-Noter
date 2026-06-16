@@ -877,9 +877,18 @@ pub fn transcribe(
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
     params.set_progress_callback_safe(move |p: i32| progress(p.clamp(0, 100) as u32));
-    {
-        let abort = abort.clone();
-        params.set_abort_callback_safe(move || abort.load(Ordering::Relaxed));
+    // NOTE: whisper-rs 0.16's `set_abort_callback_safe` is BUGGED — it instantiates the
+    // trampoline as `trampoline::<F>` (concrete closure) but stores a `*mut Box<dyn FnMut()->bool>`,
+    // so the trampoline reads garbage and whisper spuriously aborts ("failed to encode") partway
+    // through a multi-window transcription. Wire the raw ggml abort callback ourselves instead.
+    // `abort_trampoline` (a module-level `unsafe extern "C" fn`) reads the AtomicBool:
+    //   unsafe extern "C" fn abort_trampoline(ud: *mut std::ffi::c_void) -> bool {
+    //       (*(ud as *const AtomicBool)).load(Ordering::Relaxed)
+    //   }
+    // SAFETY: `abort` (Arc<AtomicBool>) lives for the whole `state.full()` call below.
+    unsafe {
+        params.set_abort_callback(Some(abort_trampoline));
+        params.set_abort_callback_user_data(Arc::as_ptr(&abort) as *mut std::ffi::c_void);
     }
 
     state
@@ -920,7 +929,8 @@ pub fn transcribe(
 > **API verified (Task 0.2 spike):** whisper-rs 0.16 uses `state.full_n_segments() -> i32` (infallible),
 > `state.get_segment(i) -> Option<WhisperSegment>`, `seg.to_str_lossy()`, and
 > `seg.start_timestamp()/end_timestamp() -> i64` (centiseconds) — NOT the older `full_get_segment_text/t0/t1`.
-> `set_progress_callback_safe` + `set_abort_callback_safe` exist and compile.
+> `set_progress_callback_safe` works; `set_abort_callback_safe` is BUGGED in 0.16 (use the raw
+> `set_abort_callback` + `abort_trampoline` shown above — discovered during the Phase 8 smoke).
 
 - [ ] **Step 2: Compile-check with the feature (no-run)**
 

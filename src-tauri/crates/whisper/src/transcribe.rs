@@ -53,6 +53,17 @@ fn terr(code: TranscriptionErrorCode, m: impl Into<String>) -> TranscriptionErro
     }
 }
 
+/// Raw ggml abort callback. whisper-rs 0.16's `set_abort_callback_safe` is broken:
+/// it instantiates the trampoline as `trampoline::<F>` (the concrete closure type)
+/// but stores a `*mut Box<dyn FnMut() -> bool>` as user_data, so the trampoline
+/// reinterprets the fat-pointer box as the closure, reads garbage memory, and
+/// returns a junk bool — which makes whisper spuriously abort with "failed to
+/// encode" partway through. We wire the raw callback ourselves instead. `user_data`
+/// is a `*const AtomicBool` that outlives the `state.full()` call.
+unsafe extern "C" fn abort_trampoline(user_data: *mut std::ffi::c_void) -> bool {
+    (*(user_data as *const AtomicBool)).load(Ordering::Relaxed)
+}
+
 /// Run Whisper over `pcm` (16 kHz mono f32). `progress(pct)` is called as whisper
 /// advances; `abort` is polled — returning `true` cancels the run.
 pub fn transcribe(
@@ -80,9 +91,12 @@ pub fn transcribe(
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
     params.set_progress_callback_safe(move |p: i32| progress(p.clamp(0, 100) as u32));
-    {
-        let abort = abort.clone();
-        params.set_abort_callback_safe(move || abort.load(Ordering::Relaxed));
+    // SAFETY: `abort` (Arc<AtomicBool>) lives for the whole `state.full()` call below,
+    // so the pointer handed to whisper stays valid while whisper.cpp polls it. We use
+    // the raw setter because `set_abort_callback_safe` is bugged (see abort_trampoline).
+    unsafe {
+        params.set_abort_callback(Some(abort_trampoline));
+        params.set_abort_callback_user_data(Arc::as_ptr(&abort) as *mut std::ffi::c_void);
     }
 
     state
