@@ -4025,7 +4025,6 @@ version = "0.2.0"
 dependencies = [
  "claxon",
  "hound",
- "rubato",
  "serde",
  "sha2",
  "smart-noter-core",
