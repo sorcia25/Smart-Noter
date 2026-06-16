@@ -54,7 +54,7 @@ export function StopConfirmModal({
       });
       dispatch(baseApi.util.invalidateTags(['Meeting']));
       onClose();
-      navigate(Paths.MeetingDetail(meeting.id));
+      navigate(Paths.MeetingDetail(meeting.id), { state: { justRecorded: true } });
     } catch (err) {
       // Modal stays open — Discard remains the exit. Surface the error via toast.
       const ae = toAppError(err);

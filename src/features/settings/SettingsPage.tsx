@@ -27,7 +27,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   runLocal: true,
   autoDeleteAudio: false,
   transcriptionProvider: 'local',
-  transcriptionModel: 'Whisper Large v3',
+  transcriptionModel: 'large-v3',
+  autoTranscribe: false,
+  nativeLanguage: 'es',
   defaultTemplate: 'tecnica',
 };
 
