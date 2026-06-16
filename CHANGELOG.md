@@ -2,6 +2,21 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+### [0.3.0] — Sub-3a Whisper Local Transcription — 2026-06-16
+
+#### Added
+
+- Local speech-to-text via `whisper-rs` (whisper.cpp, CPU) in the new `smart-noter-whisper` crate — decode WAV/FLAC → 16 kHz mono → transcript lines with timestamps, persisted to `transcript_lines` (single speaker `S1`)
+- Whisper model manager: catalog (base / small / medium / large-v3), on-demand download with progress + sha256 verification, select / delete — in a new Settings "Transcription" panel
+- Auto-transcription on save (gated by a new `autoTranscribe` setting + a `justRecorded` nav flag) plus a manual "Transcribe" button; live progress and cancellation via `transcription:*` / `whisper-download:*` events
+- New settings: `autoTranscribe`, `nativeLanguage` (for Sub-5 translation); `transcriptionModel` now stores a model id (default `large-v3`)
+- 6 Tauri commands: `transcribe_meeting`, `cancel_transcription`, `get_transcription_state`, `list_whisper_models`, `download_whisper_model`, `delete_whisper_model`
+
+#### Notes
+
+- Real speaker diarization (who spoke) is deferred to **Sub-3b**; transcript translation to the native language to **Sub-5**
+- Worked around a `whisper-rs` 0.16 bug: `set_abort_callback_safe` has a trampoline type-confusion that spuriously aborts inference ("failed to encode") — the raw `set_abort_callback` is wired manually instead
+
 ### [0.2.0] — Sub-2 Audio Capture — 2026-06-15
 
 #### Added
