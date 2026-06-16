@@ -213,11 +213,13 @@ fn spike_transcribes_silence() {
     let audio = vec![0.0_f32; 16_000 * 5];
     state.full(params, &audio).expect("run");
 
-    let n = state.full_n_segments().expect("n segments");
+    let n = state.full_n_segments(); // 0.16: returns i32 directly
     for i in 0..n {
-        let _text = state.full_get_segment_text(i).expect("text");
-        let _t0 = state.full_get_segment_t0(i).expect("t0"); // centiseconds
-        let _t1 = state.full_get_segment_t1(i).expect("t1");
+        if let Some(seg) = state.get_segment(i) {
+            let _text = seg.to_str_lossy().expect("text");
+            let _t0 = seg.start_timestamp(); // centiseconds (i64)
+            let _t1 = seg.end_timestamp();
+        }
     }
     // Success = the API compiled and ran. Silence may yield 0 segments — that's fine.
 }
@@ -888,20 +890,23 @@ pub fn transcribe(
         return Err(terr(TranscriptionErrorCode::Cancelled, "transcription cancelled"));
     }
 
-    let n = state
-        .full_n_segments()
-        .map_err(|e| terr(TranscriptionErrorCode::InferenceFailed, e.to_string()))?;
-    let mut out = Vec::with_capacity(n as usize);
+    // whisper-rs 0.16 segment API (verified via the Task 0.2 spike):
+    //   full_n_segments() -> i32 (infallible); get_segment(i) -> Option<WhisperSegment>;
+    //   seg.to_str_lossy() -> Result<Cow<str>>; seg.start_timestamp()/end_timestamp() -> i64 (centiseconds).
+    let n = state.full_n_segments();
+    let mut out = Vec::with_capacity(n.max(0) as usize);
     for i in 0..n {
-        let text = state
-            .full_get_segment_text(i)
-            .map_err(|e| terr(TranscriptionErrorCode::InferenceFailed, e.to_string()))?;
-        let t0 = state.full_get_segment_t0(i).unwrap_or(0); // centiseconds
-        let t1 = state.full_get_segment_t1(i).unwrap_or(t0);
-        let text = text.trim().to_string();
+        let Some(seg) = state.get_segment(i) else { continue };
+        let text = seg
+            .to_str_lossy()
+            .map_err(|e| terr(TranscriptionErrorCode::InferenceFailed, e.to_string()))?
+            .trim()
+            .to_string();
         if text.is_empty() {
             continue;
         }
+        let t0 = seg.start_timestamp(); // centiseconds
+        let t1 = seg.end_timestamp();
         out.push(Segment {
             start_ms: (t0.max(0) * 10) as u32,
             end_ms: (t1.max(0) * 10) as u32,
@@ -912,7 +917,10 @@ pub fn transcribe(
 }
 ```
 
-> **API-name caveat:** `set_progress_callback_safe` and `set_abort_callback_safe` were verified to compile in Task 0.2. If Task 0.2's `--no-run` build flagged either name (whisper-rs renamed some safe-callback setters across 0.13→0.16), use the name the compiler accepts and keep the same closure bodies.
+> **API verified (Task 0.2 spike):** whisper-rs 0.16 uses `state.full_n_segments() -> i32` (infallible),
+> `state.get_segment(i) -> Option<WhisperSegment>`, `seg.to_str_lossy()`, and
+> `seg.start_timestamp()/end_timestamp() -> i64` (centiseconds) — NOT the older `full_get_segment_text/t0/t1`.
+> `set_progress_callback_safe` + `set_abort_callback_safe` exist and compile.
 
 - [ ] **Step 2: Compile-check with the feature (no-run)**
 
