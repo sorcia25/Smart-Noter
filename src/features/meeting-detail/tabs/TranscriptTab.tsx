@@ -1,10 +1,14 @@
 import { SubjectAvatar } from '@/components/primitives/Avatar/Avatar';
+import { Button } from '@/components/primitives/Button/Button';
 import { Chip } from '@/components/primitives/Chip/Chip';
 import { Icon } from '@/components/primitives/Icon/Icon';
 import { useT } from '@/i18n/useT';
-import type { MeetingDetail, Participant, TranscriptLine } from '@/ipc/bindings';
+import type { MeetingDetail, Participant } from '@/ipc/bindings';
+import { useGetSettingsQuery } from '@/store/api/settings.api';
 import { pickL } from '@/utils/format';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+import { useTranscription } from '../useTranscription';
 import styles from './TranscriptTab.module.css';
 
 export interface TranscriptTabProps {
@@ -22,6 +26,10 @@ function speakerLabel(p: Participant | undefined, lang: 'es' | 'en'): string {
 
 export function TranscriptTab({ meeting }: TranscriptTabProps) {
   const { t, lang } = useT();
+  const location = useLocation();
+  const justRecorded = (location.state as { justRecorded?: boolean } | null)?.justRecorded ?? false;
+  const { data: settings } = useGetSettingsQuery();
+  const { status, pct, start, cancel } = useTranscription(meeting.id);
 
   const byId = useMemo(() => {
     const map = new Map<string, Participant>();
@@ -29,30 +37,17 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
     return map;
   }, [meeting.participants]);
 
-  // Synthesize sample lines when the meeting has none (Foundation: most meetings have empty transcripts)
-  const lines: TranscriptLine[] = useMemo(() => {
-    if (meeting.transcript.length > 0) return meeting.transcript;
-    const [p0, p1] = meeting.participants;
-    if (!p0 || !p1) return [];
-    return [
-      {
-        t: '00:00:04',
-        speakerId: p0.id,
-        text: {
-          es: 'Bienvenidos. Vamos a comenzar la sesión hoy revisando los puntos pendientes.',
-          en: "Welcome. Let's start today's session reviewing pending items.",
-        },
-      },
-      {
-        t: '00:00:20',
-        speakerId: p1.id,
-        text: {
-          es: 'Gracias. Tengo varios puntos importantes que compartir con el equipo.',
-          en: 'Thanks. I have several important points to share with the team.',
-        },
-      },
-    ];
-  }, [meeting.transcript, meeting.participants]);
+  const lines = meeting.transcript; // real data only — no more mock synthesis
+
+  // Auto-trigger ONLY for a freshly-saved recording with the setting on.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStarted.current) return;
+    if (lines.length === 0 && justRecorded && settings?.autoTranscribe && status === 'idle') {
+      autoStarted.current = true;
+      void start();
+    }
+  }, [lines.length, justRecorded, settings?.autoTranscribe, status, start]);
 
   return (
     <div className={styles.card}>
@@ -65,13 +60,7 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
           </Chip>
         </div>
       </div>
-      {lines.length === 0 ? (
-        <div className={styles.empty}>
-          {lang === 'es'
-            ? 'Sin transcripción para esta reunión.'
-            : 'No transcript for this meeting.'}
-        </div>
-      ) : (
+      {lines.length > 0 ? (
         <div>
           {lines.map((l) => {
             const sp = byId.get(l.speakerId);
@@ -92,6 +81,26 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
               </div>
             );
           })}
+        </div>
+      ) : status === 'running' ? (
+        <div className={styles.empty}>
+          <div>
+            {t('transcribe.running')} {pct}%
+          </div>
+          <Button variant="default" onClick={() => void cancel()}>
+            {t('transcribe.cancel')}
+          </Button>
+        </div>
+      ) : (
+        <div className={styles.empty}>
+          <div>
+            {lang === 'es'
+              ? 'Sin transcripción para esta reunión.'
+              : 'No transcript for this meeting.'}
+          </div>
+          <Button variant="primary" onClick={() => void start()}>
+            {t('transcribe.cta')}
+          </Button>
         </div>
       )}
     </div>
