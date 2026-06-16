@@ -7,6 +7,13 @@ const codeToKey: Record<string, TKey> = {
   FormatUnsupported: 'audioError.FormatUnsupported',
   DiskFull: 'audioError.DiskFull',
   MixerOverflow: 'audioError.MixerOverflow',
+  ModelNotDownloaded: 'transcriptionError.ModelNotDownloaded',
+  TranscriptionBusy: 'transcriptionError.TranscriptionBusy',
+  DecodeFailed: 'transcriptionError.DecodeFailed',
+  ModelLoadFailed: 'transcriptionError.ModelLoadFailed',
+  InferenceFailed: 'transcriptionError.InferenceFailed',
+  DownloadBusy: 'transcriptionError.DownloadBusy',
+  DownloadFailed: 'transcriptionError.DownloadFailed',
 };
 
 export function errorMessage(err: AppError, t: (k: TKey) => string): string {
@@ -25,7 +32,7 @@ export function toAppError(e: unknown): AppError {
   if (typeof e === 'object' && e !== null && 'code' in e) {
     const outer = e as Record<string, unknown>;
     if (
-      outer.code === 'audio' &&
+      (outer.code === 'audio' || outer.code === 'transcription') &&
       typeof outer.message === 'object' &&
       outer.message !== null &&
       typeof (outer.message as Record<string, unknown>).code === 'string' &&

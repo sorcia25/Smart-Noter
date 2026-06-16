@@ -36,6 +36,15 @@ describe('toAppError', () => {
     const raw = { code: 'audio', message: 'plain string' };
     expect(toAppError(raw)).toEqual({ code: 'audio', message: 'plain string' });
   });
+
+  it('flattens a nested transcription error and maps its code to a key', () => {
+    const ae = toAppError({
+      code: 'transcription',
+      message: { code: 'ModelNotDownloaded', message: 'large-v3' },
+    });
+    expect(ae.code).toBe('ModelNotDownloaded');
+    expect(errorMessage(ae, (k) => k)).toBe('transcriptionError.ModelNotDownloaded');
+  });
 });
 
 describe('errorMessage', () => {

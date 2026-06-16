@@ -171,5 +171,21 @@
   "discard": "Discard",
   "save": "Save",
   "saveRecording": "Save recording",
-  "saveRecordingSub": "Give it a name. Transcript and summary are generated afterwards."
+  "saveRecordingSub": "Give it a name. Transcript and summary are generated afterwards.",
+  "transcriptionError.ModelNotDownloaded": "Download the transcription model in Settings.",
+  "transcriptionError.TranscriptionBusy": "A transcription is already running.",
+  "transcriptionError.DecodeFailed": "Could not read the meeting audio.",
+  "transcriptionError.ModelLoadFailed": "Could not load the Whisper model.",
+  "transcriptionError.InferenceFailed": "Transcription failed.",
+  "transcriptionError.DownloadBusy": "A download is already running.",
+  "transcriptionError.DownloadFailed": "Model download failed.",
+  "transcribe.title": "Transcription",
+  "transcribe.cta": "Transcribe",
+  "transcribe.running": "Transcribing…",
+  "transcribe.cancel": "Cancel",
+  "transcribe.modelSection": "Whisper models",
+  "transcribe.download": "Download",
+  "transcribe.delete": "Delete",
+  "transcribe.autoLabel": "Transcribe automatically on save",
+  "transcribe.nativeLanguage": "Native language (for future translation)"
 }

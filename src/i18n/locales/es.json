@@ -171,5 +171,21 @@
   "discard": "Descartar",
   "save": "Guardar",
   "saveRecording": "Guardar grabación",
-  "saveRecordingSub": "Ponele un nombre. La transcripción y resumen se generan después."
+  "saveRecordingSub": "Ponele un nombre. La transcripción y resumen se generan después.",
+  "transcriptionError.ModelNotDownloaded": "Descarga el modelo de transcripción en Configuración.",
+  "transcriptionError.TranscriptionBusy": "Ya hay una transcripción en curso.",
+  "transcriptionError.DecodeFailed": "No se pudo leer el audio de la reunión.",
+  "transcriptionError.ModelLoadFailed": "No se pudo cargar el modelo de Whisper.",
+  "transcriptionError.InferenceFailed": "Falló la transcripción.",
+  "transcriptionError.DownloadBusy": "Ya hay una descarga en curso.",
+  "transcriptionError.DownloadFailed": "Falló la descarga del modelo.",
+  "transcribe.title": "Transcripción",
+  "transcribe.cta": "Transcribir",
+  "transcribe.running": "Transcribiendo…",
+  "transcribe.cancel": "Cancelar",
+  "transcribe.modelSection": "Modelos de Whisper",
+  "transcribe.download": "Descargar",
+  "transcribe.delete": "Eliminar",
+  "transcribe.autoLabel": "Transcribir automáticamente al guardar",
+  "transcribe.nativeLanguage": "Idioma nativo (para traducción futura)"
 }
