@@ -44,6 +44,12 @@ pub fn specta_builder() -> Builder {
         commands::settings::get_settings,
         commands::settings::update_settings,
         commands::log::log_frontend_error,
+        commands::transcription::transcribe_meeting,
+        commands::transcription::cancel_transcription,
+        commands::transcription::get_transcription_state,
+        commands::transcription::list_whisper_models,
+        commands::transcription::download_whisper_model,
+        commands::transcription::delete_whisper_model,
     ])
 }
 
