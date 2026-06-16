@@ -4,3 +4,18 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+whisper-rs = "0.16"
+hound = "3.5"
+claxon = "0.4"
+rubato = "0.15"
+ureq = "2.10"
+sha2 = "0.10"
+serde = { workspace = true }
+thiserror = { workspace = true }
+smart-noter-core = { path = "../core" }
+
+[features]
+whisper-integration = []
+
+[dev-dependencies]
+tempfile = "3"
