@@ -60,6 +60,10 @@ jobs:
         working-directory: src-tauri
         run: cargo test -p smart-noter-audio --features audio-integration -- --include-ignored
         continue-on-error: true   # CI runners may not have audio hardware; gate softly
+      - name: cargo check whisper integration (compile gate)
+        working-directory: src-tauri
+        run: cargo check -p smart-noter-whisper --features whisper-integration --all-targets
+        continue-on-error: true   # whisper.cpp build needs LLVM/libclang + cmake on the runner; gate softly until CI installs them
 
   e2e:
     needs: [frontend, backend]
