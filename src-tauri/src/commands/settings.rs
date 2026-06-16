@@ -7,7 +7,12 @@ use tauri::State;
 #[tauri::command]
 #[specta::specta]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, AppError> {
-    settings_repo::get(&state.pool).await.map_err(from_db)
+    let mut s = settings_repo::get(&state.pool).await.map_err(from_db)?;
+    // Normalize a legacy persisted model display-name to the catalog id.
+    if smart_noter_whisper::models::find(&s.transcription_model).is_none() {
+        s.transcription_model = "large-v3".into();
+    }
+    Ok(s)
 }
 
 #[tauri::command]

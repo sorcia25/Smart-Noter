@@ -14,7 +14,7 @@ pre-commit:
     rust-clippy:
       glob: "*.rs"
       root: src-tauri/
-      run: PATH="$HOME/.cargo/bin:$PATH" cargo clippy --workspace --all-targets -- -D warnings
+      run: PATH="$HOME/.cargo/bin:/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin:$PATH" LIBCLANG_PATH="C:/Program Files/LLVM/bin" cargo clippy --workspace --all-targets -- -D warnings
 
 commit-msg:
   commands:

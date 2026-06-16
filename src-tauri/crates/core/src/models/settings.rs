@@ -19,6 +19,8 @@ pub struct AppSettings {
     pub auto_delete_audio: bool,
     pub transcription_provider: String,
     pub transcription_model: String,
+    pub auto_transcribe: bool,
+    pub native_language: String,
     pub default_template: String,
 }
 
@@ -57,7 +59,9 @@ impl Default for AppSettings {
             run_local: true,
             auto_delete_audio: false,
             transcription_provider: "local".into(),
-            transcription_model: "Whisper Large v3".into(),
+            transcription_model: "large-v3".into(),
+            auto_transcribe: true,
+            native_language: "es".into(),
             default_template: "tecnica".into(),
         }
     }
@@ -81,5 +85,13 @@ mod tests {
     fn theme_serializes_lowercase() {
         let json = serde_json::to_string(&Theme::Dark).unwrap();
         assert_eq!(json, r#""dark""#);
+    }
+
+    #[test]
+    fn defaults_include_transcription_fields() {
+        let d = AppSettings::default();
+        assert_eq!(d.transcription_model, "large-v3");
+        assert!(d.auto_transcribe);
+        assert_eq!(d.native_language, "es");
     }
 }
