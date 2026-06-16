@@ -14,6 +14,15 @@ pub enum AudioErrorCode {
     Other,
 }
 
+/// Nested payload carried by `AppError::Transcription`.
+/// The outer `code` is always `"transcription"` (from the enum tag);
+/// this struct provides the inner `{code, message}` object.
+#[derive(Debug, Clone, Type, Serialize, Deserialize)]
+pub struct TranscriptionErrorPayload {
+    pub code: String,
+    pub message: String,
+}
+
 #[derive(Debug, Error, Type, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "code", content = "message")]
 pub enum AppError {
@@ -28,6 +37,8 @@ pub enum AppError {
         code: AudioErrorCode,
         message: String,
     },
+    #[error("Transcription error ({code}): {message}")]
+    Transcription { code: String, message: String },
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -50,6 +61,7 @@ impl AppError {
                 AudioErrorCode::MixerOverflow => "audioError.MixerOverflow",
                 AudioErrorCode::Other => "audioError.Other",
             },
+            AppError::Transcription { .. } => "errors.transcription",
             AppError::Internal(_) => "errors.internal",
         }
     }
@@ -97,5 +109,18 @@ mod tests {
             message: "C:/x".into(),
         };
         assert_eq!(err.i18n_key(), "audioError.DiskFull");
+    }
+
+    #[test]
+    fn transcription_error_serializes_with_nested_code() {
+        let err = AppError::Transcription {
+            code: "ModelNotDownloaded".into(),
+            message: "large-v3".into(),
+        };
+        let json = serde_json::to_string(&err).unwrap();
+        assert_eq!(
+            json,
+            r#"{"code":"transcription","message":{"code":"ModelNotDownloaded","message":"large-v3"}}"#
+        );
     }
 }
