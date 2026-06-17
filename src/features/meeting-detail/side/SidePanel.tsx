@@ -88,7 +88,7 @@ export function SidePanel({ participants }: SidePanelProps) {
                 </>
               )}
             </div>
-            <div className={styles.partStats}>{Math.round(p.talkPct * 100)}%</div>
+            <div className={styles.partStats}>{Math.round(p.talkPct)}%</div>
           </div>
         ))}
       </div>

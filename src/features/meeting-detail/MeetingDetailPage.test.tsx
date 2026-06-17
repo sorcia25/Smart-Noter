@@ -23,7 +23,7 @@ const fakeMeeting = {
       name: 'Carlos R',
       colorClass: 's-color-1',
       wordCount: 600,
-      talkPct: 0.4,
+      talkPct: 40,
     },
   ],
   actions: [],
@@ -64,5 +64,13 @@ describe('MeetingDetailPage', () => {
   it('exposes data-screen-label', () => {
     const { container } = setup();
     expect(container.querySelector('[data-screen-label="05 Meeting detail"]')).toBeTruthy();
+  });
+
+  it('renders participant talk percentage as an integer (talkPct is already 0-100)', async () => {
+    setup();
+    // fakeMeeting's participant has talkPct: 40 → must render "40%", not "4000%".
+    await waitFor(() => {
+      expect(screen.getByText('40%')).toBeInTheDocument();
+    });
   });
 });
