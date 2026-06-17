@@ -11,11 +11,23 @@ export default defineConfig({
     setupFiles: ['./tests/setup.ts'],
     css: { modules: { classNameStrategy: 'non-scoped' } },
     // Don't sweep Playwright specs into the Vitest run.
-    exclude: ['**/node_modules/**', '**/dist/**', 'tests/e2e/**', 'playwright-report/**'],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      'tests/e2e/**',
+      'playwright-report/**',
+      '.claude/**',
+    ],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.stories.tsx', 'src/ipc/bindings.ts', 'src/i18n/keys.ts', 'src/mock/**'],
+      exclude: [
+        'src/**/*.stories.tsx',
+        'src/**/*.test.{ts,tsx}',
+        'src/ipc/bindings.ts',
+        'src/i18n/keys.ts',
+        'src/mock/**',
+      ],
       thresholds: {
         'src/components/primitives/**': { lines: 90, statements: 90, branches: 85, functions: 90 },
       },
