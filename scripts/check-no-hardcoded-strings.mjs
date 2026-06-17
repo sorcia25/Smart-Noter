@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // Forbid hardcoded user-facing JSX text nodes — everything should flow through useT().
 // JSX expressions ({...}) and JSX text inside .stories.tsx / .test.tsx are allowed.
-import { readFileSync } from 'node:fs';
-import { globSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const ALLOWLIST_PATTERNS = [
   /src[\\/]i18n[\\/]keys\.ts$/,
@@ -24,7 +23,13 @@ const JSX_TEXT_REGEX = />\s*([A-Za-zÁÉÍÓÚÑáéíóúñ][^<>{}\n]*)</g;
 const IGNORE_VALUES = /^[\s\d.,:;%·×–—\-+=()\\[\]{}|/\\&]+$/;
 
 const args = process.argv.slice(2);
-const files = args.length > 0 ? args.filter((f) => f.endsWith('.tsx')) : globSync('src/**/*.tsx');
+// `fs.globSync` needs Node 22+, but CI and engines target Node 20 — walk src/ instead.
+const files =
+  args.length > 0
+    ? args.filter((f) => f.endsWith('.tsx'))
+    : readdirSync('src', { recursive: true })
+        .map((entry) => `src/${entry}`)
+        .filter((f) => f.endsWith('.tsx'));
 
 const problems = [];
 
