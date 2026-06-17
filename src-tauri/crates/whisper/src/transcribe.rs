@@ -64,6 +64,24 @@ unsafe extern "C" fn abort_trampoline(user_data: *mut std::ffi::c_void) -> bool 
     (*(user_data as *const AtomicBool)).load(Ordering::Relaxed)
 }
 
+/// Decide a `state.full()` outcome given the abort flag. whisper.cpp returns an
+/// error ("failed to encode") when the abort callback fires mid-run, so the abort
+/// flag must take precedence over the raw error — otherwise a user cancel is
+/// misreported as an inference failure.
+fn classify_full_outcome(
+    full_result: Result<(), String>,
+    aborted: bool,
+) -> Result<(), TranscriptionError> {
+    if aborted {
+        return Err(terr(
+            TranscriptionErrorCode::Cancelled,
+            "transcription cancelled",
+        ));
+    }
+    full_result.map_err(|e| terr(TranscriptionErrorCode::InferenceFailed, e))?;
+    Ok(())
+}
+
 /// Run Whisper over `pcm` (16 kHz mono f32). `progress(pct)` is called as whisper
 /// advances; `abort` is polled — returning `true` cancels the run.
 pub fn transcribe(
@@ -99,16 +117,11 @@ pub fn transcribe(
         params.set_abort_callback_user_data(Arc::as_ptr(&abort) as *mut std::ffi::c_void);
     }
 
-    state
+    let full_outcome = state
         .full(params, pcm)
-        .map_err(|e| terr(TranscriptionErrorCode::InferenceFailed, e.to_string()))?;
-
-    if abort.load(Ordering::Relaxed) {
-        return Err(terr(
-            TranscriptionErrorCode::Cancelled,
-            "transcription cancelled",
-        ));
-    }
+        .map(|_| ())
+        .map_err(|e| e.to_string());
+    classify_full_outcome(full_outcome, abort.load(Ordering::Relaxed))?;
 
     // whisper-rs 0.16 segment API (verified via the Task 0.2 spike):
     //   full_n_segments() -> i32 (infallible); get_segment(i) -> Option<WhisperSegment>;
@@ -161,5 +174,24 @@ mod tests {
         assert_eq!(word_count("hola que tal"), 3);
         assert_eq!(word_count("  uno   dos  "), 2);
         assert_eq!(word_count(""), 0);
+    }
+
+    #[test]
+    fn abort_during_full_is_cancelled_even_when_full_errors() {
+        // whisper.cpp returns "failed to encode" when the abort callback fires
+        // mid-run; with the abort flag set, that must be Cancelled, not InferenceFailed.
+        let err = classify_full_outcome(Err("failed to encode".into()), true).unwrap_err();
+        assert!(matches!(err.code, TranscriptionErrorCode::Cancelled));
+    }
+
+    #[test]
+    fn genuine_full_error_without_abort_is_inference_failed() {
+        let err = classify_full_outcome(Err("ggml exploded".into()), false).unwrap_err();
+        assert!(matches!(err.code, TranscriptionErrorCode::InferenceFailed));
+    }
+
+    #[test]
+    fn successful_full_without_abort_is_ok() {
+        assert!(classify_full_outcome(Ok(()), false).is_ok());
     }
 }
