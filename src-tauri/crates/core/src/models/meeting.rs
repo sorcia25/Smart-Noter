@@ -18,6 +18,7 @@ pub struct MeetingSummary {
 #[derive(Debug, Clone, Type, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptLine {
+    pub id: i64,
     pub t: String,
     pub speaker_id: String,
     pub text: Bilingual,

@@ -61,3 +61,38 @@ pub async fn rename_participant(
         .await
         .map_err(from_db)
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn merge_speakers(
+    state: State<'_, AppState>,
+    into: String,
+    from: String,
+) -> Result<(), AppError> {
+    participants_repo::merge_speakers(&state.pool, &into, &from)
+        .await
+        .map_err(from_db)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn reassign_lines(
+    state: State<'_, AppState>,
+    line_ids: Vec<i64>,
+    speaker_id: String,
+) -> Result<(), AppError> {
+    participants_repo::reassign_lines(&state.pool, &line_ids, &speaker_id)
+        .await
+        .map_err(from_db)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_speaker(
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> Result<String, AppError> {
+    participants_repo::create_speaker(&state.pool, &meeting_id)
+        .await
+        .map_err(from_db)
+}

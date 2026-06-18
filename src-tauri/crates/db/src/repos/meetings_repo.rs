@@ -72,20 +72,18 @@ pub async fn get_detail(pool: &SqlitePool, id: &str) -> Result<MeetingDetail, Db
     })
     .collect();
 
-    let transcript = sqlx::query!(
-        "SELECT t_display, speaker_id, text_es, text_en FROM transcript_lines WHERE meeting_id = ? ORDER BY t_seconds",
-        id
+    let transcript: Vec<TranscriptLine> = sqlx::query_as::<_, (i64, String, Option<String>, String, Option<String>)>(
+        "SELECT id, t_display, speaker_id, text_es, text_en FROM transcript_lines WHERE meeting_id = ? ORDER BY t_seconds",
     )
+    .bind(id)
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|r| TranscriptLine {
-        t: r.t_display,
-        speaker_id: r.speaker_id.unwrap_or_default(),
-        text: Bilingual {
-            es: r.text_es,
-            en: r.text_en,
-        },
+    .map(|(id, t_display, speaker_id, text_es, text_en)| TranscriptLine {
+        id,
+        t: t_display,
+        speaker_id: speaker_id.unwrap_or_default(),
+        text: Bilingual { es: text_es, en: text_en },
     })
     .collect();
 
