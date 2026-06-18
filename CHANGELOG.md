@@ -2,6 +2,27 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+### [0.4.0] — Sub-3b Speaker Diarization — 2026-06-17
+
+#### Added
+
+- Real speaker diarization in the new `smart-noter-diarize` crate — `sherpa-onnx` (VAD + pyannote-style segmentation + speaker embeddings + clustering) detects "who spoke when"; a pure, fully-tested aligner assigns each Whisper text segment to the speaker with the greatest temporal overlap, splitting the transcript across N real speakers
+- Diarization runs inside the existing transcription job, gated by a new persisted `identifySpeakers` setting (default on) honored by both auto-transcription and the manual "Transcribe" button; an optional pre-record speaker-count hint flows through to clustering
+- Diarization model manager (segmentation + embedding ONNX from k2-fsa): catalog with sha256, on-demand download with progress, delete — in a new Settings "Diarization" panel, mirroring the Whisper one
+- Full manual correction: rename speakers, **merge** speakers, **reassign** lines, and **split** (reassign to a new speaker) — per-line menu + a multi-select "Select lines" mode in the transcript, and a "Merge into…" menu in the participants panel; every action recomputes word counts and talk-time and refetches
+- Migration `0003` adds `transcript_lines.end_seconds`, enabling `talk_pct` by real speech duration; `replace_lines` generalized from a fixed `S1` to N participants (colors cycle `s-color-1..8`)
+- New Tauri commands: `merge_speakers`, `reassign_lines`, `create_speaker`, `list/download/delete_diarization_model`; `transcribe_meeting` gains a `speakerCountHint` arg
+- Graceful degradation: when diarization models are missing or diarization fails, the job degrades to single-speaker `S1` and emits a `diarization:degraded` toast — the transcript is never lost
+
+#### Changed
+
+- **Engine linking:** `sherpa-rs` uses **dynamic** linking (ships `onnxruntime.dll` + `sherpa-onnx*.dll`), a deviation from the design spec's "static, no DLL" goal. The prebuilt static `sherpa-onnx` libs use the static MSVC runtime (/MT), which conflicts fatally at link time with whisper.cpp (/MD) in one binary; dynamic linking is /MD-compatible. The DLLs are copied next to the dev exe automatically; bundling them into the MSI is tracked for Sub-8
+
+#### Notes
+
+- Out of scope (unchanged from the spec): source separation, cross-meeting voice identity, real-time diarization, GPU
+- Known limitation: re-running transcription on a manually-corrected meeting recomputes the speaker set from scratch (renames/merges are not preserved across a re-transcribe)
+
 ### [0.3.0] — Sub-3a Whisper Local Transcription — 2026-06-16
 
 #### Added

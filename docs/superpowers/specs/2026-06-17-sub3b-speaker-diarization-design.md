@@ -1,7 +1,7 @@
 # Smart Noter — Sub-3b: Speaker Diarization — Design Spec
 
 **Date:** 2026-06-17
-**Status:** Approved
+**Status:** Implemented (v0.4.0, 2026-06-17) — see CHANGELOG. **Deviation:** the engine ships **dynamic** sherpa-onnx (DLLs), not static — see §3.
 **Scope:** Real speaker diarization — replace Sub-3a's single-speaker `S1` with "who spoke when", integrated into the existing transcription flow, with full manual correction.
 **Depends on:** Sub-3a (Whisper transcription) — shipped (v0.3.0). **Unblocks:** richer per-speaker output for Sub-5 (AI Summary).
 
@@ -28,7 +28,9 @@ Decisions taken during brainstorming (2026-06-17):
 - **Real-time / live diarization.** Diarization is a post-recording step over the saved `.wav`, like transcription.
 - **GPU acceleration.** CPU-first; GPU is future work (mirrors Sub-3a's deferred CUDA).
 
-## 3. Engine — sherpa-rs (static)
+## 3. Engine — sherpa-rs
+
+> **IMPLEMENTATION DEVIATION (v0.4.0):** linking is **dynamic**, not static. The prebuilt static sherpa-onnx libs use the static MSVC C++ runtime (/MT), which conflicts fatally at link time with whisper.cpp + other C deps (/MD) in one binary (LNK2005/LNK1169); forcing the whole app to /MT was fragile (and a cdylib can't be crt-static). So `sherpa-rs` uses `features=["download-binaries"]` (dynamic) → ships `onnxruntime.dll` + `onnxruntime_providers_shared.dll` + `sherpa-onnx-c-api.dll` + `sherpa-onnx-cxx-api.dll` (auto-copied next to the dev exe; **Sub-8 must bundle them into the MSI**). The rest of this section's design (models, on-demand download, auto-detect/hint) is unchanged; only the "no DLL" property is lost.
 
 [sherpa-rs](https://github.com/thewh1teagle/sherpa-rs) wraps [sherpa-onnx](https://k2-fsa.github.io/sherpa/onnx/speaker-diarization/index.html) and provides offline speaker diarization (VAD + pyannote-style segmentation + speaker embeddings + clustering) with a Rust `diarize` example. Chosen because:
 
