@@ -201,6 +201,11 @@ pub use error::{DiarizationError, DiarizationErrorCode};
 
 > NOTE: do NOT declare `align`/`models`/`diarize` here yet — each is added in its own phase together with the file, so `cargo check` stays green between tasks (no placeholder files needed).
 
+> **WINDOWS LINK FIX (verified in Task 0.2 — REQUIRED, affects the whole workspace + the MSI):** sherpa-onnx's static libs reference `advapi32` symbols (ETW telemetry + Registry/eSpeak init) that `sherpa-rs-sys` forgets to link. Without it the build fails at link time with `LNK2001/LNK2019 unresolved external __imp_EventWriteTransfer/EventRegister/RegOpenKeyExA/...`. Fix committed in this crate:
+> - `src-tauri/.cargo/config.toml` → `[target.x86_64-pc-windows-msvc] rustflags = ["-C", "link-arg=/DEFAULTLIB:advapi32.lib"]` — **this is the effective fix** (empirically confirmed: a per-crate `cargo:rustc-link-lib` does NOT suffice because `sherpa-rs` links before `diarize`'s build script applies, and MSVC lib order matters; the global `/DEFAULTLIB` always resolves).
+> - `src-tauri/crates/diarize/build.rs` → `cargo:rustc-link-lib=advapi32` (secondary, documents the dependency from the crate).
+> Caveat: `config.toml` `rustflags` are ignored if a `RUSTFLAGS` env var is set — don't set `RUSTFLAGS` in CI/release without re-adding `advapi32`.
+
 - [ ] **Step 4: Register the crate in the workspace**
 
 In `src-tauri/Cargo.toml`, add to `[workspace] members` (after `"crates/whisper"`):
