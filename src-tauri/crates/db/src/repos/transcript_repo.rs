@@ -58,9 +58,7 @@ pub async fn replace_lines(
         .await?;
     }
 
-    // Insert lines + accumulate per-speaker words & duration.
-    let mut words_per = vec![0i64; speaker_count];
-    let mut dur_per = vec![0i64; speaker_count];
+    // Insert lines.
     for l in lines {
         let idx = l.speaker_idx.min(speaker_count - 1);
         sqlx::query(
@@ -75,26 +73,11 @@ pub async fn replace_lines(
         .bind(&l.text_es)
         .execute(&mut *tx)
         .await?;
-        words_per[idx] += l.text_es.split_whitespace().count() as i64;
-        dur_per[idx] += (l.end_seconds - l.t_seconds).max(0);
     }
 
-    // talk_pct by duration (fallback to word share if total duration is 0).
-    let total_dur: i64 = dur_per.iter().sum();
-    let total_words: i64 = words_per.iter().sum::<i64>().max(1);
-    for idx in 0..speaker_count {
-        let pct = if total_dur > 0 {
-            ((dur_per[idx] * 100) as f64 / total_dur as f64).round() as i64
-        } else {
-            (words_per[idx] * 100) / total_words
-        };
-        sqlx::query("UPDATE participants SET word_count = ?, talk_pct = ? WHERE id = ?")
-            .bind(words_per[idx])
-            .bind(pct)
-            .bind(speaker_id(idx))
-            .execute(&mut *tx)
-            .await?;
-    }
+    // Recompute per-speaker word_count + talk_pct via the shared helper so that
+    // the write path and the correction ops (merge/reassign) always agree.
+    crate::repos::participants_repo::recompute_stats_tx(&mut tx, meeting_id).await?;
 
     sqlx::query("UPDATE meetings SET word_count = ? WHERE id = ?")
         .bind(word_count)

@@ -36,35 +36,55 @@ pub async fn rename(
 /// current transcript_lines, inside an existing transaction. talk_pct is by
 /// speech duration (end_seconds - t_seconds), falling back to word share when
 /// total duration is 0. Participants with no lines get 0/0.
-async fn recompute_stats_tx(
+///
+/// Uses `split_whitespace()` for word counting (same semantics as the write
+/// path in `replace_lines`) so tabs/newlines/multiple spaces are handled
+/// identically. A SQL approximation would diverge on irregular spacing.
+pub(crate) async fn recompute_stats_tx(
     tx: &mut sqlx::SqliteConnection,
     meeting_id: &str,
 ) -> Result<(), DbError> {
-    // (participant_id, words, duration) aggregated from lines.
-    let rows = sqlx::query_as::<_, (String, i64, i64)>(
-        r#"SELECT p.id,
-                  COALESCE(SUM((LENGTH(TRIM(tl.text_es)) - LENGTH(REPLACE(TRIM(tl.text_es), ' ', '')) + 1)
-                               * (CASE WHEN TRIM(tl.text_es) = '' THEN 0 ELSE 1 END)), 0) AS words,
-                  COALESCE(SUM(MAX(COALESCE(tl.end_seconds, tl.t_seconds) - tl.t_seconds, 0)), 0) AS dur
-           FROM participants p
-           LEFT JOIN transcript_lines tl ON tl.speaker_id = p.id
-           WHERE p.meeting_id = ?
-           GROUP BY p.id"#,
+    // Recompute in Rust (NOT SQL) so word-count semantics exactly match the write
+    // path (`replace_lines`): `split_whitespace()` counts any whitespace run as one
+    // separator. A SQL approximation diverges on tabs/newlines/multiple spaces.
+    let participants: Vec<String> =
+        sqlx::query_scalar("SELECT id FROM participants WHERE meeting_id = ?")
+            .bind(meeting_id)
+            .fetch_all(&mut *tx)
+            .await?;
+    let lines: Vec<(Option<String>, String, i64, Option<i64>)> = sqlx::query_as(
+        "SELECT speaker_id, text_es, t_seconds, end_seconds FROM transcript_lines WHERE meeting_id = ?",
     )
     .bind(meeting_id)
     .fetch_all(&mut *tx)
     .await?;
 
-    let total_dur: i64 = rows.iter().map(|(_, _, d)| *d).sum();
-    let total_words: i64 = rows.iter().map(|(_, w, _)| *w).sum::<i64>().max(1);
-    for (id, words, dur) in &rows {
+    let mut words: std::collections::HashMap<String, i64> =
+        participants.iter().map(|id| (id.clone(), 0)).collect();
+    let mut durs: std::collections::HashMap<String, i64> =
+        participants.iter().map(|id| (id.clone(), 0)).collect();
+    for (speaker_id, text, t_seconds, end_seconds) in &lines {
+        let Some(sp) = speaker_id else { continue };
+        if let Some(w) = words.get_mut(sp) {
+            *w += text.split_whitespace().count() as i64;
+        }
+        if let Some(d) = durs.get_mut(sp) {
+            *d += (end_seconds.unwrap_or(*t_seconds) - t_seconds).max(0);
+        }
+    }
+
+    let total_dur: i64 = durs.values().sum();
+    let total_words: i64 = words.values().sum::<i64>().max(1);
+    for id in &participants {
+        let w = words[id];
+        let d = durs[id];
         let pct = if total_dur > 0 {
-            ((dur * 100) as f64 / total_dur as f64).round() as i64
+            ((d * 100) as f64 / total_dur as f64).round() as i64
         } else {
-            (words * 100) / total_words
+            (w * 100) / total_words
         };
         sqlx::query("UPDATE participants SET word_count = ?, talk_pct = ? WHERE id = ?")
-            .bind(words)
+            .bind(w)
             .bind(pct)
             .bind(id)
             .execute(&mut *tx)
@@ -238,6 +258,26 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(s1, 0);
+    }
+
+    #[tokio::test]
+    async fn recompute_word_count_matches_split_whitespace_on_irregular_spacing() {
+        let pool = init_pool_in_memory().await.unwrap();
+        sqlx::query("INSERT INTO meetings (id, title_es, template_id, date, duration_sec) VALUES ('mw','M','tecnica','2025-01-01',100)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO participants (id, meeting_id, label, color_class) VALUES ('p-mw-S1','mw','S1','s-color-1')")
+            .execute(&pool).await.unwrap();
+        // Double spaces + a tab: split_whitespace() => 3 words. A single-space SQL
+        // count would wrongly report more.
+        sqlx::query("INSERT INTO transcript_lines (id, meeting_id, t_seconds, end_seconds, t_display, speaker_id, text_es) VALUES (1,'mw',0,5,'00:00:00','p-mw-S1','hola  mundo\tadios')")
+            .execute(&pool).await.unwrap();
+        // Trigger a recompute via reassign (no-op move onto the same speaker still recomputes).
+        reassign_lines(&pool, &[1], "p-mw-S1").await.unwrap();
+        let wc: i64 = sqlx::query_scalar("SELECT word_count FROM participants WHERE id='p-mw-S1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(wc, 3, "recompute must use split_whitespace semantics");
     }
 
     #[tokio::test]
