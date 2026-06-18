@@ -4,11 +4,14 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# `static` static-links sherpa-onnx (no onnxruntime.dll to ship).
-# `download-binaries` fetches pre-built static libs from GitHub — avoids the CMake/wmic
-# bug on Windows 11 where wmic was removed (sherpa-onnx show-info.cmake:66 fails).
-# `tts` is explicitly excluded (default feature); no other defaults remain.
-sherpa-rs = { version = "0.6.8", default-features = false, features = ["static", "download-binaries"] }
+# `download-binaries` fetches pre-built sherpa-onnx libs from GitHub releases.
+# We use the DYNAMIC variant (no `static` feature): the prebuilt static libs use
+# the static MSVC C++ runtime (/MT), which fatally conflicts at link time with
+# whisper.cpp + other C deps (built /MD) in the same binary (LNK2005/LNK1169).
+# Dynamic sherpa is /MD-compatible, links cleanly, and ships onnxruntime.dll +
+# sherpa-onnx.dll (copied next to the exe by sherpa-rs-sys; bundled in the MSI).
+# `tts` is excluded (unused).
+sherpa-rs = { version = "0.6.8", default-features = false, features = ["download-binaries"] }
 ureq = "2.10"
 sha2 = "0.10"
 serde = { workspace = true }
