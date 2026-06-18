@@ -22,6 +22,10 @@ pub struct AppSettings {
     pub auto_transcribe: bool,
     pub native_language: String,
     pub default_template: String,
+    #[serde(default = "default_true")]
+    pub identify_speakers: bool,
+    #[serde(default = "default_diar_model")]
+    pub diarization_model: String,
 }
 
 #[derive(Debug, Clone, Type, Serialize, Deserialize, PartialEq, Eq)]
@@ -63,8 +67,17 @@ impl Default for AppSettings {
             auto_transcribe: true,
             native_language: "es".into(),
             default_template: "tecnica".into(),
+            identify_speakers: true,
+            diarization_model: "default".into(),
         }
     }
+}
+
+fn default_true() -> bool {
+    true
+}
+fn default_diar_model() -> String {
+    "default".into()
 }
 
 #[cfg(test)]
@@ -93,5 +106,28 @@ mod tests {
         assert_eq!(d.transcription_model, "large-v3");
         assert!(d.auto_transcribe);
         assert_eq!(d.native_language, "es");
+    }
+
+    #[test]
+    fn defaults_enable_speaker_identification() {
+        let d = AppSettings::default();
+        assert!(d.identify_speakers);
+        assert_eq!(d.diarization_model, "default");
+    }
+
+    #[test]
+    fn legacy_blob_without_new_fields_uses_serde_defaults() {
+        // A persisted blob from before these fields existed: omit identifySpeakers
+        // and diarizationModel. Deserialization must succeed and fill defaults.
+        let json = r##"{
+            "theme":"light","accent":"#10b981","language":"es","avatarStyle":"circle",
+            "aiChatVisible":true,"captureMode":"system","defaultDevice":"system-loopback",
+            "recordingQuality":"WAV 48k","runLocal":true,"autoDeleteAudio":false,
+            "transcriptionProvider":"local","transcriptionModel":"large-v3",
+            "autoTranscribe":true,"nativeLanguage":"es","defaultTemplate":"tecnica"
+        }"##;
+        let parsed: AppSettings = serde_json::from_str(json).expect("legacy blob must deserialize");
+        assert!(parsed.identify_speakers);
+        assert_eq!(parsed.diarization_model, "default");
     }
 }
