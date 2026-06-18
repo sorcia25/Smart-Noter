@@ -1,0 +1,5 @@
+# Windows-specific link flags needed when sherpa-onnx is built as a static lib.
+# sherpa-onnx's static build on Windows references ETW and Registry APIs that live
+# in advapi32.dll — the upstream sherpa-rs-sys build script omits this lib.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/DEFAULTLIB:advapi32.lib"]
