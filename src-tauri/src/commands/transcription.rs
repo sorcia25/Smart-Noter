@@ -210,23 +210,27 @@ pub async fn transcribe_meeting(
             }
         };
 
-        // Map segments -> lines + word_count.
+        // Map segments -> lines + word_count. (Single speaker S1 for now; the
+        // diarization branch that assigns real speakers is added in a later task.)
         let mut lines = Vec::with_capacity(segments.len());
         let mut words = 0u32;
         for s in &segments {
             let t_seconds = (s.start_ms / 1000) as i64;
+            let end_seconds = (s.end_ms / 1000) as i64;
             let t_display = smart_noter_whisper::transcribe::fmt_timestamp(t_seconds as u32);
             words += smart_noter_whisper::transcribe::word_count(&s.text);
             lines.push(LineInput {
                 t_seconds,
+                end_seconds,
                 t_display,
                 text_es: s.text.clone(),
+                speaker_idx: 0,
             });
         }
 
         // Persist (async) -- block on the Tauri runtime.
         let persisted =
-            tauri::async_runtime::block_on(replace_lines(&pool, &mid, &lines, words as i64));
+            tauri::async_runtime::block_on(replace_lines(&pool, &mid, &lines, 1, words as i64));
         match persisted {
             Ok(()) => {
                 for l in &lines {
