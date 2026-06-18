@@ -6,6 +6,7 @@ members = [
   "crates/db",
   "crates/audio",
   "crates/whisper",
+  "crates/diarize",
   "crates/providers"
 ]
 
@@ -79,4 +80,5 @@ smart-noter-core = { path = "crates/core" }
 smart-noter-db = { path = "crates/db" }
 smart-noter-audio = { path = "crates/audio" }
 smart-noter-whisper = { path = "crates/whisper" }
+smart-noter-diarize = { path = "crates/diarize" }
 smart-noter-providers = { path = "crates/providers" }
