@@ -1,5 +1,5 @@
 //! Pure, model-free alignment: assign each transcription text segment the
-//! diarization speaker whose time range overlaps it most. No external deps.
+//! diarization speaker whose segments overlap it most (in total). No external deps.
 
 /// One diarization region (output of the sherpa-rs pipeline), in **milliseconds**.
 /// (Phase 3 converts sherpa's seconds → ms before calling `align`.)
@@ -35,7 +35,8 @@ fn overlap_ms(a0: u32, a1: u32, b0: u32, b1: u32) -> u32 {
     hi.saturating_sub(lo)
 }
 
-/// Distance (in ms) from text segment [a0,a1) to diar segment [b0,b1); 0 if they touch/overlap.
+/// Distance (in ms) between text segment [a0,a1) and diar segment [b0,b1).
+/// 0 when they touch or overlap. Only ever called in the no-overlap fallback.
 fn gap_ms(a0: u32, a1: u32, b0: u32, b1: u32) -> u32 {
     if a1 <= b0 {
         b0 - a1
@@ -44,11 +45,11 @@ fn gap_ms(a0: u32, a1: u32, b0: u32, b1: u32) -> u32 {
     }
 }
 
-/// Assign each text segment a speaker. Rule: the diar segment with the greatest
-/// overlap wins; ties break to the lower speaker number for determinism. If a
-/// text segment overlaps no diar segment, fall back to the **nearest** diar
-/// segment (smallest gap). If there are no diar segments at all, everything is
-/// speaker 0.
+/// Assign each text segment a speaker. Rule: the speaker whose segments have the
+/// greatest TOTAL overlap with the text wins; ties break to the lower speaker
+/// number (determinism). If a text segment overlaps no diar segment, fall back to
+/// the NEAREST diar segment (smallest gap; gap ties → lower speaker). If there are
+/// no diar segments at all, everything is speaker 0.
 pub fn align(texts: &[TextSegment], diar: &[DiarSegment]) -> Vec<AlignedLine> {
     texts
         .iter()
@@ -68,22 +69,31 @@ fn pick_speaker(t0: u32, t1: u32, diar: &[DiarSegment]) -> u32 {
     if diar.is_empty() {
         return 0;
     }
-    // 1) best by overlap
-    let mut best: Option<(u32 /*overlap*/, u32 /*speaker*/)> = None;
+
+    // 1) Greatest TOTAL overlap per speaker. A speaker may own several segments,
+    //    and the text may straddle more than one — so we sum overlap per speaker.
+    let mut totals: Vec<(u32 /*speaker*/, u32 /*total_overlap*/)> = Vec::new();
     for d in diar {
         let ov = overlap_ms(t0, t1, d.start_ms, d.end_ms);
-        if ov > 0 {
-            match best {
-                Some((bov, bsp))
-                    if (ov, std::cmp::Reverse(d.speaker)) <= (bov, std::cmp::Reverse(bsp)) => {}
-                _ => best = Some((ov, d.speaker)),
-            }
+        if ov == 0 {
+            continue;
+        }
+        match totals.iter_mut().find(|(sp, _)| *sp == d.speaker) {
+            Some((_, acc)) => *acc += ov,
+            None => totals.push((d.speaker, ov)),
         }
     }
-    if let Some((_, sp)) = best {
-        return sp;
+    if !totals.is_empty() {
+        // Max total overlap; on a tie, the LOWER speaker number wins.
+        return totals
+            .iter()
+            .copied()
+            .max_by(|(sp_a, ov_a), (sp_b, ov_b)| ov_a.cmp(ov_b).then(sp_b.cmp(sp_a)))
+            .map(|(sp, _)| sp)
+            .unwrap();
     }
-    // 2) no overlap → nearest by gap (ties → lower speaker)
+
+    // 2) No speaker overlaps the text → nearest diar segment by gap (tie → lower speaker).
     let mut nearest: Option<(u32 /*gap*/, u32 /*speaker*/)> = None;
     for d in diar {
         let g = gap_ms(t0, t1, d.start_ms, d.end_ms);
@@ -145,10 +155,38 @@ mod tests {
     }
 
     #[test]
-    fn overlap_tie_breaks_to_lower_speaker_number() {
-        // equal 500ms overlap with spk0 and spk1 → spk0 wins
+    fn overlap_tie_breaks_to_lower_speaker_when_higher_is_last() {
+        // equal 500ms overlap; lower speaker (0) appears LAST in the slice
         let texts = vec![t(500, 1500, "tie")];
         let diar = vec![d(0, 1000, 1), d(1000, 2000, 0)];
+        assert_eq!(align(&texts, &diar)[0].speaker, 0);
+    }
+
+    #[test]
+    fn overlap_tie_breaks_to_lower_speaker_when_lower_is_first() {
+        // equal 500ms overlap; lower speaker (0) appears FIRST in the slice.
+        // Together with the previous test this proves the tie-break is
+        // order-independent (not "first-wins" or "last-wins").
+        let texts = vec![t(500, 1500, "tie")];
+        let diar = vec![d(0, 1000, 0), d(1000, 2000, 1)];
+        assert_eq!(align(&texts, &diar)[0].speaker, 0);
+    }
+
+    #[test]
+    fn greatest_total_overlap_per_speaker_not_single_segment() {
+        // spk0 has TWO fragments overlapping the text by 100+100=200ms total;
+        // spk1 has ONE fragment overlapping by 150ms. Per-speaker total wins → spk0,
+        // even though spk1's single best segment (150) beats either spk0 fragment (100).
+        let texts = vec![t(0, 1000, "multi")];
+        let diar = vec![d(0, 100, 0), d(100, 250, 1), d(250, 350, 0)];
+        assert_eq!(align(&texts, &diar)[0].speaker, 0);
+    }
+
+    #[test]
+    fn equidistant_fallback_breaks_to_lower_speaker() {
+        // text overlaps neither; gap to spk1 (100) == gap to spk0 (100) → lower speaker 0
+        let texts = vec![t(1100, 1900, "between")];
+        let diar = vec![d(0, 1000, 1), d(2000, 3000, 0)];
         assert_eq!(align(&texts, &diar)[0].speaker, 0);
     }
 
