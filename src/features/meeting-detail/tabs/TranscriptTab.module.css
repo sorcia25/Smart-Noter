@@ -30,6 +30,10 @@
   border-bottom: 1px dashed var(--stroke);
 }
 
+.lineWithCheckbox {
+  grid-template-columns: 20px 36px 1fr;
+}
+
 .line:last-child {
   border-bottom: none;
 }
@@ -63,4 +67,121 @@
   color: var(--text-muted);
   font-size: 13px;
   padding: 12px 0;
+}
+
+/* ─── Reassign / select UI ─────────────────────────────────────────── */
+
+.cardHeadRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lineSelected {
+  background: var(--bg-hover, color-mix(in srgb, var(--accent) 8%, transparent));
+  border-radius: var(--radius-sm, 4px);
+}
+
+.checkboxCol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-right: 4px;
+}
+
+.lineCheckbox {
+  cursor: pointer;
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+}
+
+.speakerRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lineMenuWrapper {
+  position: relative;
+}
+
+.reassignBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-subtle);
+  font-size: 14px;
+  padding: 0 4px;
+  line-height: 1;
+  border-radius: var(--radius-sm, 4px);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.line:hover .reassignBtn {
+  opacity: 1;
+}
+
+.reassignBtn:focus {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+}
+
+.speakerMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 100;
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  min-width: 160px;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.speakerMenuItem {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 7px 14px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.speakerMenuItem:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+}
+
+.speakerMenuItemNew {
+  border-top: 1px solid var(--stroke);
+  margin-top: 4px;
+  padding-top: 8px;
+  color: var(--accent);
+}
+
+.selectToolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 12px;
+}
+
+.selectCount {
+  font-size: 12px;
+  color: var(--text-subtle);
+  font-weight: 600;
+  background: var(--bg-hover, rgba(0,0,0,0.06));
+  border-radius: 999px;
+  padding: 2px 9px;
+  min-width: 24px;
+  text-align: center;
+}
+
+.bulkMenuWrapper {
+  position: relative;
 }

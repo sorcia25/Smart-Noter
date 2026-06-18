@@ -58,6 +58,12 @@ export function useTranscription(meetingId: string) {
         setPct(0);
       }
     });
+    sub<{ meetingId: string; code: string; message: string }>('diarization:degraded', (p) => {
+      if (!mine(p.meetingId)) return;
+      toast.info(
+        p.code === 'ModelNotDownloaded' ? t('diarize.modelsMissing') : t('diarize.degraded')
+      );
+    });
 
     invoke<{ meetingId: string; pct: number } | null>('get_transcription_state')
       .then((s) => {
@@ -74,11 +80,11 @@ export function useTranscription(meetingId: string) {
     };
   }, [meetingId, dispatch, t]);
 
-  const start = async () => {
+  const start = async (speakerCountHint?: number | null) => {
     setStatus('running');
     setPct(0);
     try {
-      await invoke('transcribe_meeting', { meetingId });
+      await invoke('transcribe_meeting', { meetingId, speakerCountHint: speakerCountHint ?? null });
     } catch (err) {
       setStatus('idle');
       const ae = toAppError(err);
