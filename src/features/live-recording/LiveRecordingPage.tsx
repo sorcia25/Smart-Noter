@@ -30,6 +30,7 @@ interface NavState {
   deviceId?: string;
   captureMode?: CaptureMode;
   format?: AudioFormat;
+  speakerHint?: number | null;
 }
 
 const DEFAULT_TEMPLATE_ID = 'tecnica';
@@ -290,6 +291,7 @@ export default function LiveRecordingPage() {
           capture={stopResult}
           suggestedTitle={navState.name ?? ''}
           templateId={navState.templateId ?? DEFAULT_TEMPLATE_ID}
+          speakerHint={navState.speakerHint ?? null}
         />
       )}
 

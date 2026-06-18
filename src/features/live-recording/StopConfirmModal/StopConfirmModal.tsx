@@ -21,6 +21,7 @@ export interface StopConfirmModalProps {
   capture: CaptureResult;
   suggestedTitle: string;
   templateId: string;
+  speakerHint: number | null;
 }
 
 function fmtBytes(b: number): string {
@@ -36,6 +37,7 @@ export function StopConfirmModal({
   capture,
   suggestedTitle,
   templateId,
+  speakerHint,
 }: StopConfirmModalProps) {
   const { t } = useT();
   const navigate = useNavigate();
@@ -54,7 +56,7 @@ export function StopConfirmModal({
       });
       dispatch(baseApi.util.invalidateTags(['Meeting']));
       onClose();
-      navigate(Paths.MeetingDetail(meeting.id), { state: { justRecorded: true } });
+      navigate(Paths.MeetingDetail(meeting.id), { state: { justRecorded: true, speakerHint } });
     } catch (err) {
       // Modal stays open — Discard remains the exit. Surface the error via toast.
       const ae = toAppError(err);

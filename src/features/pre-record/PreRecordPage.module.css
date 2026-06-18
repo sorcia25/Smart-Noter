@@ -282,6 +282,33 @@
   margin-top: 2px;
 }
 
+.hintRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--stroke);
+}
+
+.hintRow input {
+  width: 72px;
+  padding: 5px 8px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.hintRow input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .footer {
   display: flex;
   align-items: center;

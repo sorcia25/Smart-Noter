@@ -39,6 +39,7 @@ function setup(onClose?: () => void) {
           capture={capture}
           suggestedTitle="Q4 review"
           templateId="tecnica"
+          speakerHint={null}
         />
       </MemoryRouter>
     </Provider>

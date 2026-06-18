@@ -12,7 +12,7 @@ import type { AudioDevice, AudioDeviceKind, CaptureMode, Template } from '@/ipc/
 import { errorMessage, toAppError } from '@/ipc/error';
 import { Paths } from '@/router/paths';
 import { useListAudioDevicesQuery } from '@/store/api/devices.api';
-import { useGetSettingsQuery } from '@/store/api/settings.api';
+import { useGetSettingsQuery, useUpdateSettingsMutation } from '@/store/api/settings.api';
 import { useListTemplatesQuery } from '@/store/api/templates.api';
 import { pickL } from '@/utils/format';
 import { invoke } from '@tauri-apps/api/core';
@@ -39,6 +39,7 @@ export default function PreRecordPage() {
   const { data: devices = [] } = useListAudioDevicesQuery();
   const { data: templates = [] } = useListTemplatesQuery();
   const { data: settings } = useGetSettingsQuery();
+  const [updateSettings] = useUpdateSettingsMutation();
 
   const [deviceId, setDeviceId] = useState<string>('');
   const selectedDevice = devices.find((d) => d.id === deviceId);
@@ -51,7 +52,7 @@ export default function PreRecordPage() {
 
   const [templateId, setTemplateId] = useState<string>(searchParams.get('tpl') ?? 'tecnica');
   const [name, setName] = useState('');
-  const [autoId, setAutoId] = useState(true);
+  const [speakerHint, setSpeakerHint] = useState<number | null>(null);
   const [detectLang, setDetectLang] = useState(true);
   const [saveAudio, setSaveAudio] = useState(true);
 
@@ -80,6 +81,8 @@ export default function PreRecordPage() {
     };
   }, [deviceId, previewMode, t]);
 
+  const speakerIdOn = settings?.identifySpeakers ?? true;
+
   function start() {
     navigate(Paths.LiveRecording(genSessionId()), {
       state: {
@@ -88,6 +91,7 @@ export default function PreRecordPage() {
         deviceId,
         captureMode: recordMode,
         format: settings?.recordingQuality === 'FLAC' ? 'flac' : 'wav',
+        speakerHint: speakerIdOn ? speakerHint : null,
       },
     });
   }
@@ -155,9 +159,26 @@ export default function PreRecordPage() {
               <SettingRow
                 label={t('autoIdSpeakers')}
                 desc={t('autoIdSpeakersDesc')}
-                on={autoId}
-                onChange={setAutoId}
+                on={speakerIdOn}
+                onChange={(v) => {
+                  if (settings) void updateSettings({ ...settings, identifySpeakers: v });
+                }}
               />
+              {speakerIdOn && (
+                <label className={styles.hintRow}>
+                  {t('diarize.expectedCount')}
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={speakerHint ?? ''}
+                    onChange={(e) =>
+                      setSpeakerHint(e.target.value === '' ? null : Number(e.target.value))
+                    }
+                    placeholder="auto"
+                  />
+                </label>
+              )}
               <SettingRow
                 label={t('detectLang')}
                 desc={t('detectLangDesc')}
