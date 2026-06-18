@@ -78,6 +78,7 @@ pub async fn transcribe_meeting(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
     meeting_id: String,
+    speaker_count_hint: Option<u32>,
 ) -> Result<(), AppError> {
     // Reserve the single slot atomically.
     let handle = TranscriptionHandle {
@@ -141,6 +142,14 @@ pub async fn transcribe_meeting(
         }
     };
 
+    // Diarization is gated by the persisted toggle and needs BOTH ONNX models present.
+    let diarize_on = settings.identify_speakers;
+    let diar_seg = diar_models::model_path(&app_dir, "segmentation");
+    let diar_emb = diar_models::model_path(&app_dir, "embedding");
+    let diar_models_ready = diarize_on
+        && diar_seg.as_ref().map(|p| p.is_file()).unwrap_or(false)
+        && diar_emb.as_ref().map(|p| p.is_file()).unwrap_or(false);
+
     // Spawn the blocking job. Persistence (async sqlx) runs via block_on.
     let pool = state.pool.clone();
     let slot = state.transcription.clone();
@@ -168,6 +177,19 @@ pub async fn transcribe_meeting(
                 return;
             }
         };
+
+        // Wanted diarization but models aren't downloaded: tell the UI (toast),
+        // then proceed with single-speaker transcription (never block the transcript).
+        if diarize_on && !diar_models_ready {
+            let _ = app2.emit(
+                "diarization:degraded",
+                FailedEvent {
+                    meeting_id: mid.clone(),
+                    code: "ModelNotDownloaded".into(),
+                    message: "diarization models not downloaded".into(),
+                },
+            );
+        }
 
         let app3 = app2.clone();
         let mid3 = mid.clone();
@@ -210,11 +232,60 @@ pub async fn transcribe_meeting(
             }
         };
 
-        // Map segments -> lines + word_count. (Single speaker S1 for now; the
-        // diarization branch that assigns real speakers is added in a later task.)
+        // Decide speakers. With diarization requested AND models present, diarize
+        // over the SAME pcm + align each text segment to the max-overlap speaker;
+        // otherwise (or on failure) fall back to a single speaker S1.
+        let mut speaker_count = 1usize;
+        let mut speaker_idx: Vec<usize> = vec![0; segments.len()];
+        if diar_models_ready {
+            let seg_model = diar_seg.clone().unwrap();
+            let emb_model = diar_emb.clone().unwrap();
+            let opts = DiarizeOpts {
+                num_speakers: speaker_count_hint,
+            };
+            match diarize(&pcm, &seg_model, &emb_model, &opts, abort.clone()) {
+                Ok(diar_segs) => {
+                    let texts: Vec<TextSegment> = segments
+                        .iter()
+                        .map(|s| TextSegment {
+                            start_ms: s.start_ms,
+                            end_ms: s.end_ms,
+                            text: s.text.clone(),
+                        })
+                        .collect();
+                    let aligned = align(&texts, &diar_segs);
+                    let max_spk = aligned.iter().map(|a| a.speaker).max().unwrap_or(0);
+                    speaker_count = (max_spk as usize) + 1;
+                    speaker_idx = aligned.iter().map(|a| a.speaker as usize).collect();
+                }
+                Err(e) if e.code == DiarizationErrorCode::Cancelled => {
+                    let _ = app2.emit(
+                        "transcription:cancelled",
+                        CancelledEvent {
+                            meeting_id: mid.clone(),
+                        },
+                    );
+                    finish(&slot);
+                    return;
+                }
+                Err(e) => {
+                    // Degrade to single speaker but tell the UI (toast). Transcript is kept.
+                    let _ = app2.emit(
+                        "diarization:degraded",
+                        FailedEvent {
+                            meeting_id: mid.clone(),
+                            code: format!("{:?}", e.code),
+                            message: e.message,
+                        },
+                    );
+                }
+            }
+        }
+
+        // Map segments -> lines + word_count (speaker-aware).
         let mut lines = Vec::with_capacity(segments.len());
         let mut words = 0u32;
-        for s in &segments {
+        for (i, s) in segments.iter().enumerate() {
             let t_seconds = (s.start_ms / 1000) as i64;
             let end_seconds = (s.end_ms / 1000) as i64;
             let t_display = smart_noter_whisper::transcribe::fmt_timestamp(t_seconds as u32);
@@ -224,13 +295,18 @@ pub async fn transcribe_meeting(
                 end_seconds,
                 t_display,
                 text_es: s.text.clone(),
-                speaker_idx: 0,
+                speaker_idx: speaker_idx[i],
             });
         }
 
         // Persist (async) -- block on the Tauri runtime.
-        let persisted =
-            tauri::async_runtime::block_on(replace_lines(&pool, &mid, &lines, 1, words as i64));
+        let persisted = tauri::async_runtime::block_on(replace_lines(
+            &pool,
+            &mid,
+            &lines,
+            speaker_count,
+            words as i64,
+        ));
         match persisted {
             Ok(()) => {
                 for l in &lines {
@@ -408,7 +484,9 @@ pub fn delete_whisper_model(app: tauri::AppHandle, id: String) -> Result<(), App
 
 // ---- diarization model commands ----
 
+use smart_noter_diarize::align::TextSegment;
 use smart_noter_diarize::models as diar_models;
+use smart_noter_diarize::{align, diarize, DiarizationErrorCode, DiarizeOpts};
 
 #[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
