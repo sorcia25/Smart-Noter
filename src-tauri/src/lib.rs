@@ -50,6 +50,9 @@ pub fn specta_builder() -> Builder {
         commands::transcription::list_whisper_models,
         commands::transcription::download_whisper_model,
         commands::transcription::delete_whisper_model,
+        commands::transcription::list_diarization_models,
+        commands::transcription::download_diarization_model,
+        commands::transcription::delete_diarization_model,
     ])
 }
 

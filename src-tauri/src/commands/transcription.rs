@@ -405,3 +405,107 @@ pub fn delete_whisper_model(app: tauri::AppHandle, id: String) -> Result<(), App
     let dir = app_data(&app)?;
     models::delete(&dir, &id).map_err(AppError::from)
 }
+
+// ---- diarization model commands ----
+
+use smart_noter_diarize::models as diar_models;
+
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DiarizationModelInfo {
+    pub id: String,
+    pub name: String,
+    pub size_mb: u32,
+    pub downloaded: bool,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn list_diarization_models(
+    app: tauri::AppHandle,
+) -> Result<Vec<DiarizationModelInfo>, AppError> {
+    let dir = app_data(&app)?;
+    Ok(diar_models::list(&dir)
+        .into_iter()
+        .map(|m| DiarizationModelInfo {
+            id: m.id.to_string(),
+            name: m.display_name.to_string(),
+            size_mb: m.size_mb,
+            downloaded: m.downloaded,
+        })
+        .collect())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn download_diarization_model(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<(), AppError> {
+    let handle = DownloadHandle {
+        id: id.clone(),
+        abort: Arc::new(AtomicBool::new(false)),
+    };
+    {
+        let mut slot = state.download.lock();
+        if slot.is_some() {
+            return Err(terr(
+                TranscriptionErrorCode::DownloadBusy,
+                "a download is already running",
+            ));
+        }
+        *slot = Some(handle.clone());
+    }
+    let dir = app_data(&app)?;
+    let slot = state.download.clone();
+    let abort = handle.abort.clone();
+    let app2 = app.clone();
+    let id2 = id.clone();
+    std::thread::spawn(move || {
+        let app3 = app2.clone();
+        let id3 = id2.clone();
+        let progress = move |pct: u32, dl: u64, total: u64| {
+            let _ = app3.emit(
+                "diarization-download:progress",
+                DownloadProgressEvent {
+                    id: id3.clone(),
+                    pct,
+                    bytes_downloaded: dl,
+                    bytes_total: total,
+                },
+            );
+        };
+        let is_cancelled = {
+            let a = abort.clone();
+            move || a.load(Ordering::Relaxed)
+        };
+        match diar_models::download(&dir, &id2, progress, is_cancelled) {
+            Ok(()) => {
+                let _ = app2.emit(
+                    "diarization-download:completed",
+                    DownloadDoneEvent { id: id2.clone() },
+                );
+            }
+            Err(e) => {
+                let _ = app2.emit(
+                    "diarization-download:failed",
+                    DownloadFailEvent {
+                        id: id2.clone(),
+                        code: format!("{:?}", e.code),
+                        message: e.message,
+                    },
+                );
+            }
+        }
+        *slot.lock() = None;
+    });
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn delete_diarization_model(app: tauri::AppHandle, id: String) -> Result<(), AppError> {
+    let dir = app_data(&app)?;
+    diar_models::delete(&dir, &id).map_err(AppError::from)
+}
