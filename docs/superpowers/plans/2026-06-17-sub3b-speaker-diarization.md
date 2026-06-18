@@ -120,9 +120,16 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# Static feature compiles ONNX Runtime into the binary — no onnxruntime.dll to ship.
-# default-features=false drops `download-binaries` + `tts`; `static` static-links sherpa-onnx.
-sherpa-rs = { version = "0.6.8", default-features = false, features = ["static"] }
+# `static` static-links sherpa-onnx (no onnxruntime.dll to ship).
+# `download-binaries` fetches pre-built STATIC libs from GitHub releases
+# (sherpa-onnx-<tag>-win-x64-static.tar.bz2) — REQUIRED on Windows 11: the
+# `static`-only path builds sherpa-onnx from source via CMake, whose
+# show-info.cmake calls `wmic`, removed in Win11 → configure fails. With
+# download-binaries, is_dynamic stays false (the win-x64 dist has both static
+# and dynamic variants and no `is_dynamic` override), so linking is static and
+# NO DLL is copied to target. `tts` is excluded (sherpa-rs forbids
+# static+download-binaries+tts together; prebuilt static has no TTS anyway).
+sherpa-rs = { version = "0.6.8", default-features = false, features = ["static", "download-binaries"] }
 ureq = "2.10"
 sha2 = "0.10"
 serde = { workspace = true }
@@ -138,7 +145,7 @@ tempfile = "3"
 hound = "3.5"
 ```
 
-> NOTE: `sherpa-rs` 0.6.8 (latest on crates.io, 2025-10-05) confirmed to have the `static` feature. Its default features include `download-binaries` (prebuilt dynamic libs) + `tts`, which we explicitly disable via `default-features = false` so the build is fully static. If the static link fails on this Windows toolchain, that is the Phase-0 finding → fallback (see end of plan).
+> NOTE (verified during Task 0.1 execution): the spec's bare `features = ["static"]` does NOT build on Windows 11 — sherpa-onnx's bundled CMake calls `wmic` (removed in Win11). The working config is `["static", "download-binaries"]`, which downloads pre-built **static** libs (~1 min) instead of compiling from source. Outcome is identical to the spec's intent: static linkage, no `onnxruntime.dll` in the MSI. Confirmed by reading `sherpa-rs-sys-0.6.8/build.rs` (final `if is_dynamic { copy DLLs }` is skipped) + `dist.json` (win-x64 has a `static` archive). If even this fails to LINK a binary on this toolchain, that is the Phase-0 finding → pyannote-rs fallback (see end of plan).
 
 - [ ] **Step 2: Create the error type** (mirror `whisper/src/error.rs`)
 
