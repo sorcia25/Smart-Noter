@@ -7,5 +7,7 @@ pub use error::{DiarizationError, DiarizationErrorCode};
 pub mod align;
 pub use align::{align, AlignedLine, DiarSegment};
 
+pub mod diarize;
 pub mod models;
-// pub mod diarize;  — added in Phase 3
+
+pub use diarize::{diarize, DiarizeOpts};
