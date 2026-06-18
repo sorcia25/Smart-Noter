@@ -282,6 +282,19 @@ pub async fn transcribe_meeting(
             }
         }
 
+        // sherpa's compute() has no abort hook, so a cancel during the (CPU-bound)
+        // diarization phase only lands here. Honor it before persisting.
+        if abort.load(Ordering::Relaxed) {
+            let _ = app2.emit(
+                "transcription:cancelled",
+                CancelledEvent {
+                    meeting_id: mid.clone(),
+                },
+            );
+            finish(&slot);
+            return;
+        }
+
         // Map segments -> lines + word_count (speaker-aware).
         let mut lines = Vec::with_capacity(segments.len());
         let mut words = 0u32;
