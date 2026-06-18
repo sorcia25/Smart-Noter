@@ -37,3 +37,18 @@ async fn foreign_keys_are_enabled() {
         .expect("query");
     assert_eq!(fk.0, 1);
 }
+
+#[tokio::test]
+async fn migration_0003_adds_end_seconds_column() {
+    let pool = init_pool_in_memory().await.expect("pool");
+    // PRAGMA table_info returns one row per column; assert end_seconds exists.
+    let cols: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('transcript_lines')")
+            .fetch_all(&pool)
+            .await
+            .expect("query");
+    assert!(
+        cols.iter().any(|c| c == "end_seconds"),
+        "got columns: {cols:?}"
+    );
+}
