@@ -23,6 +23,18 @@ export const meetingsApi = baseApi.injectEndpoints({
       query: (args) => ({ cmd: 'rename_participant', args }),
       invalidatesTags: ['Meeting'],
     }),
+    mergeSpeakers: b.mutation<void, { into: string; from: string }>({
+      query: (args) => ({ cmd: 'merge_speakers', args }),
+      invalidatesTags: ['Meeting'],
+    }),
+    reassignLines: b.mutation<void, { lineIds: number[]; speakerId: string }>({
+      query: (args) => ({ cmd: 'reassign_lines', args }),
+      invalidatesTags: ['Meeting'],
+    }),
+    createSpeaker: b.mutation<string, { meetingId: string }>({
+      query: (args) => ({ cmd: 'create_speaker', args }),
+      invalidatesTags: ['Meeting'],
+    }),
   }),
 });
 
@@ -32,4 +44,7 @@ export const {
   useUpdateMeetingTitleMutation,
   useToggleActionMutation,
   useRenameParticipantMutation,
+  useMergeSpeakersMutation,
+  useReassignLinesMutation,
+  useCreateSpeakerMutation,
 } = meetingsApi;

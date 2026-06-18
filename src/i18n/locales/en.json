@@ -187,5 +187,16 @@
   "transcribe.download": "Download",
   "transcribe.delete": "Delete",
   "transcribe.autoLabel": "Transcribe automatically on save",
-  "transcribe.nativeLanguage": "Native language (for future translation)"
+  "transcribe.nativeLanguage": "Native language (for future translation)",
+  "diarize.modelSection": "Diarization models",
+  "diarize.download": "Download",
+  "diarize.delete": "Delete",
+  "diarize.degraded": "Couldn't identify speakers; saved as a single speaker.",
+  "diarize.modelsMissing": "Download the diarization models to identify speakers.",
+  "diarize.expectedCount": "Number of speakers (optional)",
+  "speaker.reassign": "Reassign to…",
+  "speaker.newSpeaker": "➕ New speaker",
+  "speaker.merge": "Merge into…",
+  "speaker.selectLines": "Select lines",
+  "speaker.applyReassign": "Reassign selection"
 }

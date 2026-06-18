@@ -187,5 +187,16 @@
   "transcribe.download": "Descargar",
   "transcribe.delete": "Eliminar",
   "transcribe.autoLabel": "Transcribir automáticamente al guardar",
-  "transcribe.nativeLanguage": "Idioma nativo (para traducción futura)"
+  "transcribe.nativeLanguage": "Idioma nativo (para traducción futura)",
+  "diarize.modelSection": "Modelos de diarización",
+  "diarize.download": "Descargar",
+  "diarize.delete": "Eliminar",
+  "diarize.degraded": "No se pudieron identificar hablantes; se guardó como un solo hablante.",
+  "diarize.modelsMissing": "Descarga los modelos de diarización para identificar hablantes.",
+  "diarize.expectedCount": "Número de hablantes (opcional)",
+  "speaker.reassign": "Reasignar a…",
+  "speaker.newSpeaker": "➕ Nuevo hablante",
+  "speaker.merge": "Fusionar en…",
+  "speaker.selectLines": "Seleccionar líneas",
+  "speaker.applyReassign": "Reasignar selección"
 }
