@@ -75,7 +75,31 @@ pnpm generate:i18n-keys
 
 # Phase 0 — Feasibility Spike (de-risk sherpa-rs static linking on Windows)
 
-**Purpose:** pin the exact `sherpa-rs` API (struct/field/method names, segment output shape, how `num_clusters`/threshold are passed) and prove static linking works on this Windows toolchain **before** building Phases 2–6. This mirrors Sub-3a's whisper-rs Phase-0 spike. **If static linking proves unworkable, STOP and switch to the pyannote-rs fallback** (Section "Fallback" below) — the rest of the plan (align, data model, UI, correction) is engine-agnostic and unchanged.
+**Purpose:** prove `sherpa-rs` **static linking works on this Windows toolchain** and validate that the pipeline detects the right number of speakers on a real recording, **before** building Phases 2–6. The sherpa-rs API is **already confirmed from the 0.6.8 source** (see below) — so the spike's job narrows to *linking + accuracy*, not API discovery. This mirrors Sub-3a's whisper-rs Phase-0 spike. **If static linking proves unworkable, STOP and switch to the pyannote-rs fallback** (Section "Fallback" below) — the rest of the plan (align, data model, UI, correction) is engine-agnostic and unchanged.
+
+**Confirmed `sherpa-rs` 0.6.8 API** (read from `crates/sherpa-rs/src/diarize.rs`):
+
+```rust
+pub struct Segment { pub start: f32, pub end: f32, pub speaker: i32 } // start/end in SECONDS, speaker 0-based
+pub struct DiarizeConfig {
+    pub num_clusters: Option<i32>,   // Some(n) to force n speakers; None → use threshold
+    pub threshold: Option<f32>,      // clustering distance threshold when num_clusters is None
+    pub min_duration_on: Option<f32>,
+    pub min_duration_off: Option<f32>,
+    pub provider: Option<String>,
+    pub debug: bool,
+}
+impl Diarize {
+    pub fn new<P: AsRef<Path>>(segmentation_model: P, embedding_model: P, config: DiarizeConfig) -> Result<Self>;
+    pub fn compute(&mut self, samples: Vec<f32>, progress_callback: Option<ProgressCallback>) -> Result<Vec<Segment>>;
+}
+```
+
+`num_clusters` and `threshold` are mutually exclusive. Input audio must be **mono 16 kHz f32 PCM**.
+
+**Models already downloaded** (during planning) to `C:/Users/erick/diarize-models/`:
+- `segmentation.onnx` — pyannote-segmentation-3-0, 5.71 MB, sha256 `220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079`
+- `embedding.onnx` — wespeaker_en_voxceleb_CAM++, 27.93 MB, sha256 `c46fad10b5f81e1aa4a60c162714208577093655076c5450f8c469e522ec54ef`
 
 ### Task 0.1: Scaffold the `smart-noter-diarize` crate
 
@@ -97,7 +121,8 @@ edition.workspace = true
 
 [dependencies]
 # Static feature compiles ONNX Runtime into the binary — no onnxruntime.dll to ship.
-sherpa-rs = { version = "0.6", default-features = false, features = ["static"] }
+# default-features=false drops `download-binaries` + `tts`; `static` static-links sherpa-onnx.
+sherpa-rs = { version = "0.6.8", default-features = false, features = ["static"] }
 ureq = "2.10"
 sha2 = "0.10"
 serde = { workspace = true }
@@ -110,9 +135,10 @@ diarize-integration = []
 
 [dev-dependencies]
 tempfile = "3"
+hound = "3.5"
 ```
 
-> NOTE: pin the actual published `sherpa-rs` version in Step 4 of Task 0.2 once the spike confirms which version links statically on Windows. `0.6` is the starting guess; adjust if `cargo` reports no matching version.
+> NOTE: `sherpa-rs` 0.6.8 (latest on crates.io, 2025-10-05) confirmed to have the `static` feature. Its default features include `download-binaries` (prebuilt dynamic libs) + `tts`, which we explicitly disable via `default-features = false` so the build is fully static. If the static link fails on this Windows toolchain, that is the Phase-0 finding → fallback (see end of plan).
 
 - [ ] **Step 2: Create the error type** (mirror `whisper/src/error.rs`)
 
@@ -209,54 +235,48 @@ git commit -m "feat(diarize): scaffold smart-noter-diarize crate (sherpa-rs stat
 ```rust
 #![cfg(feature = "diarize-integration")]
 
-// Run manually after downloading the two ONNX models:
-//   SHERPA_SEG_MODEL=C:\path\segmentation.onnx \
-//   SHERPA_EMB_MODEL=C:\path\embedding.onnx \
+// Run manually (models already downloaded to C:\Users\erick\diarize-models):
+//   SHERPA_SEG_MODEL=C:\Users\erick\diarize-models\segmentation.onnx \
+//   SHERPA_EMB_MODEL=C:\Users\erick\diarize-models\embedding.onnx \
 //   SHERPA_TEST_WAV=C:\path\two-speakers.wav \
-//   cargo test -p smart-noter-diarize --features diarize-integration -- --ignored spike
+//   cargo test -p smart-noter-diarize --features diarize-integration -- --ignored spike --nocapture
 //
-// GOAL: confirm sherpa-rs links statically on Windows AND pin the exact API.
-// Print the segment shape so the diarize.rs wrapper (Phase 3) matches reality.
+// GOAL: confirm sherpa-rs links STATICALLY on Windows and finds the right
+// number of speakers. The API below is already confirmed from sherpa-rs 0.6.8.
 #[test]
 #[ignore = "needs real ONNX models + a wav via env vars"]
 fn spike_diarizes_two_speakers() {
+    use sherpa_rs::diarize::{Diarize, DiarizeConfig};
+
     let seg = std::env::var("SHERPA_SEG_MODEL").expect("set SHERPA_SEG_MODEL");
     let emb = std::env::var("SHERPA_EMB_MODEL").expect("set SHERPA_EMB_MODEL");
     let wav = std::env::var("SHERPA_TEST_WAV").expect("set SHERPA_TEST_WAV");
 
-    // Read the wav to f32 mono 16k. (The real pipeline reuses whisper::decode;
-    // here use sherpa-rs's own wav reader or `hound` to keep the spike self-contained.)
     let (samples, sample_rate) = read_wav_f32_mono(&wav);
     assert_eq!(sample_rate, 16_000, "models expect 16 kHz");
 
-    // ⚠️ PIN THIS BLOCK against the actual sherpa-rs version. Expected shape
-    // (from the sherpa-rs `diarize` example) is roughly:
-    //
-    //   use sherpa_rs::diarize::{Diarize, DiarizeConfig};
-    //   let config = DiarizeConfig {
-    //       num_clusters: None,        // Some(n) when the user gives a hint
-    //       threshold: 0.5,            // clustering threshold when num_clusters is None
-    //       min_duration_on: 0.3,
-    //       min_duration_off: 0.5,
-    //       ..Default::default()
-    //   };
-    //   let mut sd = Diarize::new(&seg, &emb, config).expect("init");
-    //   let segments = sd.compute(samples, |_done, _total| {}).expect("diarize");
-    //   for s in &segments {
-    //       println!("start={} end={} speaker={}", s.start, s.end, s.speaker);
-    //   }
-    //
-    // Record in this test's output (and copy into a comment in diarize.rs):
-    //   - the exact module path, struct names, and constructor signature
-    //   - the config field names + types (and how a fixed cluster count is passed)
-    //   - the segment field names + types (start/end units: seconds vs ms; speaker: i32/u32/String)
-    //   - the progress callback signature (if any)
-    let _ = (seg, emb, samples);
-    panic!("FILL IN the real sherpa-rs API here, then remove this panic");
+    let config = DiarizeConfig {
+        num_clusters: None,        // auto-detect via threshold; the real wrapper passes Some(n) for a hint
+        threshold: Some(0.5),
+        min_duration_on: Some(0.3),
+        min_duration_off: Some(0.5),
+        provider: None,
+        debug: false,
+    };
+    let mut sd = Diarize::new(&seg, &emb, config).expect("init diarizer");
+    let segments = sd.compute(samples, None).expect("diarize");
+
+    let speakers: std::collections::BTreeSet<i32> = segments.iter().map(|s| s.speaker).collect();
+    for s in &segments {
+        println!("start={:.2}s end={:.2}s speaker={}", s.start, s.end, s.speaker);
+    }
+    println!("distinct speakers = {}", speakers.len());
+    // On a clean 2-voice recording this should be 2. If linking worked but the
+    // count is off, tune threshold/min_duration in the real wrapper (Phase 3).
+    assert!(!segments.is_empty(), "expected at least one diarized segment");
 }
 
 fn read_wav_f32_mono(path: &str) -> (Vec<f32>, u32) {
-    // Minimal hound-based reader; add `hound = \"3.5\"` to [dev-dependencies] if used.
     let mut r = hound::WavReader::open(path).expect("open wav");
     let spec = r.spec();
     let samples: Vec<f32> = match spec.sample_format {
@@ -270,11 +290,9 @@ fn read_wav_f32_mono(path: &str) -> (Vec<f32>, u32) {
 }
 ```
 
-> NOTE: add `hound = "3.5"` to `[dev-dependencies]` in `crates/diarize/Cargo.toml` for the spike's wav reader.
+- [ ] **Step 2: Models + test wav**
 
-- [ ] **Step 2: Download the two ONNX models for the spike**
-
-From k2-fsa's pre-converted, ungated models (sherpa-onnx speaker-diarization page). Use a small pyannote-style segmentation model + a 3D-Speaker/wespeaker embedding model. Save the two `.onnx` files locally and note their URLs + sha256 (you will catalog them in Phase 2). Set the `SHERPA_*` env vars to their paths plus a 2-speaker test `.wav` (a real recording, or generate one with two es-MX TTS voices — see Phase 7).
+The two ONNX models are **already downloaded** to `C:/Users/erick/diarize-models/` (`segmentation.onnx`, `embedding.onnx`) with sha256 recorded above. You only need a 2-speaker test `.wav` (16 kHz mono): use a real recording or generate one with two es-MX TTS voices (see Phase 7). Set `SHERPA_SEG_MODEL`, `SHERPA_EMB_MODEL` to the two model paths and `SHERPA_TEST_WAV` to the wav.
 
 - [ ] **Step 3: Run the spike**
 
@@ -284,9 +302,9 @@ cd src-tauri && cargo test -p smart-noter-diarize --features diarize-integration
 ```
 Expected: it links statically and runs. Replace the `panic!` with the real API calls, observe the printed `start/end/speaker` values, and confirm the model finds **2** speakers on the 2-speaker wav.
 
-- [ ] **Step 4: Record the pinned API**
+- [ ] **Step 4: Confirm the API matches reality**
 
-Update the comment block at the top of `tests/spike.rs` with the **exact** observed: module path, `DiarizeConfig` field names/types, constructor signature, segment field names + **units** (this drives `align.rs`/`diarize.rs`), and progress callback shape. Pin the working `sherpa-rs` version in `Cargo.toml`. **If Phase-1/Phase-3 code below diverges from what the spike found, the spike is authoritative — adjust the later tasks' code to match.**
+The API is already pinned from 0.6.8 source (above). If the spike reveals ANY divergence (field renamed, units differ, `compute` signature changed in the installed version), the **running code is authoritative** — update the spike comment AND the Phase-3 `diarize.rs` wrapper to match. Otherwise just confirm the printed segments look sane (correct speaker count, plausible time ranges).
 
 - [ ] **Step 5: Decision gate (static linking)**
 
@@ -524,7 +542,7 @@ pub mod models;
 
 - [ ] **Step 1: Write the module with tests**
 
-Replace `src-tauri/crates/diarize/src/models.rs` with the following. **Fill the real `url` + `sha256` + `size_mb` from the models downloaded in Task 0.2** (the `FILL_ME` markers are the only placeholders and MUST be replaced before the download tests can pass in practice; the unit tests below do not hit the network):
+Create `src-tauri/crates/diarize/src/models.rs` with the following (URLs + sha256 + sizes are already filled with the real values verified during planning):
 
 ```rust
 use std::io::{Read, Write};
@@ -550,21 +568,22 @@ impl ModelSpec {
 
 /// The canonical diarization set: a pyannote-style segmentation model + a
 /// speaker-embedding model. Both must be present to diarize.
-/// Values pinned from k2-fsa pre-converted models in Task 0.2.
+/// Values verified by downloading the files during planning (Task 0.2).
 pub const CATALOG: &[ModelSpec] = &[
     ModelSpec {
         id: "segmentation",
-        display_name: "Speaker Segmentation (pyannote)",
-        size_mb: 6, // FILL_ME from the LFS/file size
-        sha256: "FILL_ME_segmentation_sha256_64hex",
-        url: "FILL_ME_segmentation_url",
+        display_name: "Speaker Segmentation (pyannote 3.0)",
+        size_mb: 6, // 5_992_913 bytes
+        sha256: "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079",
+        // Direct .onnx on HuggingFace (avoids the .tar.bz2 archive on GitHub releases).
+        url: "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx",
     },
     ModelSpec {
         id: "embedding",
-        display_name: "Speaker Embedding (3D-Speaker)",
-        size_mb: 28, // FILL_ME
-        sha256: "FILL_ME_embedding_sha256_64hex",
-        url: "FILL_ME_embedding_url",
+        display_name: "Speaker Embedding (WeSpeaker CAM++)",
+        size_mb: 28, // 29_292_684 bytes
+        sha256: "c46fad10b5f81e1aa4a60c162714208577093655076c5450f8c469e522ec54ef",
+        url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_CAM++.onnx",
     },
 ];
 
@@ -774,7 +793,7 @@ Run (with env preamble):
 ```bash
 cd src-tauri && cargo test -p smart-noter-diarize models
 ```
-Expected: 5 tests PASS. (`catalog_has_two_components…` asserts `sha256.len()==64`, so the `FILL_ME_*_sha256` placeholders must be replaced with real 64-hex strings — do this using the values recorded in Task 0.2.)
+Expected: 5 tests PASS. (`catalog_has_two_components…` asserts `sha256.len()==64`; the catalog already has the real 64-hex values.)
 
 - [ ] **Step 3: Commit**
 
@@ -842,32 +861,47 @@ pub fn diarize(
         return Err(derr(DiarizationErrorCode::Cancelled, "cancelled before start"));
     }
 
-    // ⚠️ PINNED API (Task 0.2). Expected shape — adjust names/units to match the spike:
-    //
-    //   use sherpa_rs::diarize::{Diarize, DiarizeConfig};
-    //   let config = DiarizeConfig {
-    //       num_clusters: opts.num_speakers.map(|n| n as i32),
-    //       threshold: 0.5,
-    //       min_duration_on: 0.3,
-    //       min_duration_off: 0.5,
-    //       ..Default::default()
-    //   };
-    //   let mut sd = Diarize::new(
-    //       seg_model.to_string_lossy().as_ref(),
-    //       emb_model.to_string_lossy().as_ref(),
-    //       config,
-    //   ).map_err(|e| derr(DiarizationErrorCode::ModelLoadFailed, e.to_string()))?;
-    //   let raw = sd.compute(pcm.to_vec(), |_done, _total| {})
-    //       .map_err(|e| derr(DiarizationErrorCode::DiarizationFailed, e.to_string()))?;
-    //   let segments = raw.into_iter().map(|s| DiarSegment {
-    //       start_ms: (s.start * 1000.0) as u32,
-    //       end_ms: (s.end * 1000.0) as u32,
-    //       speaker: s.speaker as u32,
-    //   }).collect();
-    //   Ok(segments)
+    use sherpa_rs::diarize::{Diarize, DiarizeConfig};
 
-    let _ = (pcm, seg_model, emb_model, opts);
-    unimplemented!("wire to the sherpa-rs API pinned in Task 0.2");
+    // num_clusters and threshold are mutually exclusive: a hint forces the count;
+    // otherwise auto-detect via the clustering threshold.
+    let (num_clusters, threshold) = match opts.num_speakers {
+        Some(n) => (Some(n as i32), None),
+        None => (None, Some(0.5_f32)),
+    };
+    let config = DiarizeConfig {
+        num_clusters,
+        threshold,
+        min_duration_on: Some(0.3),
+        min_duration_off: Some(0.5),
+        provider: None,
+        debug: false,
+    };
+
+    let mut sd = Diarize::new(
+        seg_model.to_string_lossy().as_ref(),
+        emb_model.to_string_lossy().as_ref(),
+        config,
+    )
+    .map_err(|e| derr(DiarizationErrorCode::ModelLoadFailed, e.to_string()))?;
+
+    // sherpa-rs `compute` takes ownership of the samples; it has no abort hook, so
+    // diarization runs to completion once started (we checked `abort` above; the
+    // job-level cancel still interrupts the whisper phase). Segments come back
+    // sorted by start, in SECONDS — convert to ms for the aligner.
+    let raw = sd
+        .compute(pcm.to_vec(), None)
+        .map_err(|e| derr(DiarizationErrorCode::DiarizationFailed, e.to_string()))?;
+
+    let segments = raw
+        .into_iter()
+        .map(|s| DiarSegment {
+            start_ms: (s.start.max(0.0) * 1000.0) as u32,
+            end_ms: (s.end.max(0.0) * 1000.0) as u32,
+            speaker: s.speaker.max(0) as u32,
+        })
+        .collect();
+    Ok(segments)
 }
 ```
 
@@ -879,7 +913,7 @@ Run (with env preamble):
 ```bash
 cd src-tauri && cargo check -p smart-noter-diarize
 ```
-Expected: PASS once the real sherpa-rs calls replace `unimplemented!`. Keep `DiarizeOpts`/return type stable — Phase 5 depends on them.
+Expected: PASS. If the installed `sherpa-rs` 0.6.8 differs from the confirmed API (e.g. `compute` signature), fix to match the spike's working code. Keep `DiarizeOpts`/return type stable — Phase 5 depends on them.
 
 - [ ] **Step 4: Commit**
 
