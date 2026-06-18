@@ -131,11 +131,17 @@ pub async fn reassign_lines(
     }
     let mut tx = pool.begin().await?;
     for id in line_ids {
-        sqlx::query("UPDATE transcript_lines SET speaker_id = ? WHERE id = ?")
-            .bind(speaker_id)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        // Guard: only reassign a line that belongs to the SAME meeting as the
+        // target speaker — never create a cross-meeting reference.
+        sqlx::query(
+            "UPDATE transcript_lines SET speaker_id = ?1
+             WHERE id = ?2
+               AND meeting_id = (SELECT meeting_id FROM participants WHERE id = ?1)",
+        )
+        .bind(speaker_id)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     }
     let meeting_id: String = sqlx::query_scalar("SELECT meeting_id FROM participants WHERE id = ?")
         .bind(speaker_id)
@@ -149,14 +155,22 @@ pub async fn reassign_lines(
 /// Create a new speaker for a meeting (label S{next}, next free color). Returns its id.
 pub async fn create_speaker(pool: &SqlitePool, meeting_id: &str) -> Result<String, DbError> {
     let mut tx = pool.begin().await?;
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM participants WHERE meeting_id = ?")
-        .bind(meeting_id)
-        .fetch_one(&mut *tx)
-        .await?;
-    let idx = count as usize; // 0-based
-    let id = format!("p-{meeting_id}-S{}", idx + 1);
-    let label = format!("S{}", idx + 1);
-    let color = format!("s-color-{}", (idx % 8) + 1);
+    // Next speaker number = max existing S{n} label suffix + 1 (COUNT-based numbering
+    // would collide with a surviving higher-numbered speaker after a merge).
+    let labels: Vec<String> =
+        sqlx::query_scalar("SELECT label FROM participants WHERE meeting_id = ?")
+            .bind(meeting_id)
+            .fetch_all(&mut *tx)
+            .await?;
+    let max_n = labels
+        .iter()
+        .filter_map(|l| l.strip_prefix('S').and_then(|n| n.parse::<usize>().ok()))
+        .max()
+        .unwrap_or(0);
+    let n = max_n + 1; // 1-based label number
+    let id = format!("p-{meeting_id}-S{n}");
+    let label = format!("S{n}");
+    let color = format!("s-color-{}", ((n - 1) % 8) + 1);
     sqlx::query(
         "INSERT INTO participants (id, meeting_id, label, name, color_class, word_count, talk_pct)
          VALUES (?, ?, ?, NULL, ?, 0, 0)",
@@ -278,6 +292,52 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(wc, 3, "recompute must use split_whitespace semantics");
+    }
+
+    #[tokio::test]
+    async fn reassign_ignores_lines_from_a_different_meeting() {
+        let pool = setup_two_speakers().await; // meeting 'm' with p-m-S1, p-m-S2, lines 1 & 2
+                                               // A second meeting with its own speaker + line id 99.
+        sqlx::query("INSERT INTO meetings (id, title_es, template_id, date, duration_sec) VALUES ('m2','M2','tecnica','2025-01-01',100)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO participants (id, meeting_id, label, color_class) VALUES ('p-m2-S1','m2','S1','s-color-1')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO transcript_lines (id, meeting_id, t_seconds, end_seconds, t_display, speaker_id, text_es) VALUES (99,'m2',0,5,'00:00:00','p-m2-S1','otra reunion')")
+            .execute(&pool).await.unwrap();
+
+        // Try to reassign m2's line 99 to m's speaker p-m-S1 — guard must REJECT it.
+        reassign_lines(&pool, &[99], "p-m-S1").await.unwrap();
+        let owner: String =
+            sqlx::query_scalar("SELECT speaker_id FROM transcript_lines WHERE id=99")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(owner, "p-m2-S1", "cross-meeting reassign must be a no-op");
+    }
+
+    #[tokio::test]
+    async fn create_speaker_after_merge_does_not_collide() {
+        let pool = init_pool_in_memory().await.unwrap();
+        sqlx::query("INSERT INTO meetings (id, title_es, template_id, date, duration_sec) VALUES ('mc','M','tecnica','2025-01-01',100)")
+            .execute(&pool).await.unwrap();
+        // Speakers S1, S2, S3 exist; merge S2 into S1 leaves S1, S3.
+        for (id, label, color) in [
+            ("p-mc-S1", "S1", "s-color-1"),
+            ("p-mc-S2", "S2", "s-color-2"),
+            ("p-mc-S3", "S3", "s-color-3"),
+        ] {
+            sqlx::query("INSERT INTO participants (id, meeting_id, label, color_class) VALUES (?, 'mc', ?, ?)")
+                .bind(id).bind(label).bind(color).execute(&pool).await.unwrap();
+        }
+        merge_speakers(&pool, "p-mc-S1", "p-mc-S2").await.unwrap(); // now S1, S3
+                                                                    // Next speaker must be S4 (max suffix 3 + 1), NOT S3 (which would collide).
+        let new_id = create_speaker(&pool, "mc").await.unwrap();
+        assert_eq!(new_id, "p-mc-S4");
+        let label: String = sqlx::query_scalar("SELECT label FROM participants WHERE id='p-mc-S4'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(label, "S4");
     }
 
     #[tokio::test]
