@@ -12,6 +12,7 @@ import { useAppDispatch } from '@/store/hooks';
 import { setAccent, setLanguage, setTheme } from '@/store/slices/ui.slice';
 import { pickL } from '@/utils/format';
 import { useEffect, useState } from 'react';
+import { DiarizationPanel } from './DiarizationPanel';
 import styles from './SettingsPage.module.css';
 import { TranscriptionPanel } from './TranscriptionPanel';
 import { PROVIDERS, type ProviderId } from './providers';
@@ -418,6 +419,11 @@ export default function SettingsPage() {
         {/* Whisper model management */}
         <div className={styles.group}>
           <TranscriptionPanel draft={draft} patch={patch} />
+        </div>
+
+        {/* Diarization model management */}
+        <div className={styles.group}>
+          <DiarizationPanel />
         </div>
 
         {/* Privacy + storage */}

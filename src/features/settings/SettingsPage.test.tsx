@@ -6,10 +6,14 @@ import { describe, expect, it, vi } from 'vitest';
 import '@/i18n';
 import SettingsPage from './SettingsPage';
 
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => () => {}) }));
+
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async (cmd: string) => {
     if (cmd === 'list_audio_devices') return [];
     if (cmd === 'list_templates') return [];
+    if (cmd === 'list_whisper_models') return [];
+    if (cmd === 'list_diarization_models') return [];
     if (cmd === 'get_settings') {
       return {
         theme: 'light',

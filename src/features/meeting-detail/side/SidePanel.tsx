@@ -4,7 +4,7 @@ import { Icon } from '@/components/primitives/Icon/Icon';
 import { Input } from '@/components/primitives/Input/Input';
 import { useT } from '@/i18n/useT';
 import type { Participant } from '@/ipc/bindings';
-import { useRenameParticipantMutation } from '@/store/api/meetings.api';
+import { useMergeSpeakersMutation, useRenameParticipantMutation } from '@/store/api/meetings.api';
 import { useAppSelector } from '@/store/hooks';
 import { type KeyboardEvent, useState } from 'react';
 import styles from './SidePanel.module.css';
@@ -25,8 +25,10 @@ export function SidePanel({ participants }: SidePanelProps) {
   const { t, lang } = useT();
   const aiChatVisible = useAppSelector((s) => s.ui.aiChatVisible);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(true);
   const [renameParticipant] = useRenameParticipantMutation();
+  const [mergeSpeakers] = useMergeSpeakersMutation();
 
   function commitRename(id: string, value: string) {
     const trimmed = value.trim();
@@ -89,6 +91,39 @@ export function SidePanel({ participants }: SidePanelProps) {
               )}
             </div>
             <div className={styles.partStats}>{Math.round(p.talkPct)}%</div>
+            {participants.length >= 2 && (
+              <div className={styles.menuWrap}>
+                <button
+                  type="button"
+                  className={styles.menuBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuFor(menuFor === p.id ? null : p.id);
+                  }}
+                  aria-label={lang === 'es' ? 'Más opciones' : 'More options'}
+                >
+                  ···
+                </button>
+                {menuFor === p.id && (
+                  <div className={styles.mergeMenu}>
+                    {participants
+                      .filter((o) => o.id !== p.id)
+                      .map((o) => (
+                        <button
+                          key={o.id}
+                          type="button"
+                          onClick={() => {
+                            void mergeSpeakers({ into: o.id, from: p.id });
+                            setMenuFor(null);
+                          }}
+                        >
+                          {t('speaker.merge')} {fallbackName(o, lang)}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
