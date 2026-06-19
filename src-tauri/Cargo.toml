@@ -53,6 +53,14 @@ path = "src/main.rs"
 name = "specta-export"
 path = "src/bin/specta_export.rs"
 
+[features]
+# REQUIRED for production builds. Tauri sets `dev = !custom-protocol` (see tauri's
+# build.rs), so without this feature EVERY build (incl. `tauri build`/the MSI) runs
+# in dev mode and loads the frontend from devUrl (http://localhost:1420) instead of
+# the embedded `frontendDist` — making an installed app unable to load its UI. The
+# `tauri build` CLI enables this feature when it's defined here. DO NOT REMOVE.
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build.workspace = true
 
