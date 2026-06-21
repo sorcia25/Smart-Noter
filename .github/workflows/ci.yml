@@ -18,14 +18,37 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          # Bump to invalidate caches poisoned before sherpa-rs's download dir was cached.
+          prefix-key: v1-rust
+          # sherpa-rs-sys downloads prebuilt libs (cargs.lib, onnxruntime, …) into
+          # %LOCALAPPDATA%\sherpa-rs, OUTSIDE target/. On a cache hit its build.rs is
+          # skipped, so unless we cache this dir too the libs are gone on the fresh
+          # runner VM and the link fails (LNK1181: cannot open input file 'cargs.lib').
+          cache-directories: ~/AppData/Local/sherpa-rs
       - run: pnpm install --frozen-lockfile
-      - name: Generate IPC bindings stub for type-check
-        # The Rust job below regenerates the real one. For the frontend pipeline we ship
-        # a minimal stub so `tsc --noEmit` can succeed without running the cargo binary.
+      - name: Set up LLVM (libclang for whisper-rs bindgen)
         shell: bash
         run: |
-          mkdir -p src/ipc
-          printf '// @ts-nocheck\n/* eslint-disable */\nexport const commands = {} as any;\nexport type Action = any;\nexport type AppError = any;\nexport type AppSettings = any;\nexport type AudioDevice = any;\nexport type AudioDeviceKind = any;\nexport type AudioErrorCode = any;\nexport type AudioFormat = any;\nexport type AvatarStyle = any;\nexport type Bilingual = any;\nexport type CaptureMode = any;\nexport type CaptureResult = any;\nexport type Language = any;\nexport type MeetingDetail = any;\nexport type MeetingSummary = any;\nexport type Participant = any;\nexport type RecordingStartedDto = any;\nexport type Template = any;\nexport type Theme = any;\nexport type TranscriptLine = any;\nexport type Result<T, E> = any;\n' > src/ipc/bindings.ts
+          if [ ! -f "/c/Program Files/LLVM/bin/libclang.dll" ]; then
+            choco install llvm -y --no-progress
+          fi
+          echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+      - name: Generate IPC bindings
+        # Generate the real bindings from the Rust IPC surface (same as the e2e job)
+        # instead of a hand-maintained stub that drifts whenever a command/type is added.
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          cargo build --bin specta-export
+          # sherpa-rs-sys's build.rs copies the onnx/sherpa runtime DLLs next to the exe,
+          # but only when it runs (cache miss). On a cache hit it's skipped, so the exe
+          # dies with STATUS_DLL_NOT_FOUND. Copy them from the cached download dir.
+          find ~/AppData/Local/sherpa-rs -name '*.dll' -exec cp -f {} target/debug/ \;
+          ./target/debug/specta-export.exe
       - run: pnpm generate:i18n-keys
       - run: pnpm lint
       - run: pnpm check:node-types
@@ -44,6 +67,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Bump to invalidate caches poisoned before sherpa-rs's download dir was cached.
+          prefix-key: v1-rust
+          # sherpa-rs-sys downloads prebuilt libs (cargs.lib, onnxruntime, …) into
+          # %LOCALAPPDATA%\sherpa-rs, OUTSIDE target/. On a cache hit its build.rs is
+          # skipped, so unless we cache this dir too the libs are gone on the fresh
+          # runner VM and the link fails (LNK1181: cannot open input file 'cargs.lib').
+          cache-directories: ~/AppData/Local/sherpa-rs
       - name: cargo fmt
         working-directory: src-tauri
         run: cargo fmt --all -- --check
@@ -81,10 +111,30 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Bump to invalidate caches poisoned before sherpa-rs's download dir was cached.
+          prefix-key: v1-rust
+          # sherpa-rs-sys downloads prebuilt libs (cargs.lib, onnxruntime, …) into
+          # %LOCALAPPDATA%\sherpa-rs, OUTSIDE target/. On a cache hit its build.rs is
+          # skipped, so unless we cache this dir too the libs are gone on the fresh
+          # runner VM and the link fails (LNK1181: cannot open input file 'cargs.lib').
+          cache-directories: ~/AppData/Local/sherpa-rs
       - run: pnpm install --frozen-lockfile
+      - name: Set up LLVM (libclang for whisper-rs bindgen)
+        shell: bash
+        run: |
+          if [ ! -f "/c/Program Files/LLVM/bin/libclang.dll" ]; then
+            choco install llvm -y --no-progress
+          fi
+          echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
       - name: Generate IPC bindings + i18n keys
         working-directory: src-tauri
-        run: cargo run --bin specta-export
+        shell: bash
+        run: |
+          cargo build --bin specta-export
+          # See the frontend job: copy the cached sherpa/onnx DLLs next to the exe so
+          # it doesn't die with STATUS_DLL_NOT_FOUND on a rust-cache hit.
+          find ~/AppData/Local/sherpa-rs -name '*.dll' -exec cp -f {} target/debug/ \;
+          ./target/debug/specta-export.exe
       - run: pnpm generate:i18n-keys
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
