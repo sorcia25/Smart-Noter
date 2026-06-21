@@ -41,7 +41,14 @@ jobs:
         # Generate the real bindings from the Rust IPC surface (same as the e2e job)
         # instead of a hand-maintained stub that drifts whenever a command/type is added.
         working-directory: src-tauri
-        run: cargo run --bin specta-export
+        shell: bash
+        run: |
+          cargo build --bin specta-export
+          # sherpa-rs-sys's build.rs copies the onnx/sherpa runtime DLLs next to the exe,
+          # but only when it runs (cache miss). On a cache hit it's skipped, so the exe
+          # dies with STATUS_DLL_NOT_FOUND. Copy them from the cached download dir.
+          find ~/AppData/Local/sherpa-rs -name '*.dll' -exec cp -f {} target/debug/ \;
+          ./target/debug/specta-export.exe
       - run: pnpm generate:i18n-keys
       - run: pnpm lint
       - run: pnpm check:node-types
@@ -121,7 +128,13 @@ jobs:
           echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
       - name: Generate IPC bindings + i18n keys
         working-directory: src-tauri
-        run: cargo run --bin specta-export
+        shell: bash
+        run: |
+          cargo build --bin specta-export
+          # See the frontend job: copy the cached sherpa/onnx DLLs next to the exe so
+          # it doesn't die with STATUS_DLL_NOT_FOUND on a rust-cache hit.
+          find ~/AppData/Local/sherpa-rs -name '*.dll' -exec cp -f {} target/debug/ \;
+          ./target/debug/specta-export.exe
       - run: pnpm generate:i18n-keys
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
