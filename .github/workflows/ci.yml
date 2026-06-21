@@ -18,14 +18,23 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
-      - name: Generate IPC bindings stub for type-check
-        # The Rust job below regenerates the real one. For the frontend pipeline we ship
-        # a minimal stub so `tsc --noEmit` can succeed without running the cargo binary.
+      - name: Set up LLVM (libclang for whisper-rs bindgen)
         shell: bash
         run: |
-          mkdir -p src/ipc
-          printf '// @ts-nocheck\n/* eslint-disable */\nexport const commands = {} as any;\nexport type Action = any;\nexport type AppError = any;\nexport type AppSettings = any;\nexport type AudioDevice = any;\nexport type AudioDeviceKind = any;\nexport type AudioErrorCode = any;\nexport type AudioFormat = any;\nexport type AvatarStyle = any;\nexport type Bilingual = any;\nexport type CaptureMode = any;\nexport type CaptureResult = any;\nexport type Language = any;\nexport type MeetingDetail = any;\nexport type MeetingSummary = any;\nexport type Participant = any;\nexport type RecordingStartedDto = any;\nexport type Template = any;\nexport type Theme = any;\nexport type TranscriptLine = any;\nexport type Result<T, E> = any;\n' > src/ipc/bindings.ts
+          if [ ! -f "/c/Program Files/LLVM/bin/libclang.dll" ]; then
+            choco install llvm -y --no-progress
+          fi
+          echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+      - name: Generate IPC bindings
+        # Generate the real bindings from the Rust IPC surface (same as the e2e job)
+        # instead of a hand-maintained stub that drifts whenever a command/type is added.
+        working-directory: src-tauri
+        run: cargo run --bin specta-export
       - run: pnpm generate:i18n-keys
       - run: pnpm lint
       - run: pnpm check:node-types
@@ -82,6 +91,13 @@ jobs:
         with:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
+      - name: Set up LLVM (libclang for whisper-rs bindgen)
+        shell: bash
+        run: |
+          if [ ! -f "/c/Program Files/LLVM/bin/libclang.dll" ]; then
+            choco install llvm -y --no-progress
+          fi
+          echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
       - name: Generate IPC bindings + i18n keys
         working-directory: src-tauri
         run: cargo run --bin specta-export
