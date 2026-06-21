@@ -1,6 +1,7 @@
 import { Icon } from '@/components/primitives/Icon/Icon';
 import { useT } from '@/i18n/useT';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { useMemo } from 'react';
 import styles from './WindowChrome.module.css';
 
 export interface WindowChromeProps {
@@ -9,7 +10,17 @@ export interface WindowChromeProps {
 
 export function WindowChrome({ title }: WindowChromeProps) {
   const { t } = useT();
-  const win = getCurrentWebviewWindow();
+  // getCurrentWebviewWindow() reads window.__TAURI_INTERNALS__, which is absent
+  // outside the Tauri runtime (Vite dev server, Storybook, Playwright e2e). Guard
+  // it so the app shell renders in a plain browser instead of crashing the app;
+  // the window controls simply become no-ops there.
+  const win = useMemo(() => {
+    try {
+      return getCurrentWebviewWindow();
+    } catch {
+      return null;
+    }
+  }, []);
 
   return (
     <div className={styles.titlebar} data-tauri-drag-region>
@@ -25,7 +36,7 @@ export function WindowChrome({ title }: WindowChromeProps) {
         <button
           type="button"
           className={styles.ctrl}
-          onClick={() => void win.minimize()}
+          onClick={() => void win?.minimize()}
           title={t('winMinimize')}
         >
           <svg viewBox="0 0 10 10" width="10" height="10">
@@ -36,7 +47,7 @@ export function WindowChrome({ title }: WindowChromeProps) {
         <button
           type="button"
           className={styles.ctrl}
-          onClick={() => void win.toggleMaximize()}
+          onClick={() => void win?.toggleMaximize()}
           title={t('winMaximize')}
         >
           <svg viewBox="0 0 10 10" width="10" height="10" fill="none">
@@ -47,7 +58,7 @@ export function WindowChrome({ title }: WindowChromeProps) {
         <button
           type="button"
           className={`${styles.ctrl} ${styles.close}`}
-          onClick={() => void win.close()}
+          onClick={() => void win?.close()}
           title={t('winClose')}
         >
           <svg viewBox="0 0 10 10" width="10" height="10" stroke="currentColor" strokeWidth={1}>
