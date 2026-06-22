@@ -74,6 +74,13 @@ jobs:
           # skipped, so unless we cache this dir too the libs are gone on the fresh
           # runner VM and the link fails (LNK1181: cannot open input file 'cargs.lib').
           cache-directories: ~/AppData/Local/sherpa-rs
+      - name: Set up LLVM (libclang for whisper-rs bindgen)
+        shell: bash
+        run: |
+          if [ ! -f "/c/Program Files/LLVM/bin/libclang.dll" ]; then
+            choco install llvm -y --no-progress
+          fi
+          echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
       - name: cargo fmt
         working-directory: src-tauri
         run: cargo fmt --all -- --check
@@ -93,7 +100,6 @@ jobs:
       - name: cargo check whisper integration (compile gate)
         working-directory: src-tauri
         run: cargo check -p smart-noter-whisper --features whisper-integration --all-targets
-        continue-on-error: true   # whisper.cpp build needs LLVM/libclang + cmake on the runner; gate softly until CI installs them
 
   e2e:
     needs: [frontend, backend]
