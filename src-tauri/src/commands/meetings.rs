@@ -96,3 +96,43 @@ pub async fn create_speaker(
         .await
         .map_err(from_db)
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_meeting(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
+    meetings_repo::soft_delete(&state.pool, &id)
+        .await
+        .map_err(from_db)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn restore_meeting(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
+    meetings_repo::restore(&state.pool, &id)
+        .await
+        .map_err(from_db)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_trashed_meetings(
+    state: State<'_, AppState>,
+) -> Result<Vec<MeetingSummary>, AppError> {
+    meetings_repo::list_trashed(&state.pool)
+        .await
+        .map_err(from_db)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn purge_meeting(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
+    let paths = meetings_repo::purge(&state.pool, &id)
+        .await
+        .map_err(from_db)?;
+    for p in paths {
+        if let Err(e) = std::fs::remove_file(&p) {
+            tracing::warn!("purge_meeting: could not delete audio file {p}: {e}");
+        }
+    }
+    Ok(())
+}

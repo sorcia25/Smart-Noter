@@ -35,6 +35,22 @@ export const meetingsApi = baseApi.injectEndpoints({
       query: (args) => ({ cmd: 'create_speaker', args }),
       invalidatesTags: ['Meeting'],
     }),
+    listTrashedMeetings: b.query<MeetingSummary[], void>({
+      query: () => ({ cmd: 'list_trashed_meetings' }),
+      providesTags: ['Trash'],
+    }),
+    deleteMeeting: b.mutation<void, string>({
+      query: (id) => ({ cmd: 'delete_meeting', args: { id } }),
+      invalidatesTags: ['Meeting', 'Trash'],
+    }),
+    restoreMeeting: b.mutation<void, string>({
+      query: (id) => ({ cmd: 'restore_meeting', args: { id } }),
+      invalidatesTags: ['Meeting', 'Trash'],
+    }),
+    purgeMeeting: b.mutation<void, string>({
+      query: (id) => ({ cmd: 'purge_meeting', args: { id } }),
+      invalidatesTags: ['Trash'],
+    }),
   }),
 });
 
@@ -47,4 +63,8 @@ export const {
   useMergeSpeakersMutation,
   useReassignLinesMutation,
   useCreateSpeakerMutation,
+  useListTrashedMeetingsQuery,
+  useDeleteMeetingMutation,
+  useRestoreMeetingMutation,
+  usePurgeMeetingMutation,
 } = meetingsApi;

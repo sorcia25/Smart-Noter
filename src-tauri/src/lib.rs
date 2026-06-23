@@ -41,6 +41,10 @@ pub fn specta_builder() -> Builder {
         commands::meetings::merge_speakers,
         commands::meetings::reassign_lines,
         commands::meetings::create_speaker,
+        commands::meetings::delete_meeting,
+        commands::meetings::restore_meeting,
+        commands::meetings::list_trashed_meetings,
+        commands::meetings::purge_meeting,
         commands::templates::list_templates,
         commands::templates::set_default_template,
         commands::devices::list_audio_devices,
@@ -92,6 +96,25 @@ pub fn run() {
                 smart_noter_db::seed::seed_if_empty(&pool, &seed_path)
                     .await
                     .expect("seed");
+
+                // Auto-purge meetings trashed > 30 days ago (best-effort).
+                if let Ok(ids) = smart_noter_db::repos::meetings_repo::list_purgeable(&pool).await {
+                    for id in ids {
+                        match smart_noter_db::repos::meetings_repo::purge(&pool, &id).await {
+                            Ok(paths) => {
+                                for p in paths {
+                                    if let Err(e) = std::fs::remove_file(&p) {
+                                        tracing::warn!(
+                                            "auto-purge: could not delete file {p}: {e}"
+                                        );
+                                    }
+                                }
+                                tracing::info!("auto-purged trashed meeting {id}");
+                            }
+                            Err(e) => tracing::warn!("auto-purge failed for {id}: {e}"),
+                        }
+                    }
+                }
 
                 app_handle.manage(AppState {
                     pool,

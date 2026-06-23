@@ -29,6 +29,7 @@ export function Sidebar() {
     { to: Paths.Dashboard, icon: 'home', label: t('navDashboard') },
     { to: Paths.Meetings, icon: 'list', label: t('navMeetings'), count: meetings?.length },
     { to: Paths.Templates, icon: 'templates', label: t('navTemplates') },
+    { to: Paths.Trash, icon: 'trash', label: t('navTrash') },
   ];
   const tools: NavEntry[] = [
     { to: Paths.Participants, icon: 'user', label: t('participants') },

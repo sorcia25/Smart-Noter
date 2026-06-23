@@ -11,6 +11,7 @@ const MeetingDetail = lazy(() => import('@/features/meeting-detail/MeetingDetail
 const Templates = lazy(() => import('@/features/templates/TemplatesPage'));
 const Participants = lazy(() => import('@/features/participants/ParticipantsPage'));
 const Settings = lazy(() => import('@/features/settings/SettingsPage'));
+const Trash = lazy(() => import('@/features/trash/TrashPage'));
 
 export const routes: RouteObject[] = [
   { path: Paths.Dashboard, element: <Dashboard /> },
@@ -21,5 +22,6 @@ export const routes: RouteObject[] = [
   { path: Paths.Templates, element: <Templates /> },
   { path: Paths.Participants, element: <Participants /> },
   { path: Paths.Settings, element: <Settings /> },
+  { path: Paths.Trash, element: <Trash /> },
   { path: '*', element: <NotFoundRedirect /> },
 ];

@@ -198,5 +198,16 @@
   "speaker.newSpeaker": "➕ Nuevo hablante",
   "speaker.merge": "Fusionar en…",
   "speaker.selectLines": "Seleccionar líneas",
-  "speaker.applyReassign": "Reasignar selección"
+  "speaker.applyReassign": "Reasignar selección",
+  "trashTitle": "Papelera",
+  "trashSub": "Reuniones eliminadas. Se borran definitivamente tras 30 días.",
+  "trashEmpty": "La papelera está vacía.",
+  "navTrash": "Papelera",
+  "deleteMeeting": "Eliminar",
+  "restoreMeeting": "Restaurar",
+  "deletePermanently": "Eliminar definitivamente",
+  "confirmDeleteTitle": "¿Mover a la papelera?",
+  "confirmDeleteBody": "Podrás restaurarla desde la papelera durante 30 días.",
+  "confirmPurgeTitle": "¿Eliminar definitivamente?",
+  "confirmPurgeBody": "Esta acción no se puede deshacer. Se borrará la reunión y su audio."
 }

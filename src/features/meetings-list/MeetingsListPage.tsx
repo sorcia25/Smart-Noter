@@ -1,10 +1,12 @@
 import { MeetingRow } from '@/components/domain/MeetingRow/MeetingRow';
 import { Button } from '@/components/primitives/Button/Button';
 import { Icon } from '@/components/primitives/Icon/Icon';
+import { Modal } from '@/components/primitives/Modal/Modal';
 import { SearchBox } from '@/components/primitives/SearchBox/SearchBox';
+import { toast } from '@/components/primitives/Toast/Toast';
 import { useT } from '@/i18n/useT';
 import { Paths } from '@/router/paths';
-import { useListMeetingsQuery } from '@/store/api/meetings.api';
+import { useDeleteMeetingMutation, useListMeetingsQuery } from '@/store/api/meetings.api';
 import { useListTemplatesQuery } from '@/store/api/templates.api';
 import { pickL } from '@/utils/format';
 import { useMemo, useState } from 'react';
@@ -17,9 +19,11 @@ export default function MeetingsListPage() {
   const { t, lang } = useT();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const { data: meetings = [] } = useListMeetingsQuery();
   const { data: templates = [] } = useListTemplatesQuery();
+  const [deleteMeeting] = useDeleteMeetingMutation();
 
   const filtered = useMemo(() => {
     return meetings.filter((m) => {
@@ -62,11 +66,18 @@ export default function MeetingsListPage() {
         {filtered.length > 0 ? (
           <div className={styles.list}>
             {filtered.map((m) => (
-              <MeetingRow
-                key={m.id}
-                meeting={m}
-                onClick={() => navigate(Paths.MeetingDetail(m.id))}
-              />
+              <div key={m.id} className={styles.rowWrap}>
+                <MeetingRow meeting={m} onClick={() => navigate(Paths.MeetingDetail(m.id))} />
+                <button
+                  type="button"
+                  aria-label={t('deleteMeeting')}
+                  data-testid={`delete-${m.id}`}
+                  className={styles.deleteBtn}
+                  onClick={() => setPendingDelete(m.id)}
+                >
+                  <Icon name="trash" size={16} />
+                </button>
+              </div>
             ))}
           </div>
         ) : (
@@ -77,6 +88,37 @@ export default function MeetingsListPage() {
           </div>
         )}
       </div>
+
+      <Modal
+        open={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        title={t('confirmDeleteTitle')}
+        subtitle={t('confirmDeleteBody')}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPendingDelete(null)}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                if (!pendingDelete) return;
+                try {
+                  await deleteMeeting(pendingDelete).unwrap();
+                } catch {
+                  toast.error(t('errorTitle'));
+                  return;
+                }
+                setPendingDelete(null);
+              }}
+            >
+              {t('deleteMeeting')}
+            </Button>
+          </>
+        }
+      >
+        {null}
+      </Modal>
     </div>
   );
 }
