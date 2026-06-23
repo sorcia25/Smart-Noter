@@ -1,4 +1,6 @@
 pub mod actions_repo;
+pub mod blockers_repo;
+pub mod decisions_repo;
 pub mod meeting_assets_repo;
 pub mod meetings_repo;
 pub mod participants_repo;
