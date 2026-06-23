@@ -7,4 +7,5 @@ export const Paths = {
   Templates: '/templates',
   Participants: '/participants',
   Settings: '/settings',
+  Trash: '/trash',
 } as const;
