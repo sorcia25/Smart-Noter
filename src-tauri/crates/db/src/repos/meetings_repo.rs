@@ -146,6 +146,22 @@ pub async fn update_title(
     Ok(())
 }
 
+pub async fn soft_delete(pool: &SqlitePool, id: &str) -> Result<(), DbError> {
+    sqlx::query("UPDATE meetings SET deleted_at = datetime('now') WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn restore(pool: &SqlitePool, id: &str) -> Result<(), DbError> {
+    sqlx::query("UPDATE meetings SET deleted_at = NULL WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn count(pool: &SqlitePool) -> Result<i64, DbError> {
     let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM meetings")
         .fetch_one(pool)
@@ -365,5 +381,19 @@ mod tests {
             0,
             "meeting row leaked despite asset insert failure"
         );
+    }
+
+    #[tokio::test]
+    async fn soft_delete_then_restore_round_trips() {
+        let pool = init_pool_in_memory().await.unwrap();
+        insert_meeting(&pool, "m1", None).await;
+
+        soft_delete(&pool, "m1").await.unwrap();
+        assert_eq!(list_summaries(&pool).await.unwrap().len(), 0);
+        assert_eq!(list_trashed(&pool).await.unwrap().len(), 1);
+
+        restore(&pool, "m1").await.unwrap();
+        assert_eq!(list_summaries(&pool).await.unwrap().len(), 1);
+        assert_eq!(list_trashed(&pool).await.unwrap().len(), 0);
     }
 }
