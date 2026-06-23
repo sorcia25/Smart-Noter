@@ -162,6 +162,35 @@ pub async fn restore(pool: &SqlitePool, id: &str) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Hard-deletes the meeting (CASCADE wipes participants/actions/decisions/
+/// blockers/transcript_lines/meeting_assets) and returns the audio asset
+/// path(s) so the caller can unlink the files from disk.
+pub async fn purge(pool: &SqlitePool, id: &str) -> Result<Vec<String>, DbError> {
+    let paths: Vec<String> = sqlx::query_scalar(
+        "SELECT path FROM meeting_assets WHERE meeting_id = ? AND kind = 'audio'",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await?;
+
+    sqlx::query("DELETE FROM meetings WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(paths)
+}
+
+/// IDs of meetings trashed more than 30 days ago.
+pub async fn list_purgeable(pool: &SqlitePool) -> Result<Vec<String>, DbError> {
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM meetings WHERE deleted_at IS NOT NULL \
+         AND deleted_at < datetime('now','-30 days')",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(ids)
+}
+
 pub async fn count(pool: &SqlitePool) -> Result<i64, DbError> {
     let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM meetings")
         .fetch_one(pool)
@@ -395,5 +424,67 @@ mod tests {
         restore(&pool, "m1").await.unwrap();
         assert_eq!(list_summaries(&pool).await.unwrap().len(), 1);
         assert_eq!(list_trashed(&pool).await.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn purge_deletes_row_and_returns_audio_paths() {
+        use crate::repos::MeetingsRepo;
+        use smart_noter_core::{Bilingual, MeetingAsset, MeetingDetail};
+
+        let pool = init_pool_in_memory().await.unwrap();
+        let meeting = MeetingDetail {
+            id: "m-purge".into(),
+            title: Bilingual {
+                es: "P".into(),
+                en: None,
+            },
+            template: "tecnica".into(),
+            date: "2026-06-01T00:00:00Z".into(),
+            duration_sec: 5,
+            device_used: None,
+            word_count: 0,
+            summary: None,
+            participants: vec![],
+            actions: vec![],
+            decisions: vec![],
+            blockers: vec![],
+            transcript: vec![],
+        };
+        let asset = MeetingAsset {
+            id: "a-purge".into(),
+            meeting_id: "m-purge".into(),
+            kind: "audio".into(),
+            path: "C:/audio/m-purge.wav".into(),
+            bytes: 1,
+            mime_type: Some("audio/wav".into()),
+            created_at: "2026-06-01T00:00:00Z".into(),
+        };
+        MeetingsRepo(&pool)
+            .create_with_asset(&meeting, &asset)
+            .await
+            .unwrap();
+        soft_delete(&pool, "m-purge").await.unwrap();
+
+        let paths = purge(&pool, "m-purge").await.unwrap();
+        assert_eq!(paths, vec!["C:/audio/m-purge.wav".to_string()]);
+        assert_eq!(count(&pool).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn list_purgeable_returns_old_trash_only() {
+        let pool = init_pool_in_memory().await.unwrap();
+        // 40 days ago -> purgeable; just-now trash -> not.
+        insert_meeting(&pool, "m-old", Some("2026-01-01T00:00:00Z")).await;
+        sqlx::query(
+            "UPDATE meetings SET deleted_at = datetime('now','-40 days') WHERE id = 'm-old'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        insert_meeting(&pool, "m-fresh", None).await;
+        soft_delete(&pool, "m-fresh").await.unwrap();
+
+        let ids = list_purgeable(&pool).await.unwrap();
+        assert_eq!(ids, vec!["m-old".to_string()]);
     }
 }
