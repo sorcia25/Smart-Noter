@@ -163,20 +163,30 @@ pub async fn restore(pool: &SqlitePool, id: &str) -> Result<(), DbError> {
 }
 
 /// Hard-deletes the meeting (CASCADE wipes participants/actions/decisions/
-/// blockers/transcript_lines/meeting_assets) and returns the audio asset
-/// path(s) so the caller can unlink the files from disk.
+/// blockers/transcript_lines/meeting_assets) and returns its audio asset
+/// path(s) so the caller can unlink the files from disk. Only meetings already
+/// in the trash (`deleted_at IS NOT NULL`) are purged; calling this on an active
+/// meeting is a no-op that returns an empty path list. The path SELECT and the
+/// DELETE run in one transaction so the returned paths always correspond to a
+/// row that was actually removed.
 pub async fn purge(pool: &SqlitePool, id: &str) -> Result<Vec<String>, DbError> {
+    let mut tx = pool.begin().await?;
+
     let paths: Vec<String> = sqlx::query_scalar(
-        "SELECT path FROM meeting_assets WHERE meeting_id = ? AND kind = 'audio'",
+        "SELECT a.path FROM meeting_assets a \
+         JOIN meetings m ON m.id = a.meeting_id \
+         WHERE a.meeting_id = ? AND a.kind = 'audio' AND m.deleted_at IS NOT NULL",
     )
     .bind(id)
-    .fetch_all(pool)
+    .fetch_all(&mut *tx)
     .await?;
 
-    sqlx::query("DELETE FROM meetings WHERE id = ?")
+    sqlx::query("DELETE FROM meetings WHERE id = ? AND deleted_at IS NOT NULL")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+
+    tx.commit().await?;
     Ok(paths)
 }
 
@@ -471,10 +481,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn purge_ignores_active_meeting() {
+        let pool = init_pool_in_memory().await.unwrap();
+        insert_meeting(&pool, "m-active", None).await;
+
+        // Not trashed -> purge must delete nothing and return no paths.
+        let paths = purge(&pool, "m-active").await.unwrap();
+        assert!(paths.is_empty());
+        assert_eq!(count(&pool).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
     async fn list_purgeable_returns_old_trash_only() {
         let pool = init_pool_in_memory().await.unwrap();
         // 40 days ago -> purgeable; just-now trash -> not.
-        insert_meeting(&pool, "m-old", Some("2026-01-01T00:00:00Z")).await;
+        insert_meeting(&pool, "m-old", None).await;
         sqlx::query(
             "UPDATE meetings SET deleted_at = datetime('now','-40 days') WHERE id = 'm-old'",
         )
