@@ -20,4 +20,16 @@ describe('trash endpoints', () => {
     await store.dispatch(meetingsApi.endpoints.listTrashedMeetings.initiate()).unwrap();
     expect(invoke).toHaveBeenCalledWith('list_trashed_meetings', {});
   });
+
+  it('restoreMeeting invokes restore_meeting with id', async () => {
+    invoke.mockResolvedValueOnce(undefined);
+    await store.dispatch(meetingsApi.endpoints.restoreMeeting.initiate('m1')).unwrap();
+    expect(invoke).toHaveBeenCalledWith('restore_meeting', { id: 'm1' });
+  });
+
+  it('purgeMeeting invokes purge_meeting with id', async () => {
+    invoke.mockResolvedValueOnce(undefined);
+    await store.dispatch(meetingsApi.endpoints.purgeMeeting.initiate('m1')).unwrap();
+    expect(invoke).toHaveBeenCalledWith('purge_meeting', { id: 'm1' });
+  });
 });
