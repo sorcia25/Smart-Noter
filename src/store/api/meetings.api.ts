@@ -51,6 +51,54 @@ export const meetingsApi = baseApi.injectEndpoints({
       query: (id) => ({ cmd: 'purge_meeting', args: { id } }),
       invalidatesTags: ['Trash'],
     }),
+    createAction: b.mutation<
+      string,
+      { meetingId: string; text: string; ownerParticipantId: string | null; due: string | null }
+    >({
+      query: (args) => ({ cmd: 'create_action', args }),
+      invalidatesTags: (_r, _e, { meetingId }) => [{ type: 'Meeting', id: meetingId }],
+    }),
+    updateAction: b.mutation<
+      void,
+      {
+        meetingId: string;
+        actionId: string;
+        text: string;
+        ownerParticipantId: string | null;
+        due: string | null;
+      }
+    >({
+      query: ({ meetingId: _m, ...args }) => ({ cmd: 'update_action', args }),
+      invalidatesTags: (_r, _e, { meetingId }) => [{ type: 'Meeting', id: meetingId }],
+    }),
+    deleteAction: b.mutation<void, { meetingId: string; actionId: string }>({
+      query: ({ actionId }) => ({ cmd: 'delete_action', args: { actionId } }),
+      invalidatesTags: (_r, _e, { meetingId }) => [{ type: 'Meeting', id: meetingId }],
+    }),
+    createDecision: b.mutation<number, { meetingId: string; text: string }>({
+      query: (args) => ({ cmd: 'create_decision', args }),
+      invalidatesTags: (_r, _e, { meetingId }) => [{ type: 'Meeting', id: meetingId }],
+    }),
+    updateDecision: b.mutation<void, { meetingId: string; id: number; text: string }>({
+      query: ({ id, text }) => ({ cmd: 'update_decision', args: { id, text } }),
+      invalidatesTags: (_r, _e, { meetingId }) => [{ type: 'Meeting', id: meetingId }],
+    }),
+    deleteDecision: b.mutation<void, { meetingId: string; id: number }>({
+      query: ({ id }) => ({ cmd: 'delete_decision', args: { id } }),
+      invalidatesTags: (_r, _e, { meetingId }) => [{ type: 'Meeting', id: meetingId }],
+    }),
+    createBlocker: b.mutation<number, { meetingId: string; text: string }>({
+      query: (args) => ({ cmd: 'create_blocker', args }),
+      invalidatesTags: (_r, _e, { meetingId }) => [{ type: 'Meeting', id: meetingId }],
+    }),
+    updateBlocker: b.mutation<void, { meetingId: string; id: number; text: string }>({
+      query: ({ id, text }) => ({ cmd: 'update_blocker', args: { id, text } }),
+      invalidatesTags: (_r, _e, { meetingId }) => [{ type: 'Meeting', id: meetingId }],
+    }),
+    deleteBlocker: b.mutation<void, { meetingId: string; id: number }>({
+      query: ({ id }) => ({ cmd: 'delete_blocker', args: { id } }),
+      invalidatesTags: (_r, _e, { meetingId }) => [{ type: 'Meeting', id: meetingId }],
+    }),
   }),
 });
 
@@ -67,4 +115,13 @@ export const {
   useDeleteMeetingMutation,
   useRestoreMeetingMutation,
   usePurgeMeetingMutation,
+  useCreateActionMutation,
+  useUpdateActionMutation,
+  useDeleteActionMutation,
+  useCreateDecisionMutation,
+  useUpdateDecisionMutation,
+  useDeleteDecisionMutation,
+  useCreateBlockerMutation,
+  useUpdateBlockerMutation,
+  useDeleteBlockerMutation,
 } = meetingsApi;

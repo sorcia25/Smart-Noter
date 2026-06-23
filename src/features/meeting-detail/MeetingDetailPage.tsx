@@ -104,7 +104,11 @@ export default function MeetingDetailPage() {
           {tab === 'summary' && <SummaryTab meeting={meeting} template={template} />}
           {tab === 'transcript' && <TranscriptTab meeting={meeting} />}
           {tab === 'actions' && (
-            <ActionsTab actions={meeting.actions} participants={meeting.participants} />
+            <ActionsTab
+              actions={meeting.actions}
+              participants={meeting.participants}
+              meetingId={meeting.id}
+            />
           )}
           {tab === 'audio' && <AudioTab meeting={meeting} />}
         </div>

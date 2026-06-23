@@ -209,5 +209,15 @@
   "confirmDeleteTitle": "¿Mover a la papelera?",
   "confirmDeleteBody": "Podrás restaurarla desde la papelera durante 30 días.",
   "confirmPurgeTitle": "¿Eliminar definitivamente?",
-  "confirmPurgeBody": "Esta acción no se puede deshacer. Se borrará la reunión y su audio."
+  "confirmPurgeBody": "Esta acción no se puede deshacer. Se borrará la reunión y su audio.",
+  "addAction": "Añadir acción",
+  "addDecision": "Añadir decisión",
+  "addBlocker": "Añadir bloqueo",
+  "editItem": "Editar",
+  "deleteItem": "Eliminar",
+  "saveItem": "Guardar",
+  "itemTextPh": "Escribe aquí…",
+  "ownerLabel": "Responsable",
+  "dueLabel": "Vence",
+  "noOwner": "Sin responsable"
 }

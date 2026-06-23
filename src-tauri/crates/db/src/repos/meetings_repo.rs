@@ -63,29 +63,37 @@ pub async fn get_detail(pool: &SqlitePool, id: &str) -> Result<MeetingDetail, Db
     let participants = participants_repo::list_by_meeting(pool, id).await?;
     let actions = actions_repo::list_by_meeting(pool, id).await?;
 
-    let decisions = sqlx::query!(
-        "SELECT text_es, text_en FROM decisions WHERE meeting_id = ?",
-        id
+    let decisions = sqlx::query_as::<_, (i64, String, Option<String>)>(
+        "SELECT id, text_es, text_en FROM decisions WHERE meeting_id = ? ORDER BY id",
     )
+    .bind(id)
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|r| Bilingual {
-        es: r.text_es,
-        en: r.text_en,
-    })
+    .map(
+        |(id, text_es, text_en)| smart_noter_core::models::Decision {
+            id,
+            text: Bilingual {
+                es: text_es,
+                en: text_en,
+            },
+        },
+    )
     .collect();
 
-    let blockers = sqlx::query!(
-        "SELECT text_es, text_en FROM blockers WHERE meeting_id = ?",
-        id
+    let blockers = sqlx::query_as::<_, (i64, String, Option<String>)>(
+        "SELECT id, text_es, text_en FROM blockers WHERE meeting_id = ? ORDER BY id",
     )
+    .bind(id)
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|r| Bilingual {
-        es: r.text_es,
-        en: r.text_en,
+    .map(|(id, text_es, text_en)| smart_noter_core::models::Blocker {
+        id,
+        text: Bilingual {
+            es: text_es,
+            en: text_en,
+        },
     })
     .collect();
 

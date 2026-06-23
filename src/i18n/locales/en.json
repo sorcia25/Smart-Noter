@@ -209,5 +209,15 @@
   "confirmDeleteTitle": "Move to Trash?",
   "confirmDeleteBody": "You can restore it from Trash for 30 days.",
   "confirmPurgeTitle": "Delete permanently?",
-  "confirmPurgeBody": "This cannot be undone. The meeting and its audio will be erased."
+  "confirmPurgeBody": "This cannot be undone. The meeting and its audio will be erased.",
+  "addAction": "Add action",
+  "addDecision": "Add decision",
+  "addBlocker": "Add blocker",
+  "editItem": "Edit",
+  "deleteItem": "Delete",
+  "saveItem": "Save",
+  "itemTextPh": "Type here…",
+  "ownerLabel": "Owner",
+  "dueLabel": "Due",
+  "noOwner": "No owner"
 }
