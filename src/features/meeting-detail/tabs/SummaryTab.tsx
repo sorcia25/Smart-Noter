@@ -1,7 +1,16 @@
 import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
 import { useT } from '@/i18n/useT';
 import type { MeetingDetail, Template } from '@/ipc/bindings';
+import {
+  useCreateBlockerMutation,
+  useCreateDecisionMutation,
+  useDeleteBlockerMutation,
+  useDeleteDecisionMutation,
+  useUpdateBlockerMutation,
+  useUpdateDecisionMutation,
+} from '@/store/api/meetings.api';
 import { pickL } from '@/utils/format';
+import { EditableItems } from './EditableItems';
 import styles from './SummaryTab.module.css';
 
 interface SectionConfig {
@@ -62,6 +71,13 @@ const FAKE_DELIVERABLES = {
 
 export function SummaryTab({ meeting, template }: SummaryTabProps) {
   const { t, lang } = useT();
+  const [createDecision] = useCreateDecisionMutation();
+  const [updateDecision] = useUpdateDecisionMutation();
+  const [deleteDecision] = useDeleteDecisionMutation();
+  const [createBlocker] = useCreateBlockerMutation();
+  const [updateBlocker] = useUpdateBlockerMutation();
+  const [deleteBlocker] = useDeleteBlockerMutation();
+  const mId = meeting.id;
 
   const sectionsForTemplate = template?.sections ?? [
     'summary',
@@ -80,14 +96,16 @@ export function SummaryTab({ meeting, template }: SummaryTabProps) {
     decisions: {
       titleKey: 'secDecisions',
       icon: 'check',
-      render: () =>
-        meeting.decisions.length === 0 ? null : (
-          <ul>
-            {meeting.decisions.map((d) => (
-              <li key={d.id}>{pickL(d.text, lang)}</li>
-            ))}
-          </ul>
-        ),
+      render: () => (
+        <EditableItems
+          items={meeting.decisions}
+          addLabel={t('addDecision')}
+          testIdPrefix="decision"
+          onCreate={(text) => createDecision({ meetingId: mId, text }).unwrap()}
+          onUpdate={(id, text) => updateDecision({ meetingId: mId, id, text }).unwrap()}
+          onDelete={(id) => deleteDecision({ meetingId: mId, id }).unwrap()}
+        />
+      ),
     },
     metrics: {
       titleKey: 'secMetrics',
@@ -119,14 +137,16 @@ export function SummaryTab({ meeting, template }: SummaryTabProps) {
     blockers: {
       titleKey: 'secBlockers',
       icon: 'flag',
-      render: () =>
-        meeting.blockers.length === 0 ? null : (
-          <ul>
-            {meeting.blockers.map((b) => (
-              <li key={b.id}>{pickL(b.text, lang)}</li>
-            ))}
-          </ul>
-        ),
+      render: () => (
+        <EditableItems
+          items={meeting.blockers}
+          addLabel={t('addBlocker')}
+          testIdPrefix="blocker"
+          onCreate={(text) => createBlocker({ meetingId: mId, text }).unwrap()}
+          onUpdate={(id, text) => updateBlocker({ meetingId: mId, id, text }).unwrap()}
+          onDelete={(id) => deleteBlocker({ meetingId: mId, id }).unwrap()}
+        />
+      ),
     },
     architecture: {
       titleKey: 'secArchitecture',
