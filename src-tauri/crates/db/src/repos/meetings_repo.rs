@@ -6,31 +6,48 @@ use smart_noter_core::{
 };
 use sqlx::SqlitePool;
 
-pub async fn list_summaries(pool: &SqlitePool) -> Result<Vec<MeetingSummary>, DbError> {
-    let rows = sqlx::query!(
-        r#"SELECT id, title_es, title_en, template_id, date, duration_sec, word_count
-           FROM meetings ORDER BY date DESC"#
-    )
-    .fetch_all(pool)
-    .await?;
+/// Shared builder: runs `sql` (which must SELECT the standard summary columns)
+/// and hydrates each row's participants.
+async fn summaries_from_sql(pool: &SqlitePool, sql: &str) -> Result<Vec<MeetingSummary>, DbError> {
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, String, String, i64, i64)>(sql)
+        .fetch_all(pool)
+        .await?;
 
     let mut out = Vec::with_capacity(rows.len());
-    for r in rows {
-        let participants = participants_repo::list_by_meeting(pool, &r.id).await?;
+    for (id, title_es, title_en, template, date, duration_sec, word_count) in rows {
+        let participants = participants_repo::list_by_meeting(pool, &id).await?;
         out.push(MeetingSummary {
-            id: r.id,
+            id,
             title: Bilingual {
-                es: r.title_es,
-                en: r.title_en,
+                es: title_es,
+                en: title_en,
             },
-            template: r.template_id,
-            date: r.date,
-            duration_sec: r.duration_sec,
+            template,
+            date,
+            duration_sec,
             participants,
-            word_count: r.word_count,
+            word_count,
         });
     }
     Ok(out)
+}
+
+pub async fn list_summaries(pool: &SqlitePool) -> Result<Vec<MeetingSummary>, DbError> {
+    summaries_from_sql(
+        pool,
+        r#"SELECT id, title_es, title_en, template_id, date, duration_sec, word_count
+           FROM meetings WHERE deleted_at IS NULL ORDER BY date DESC"#,
+    )
+    .await
+}
+
+pub async fn list_trashed(pool: &SqlitePool) -> Result<Vec<MeetingSummary>, DbError> {
+    summaries_from_sql(
+        pool,
+        r#"SELECT id, title_es, title_en, template_id, date, duration_sec, word_count
+           FROM meetings WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC"#,
+    )
+    .await
 }
 
 pub async fn get_detail(pool: &SqlitePool, id: &str) -> Result<MeetingDetail, DbError> {
@@ -203,6 +220,41 @@ impl MeetingsRepo<'_> {
 mod tests {
     use super::*;
     use crate::init_pool_in_memory;
+
+    async fn insert_meeting(pool: &SqlitePool, id: &str, deleted_at: Option<&str>) {
+        sqlx::query(
+            r#"INSERT INTO meetings (id, title_es, template_id, date, duration_sec, deleted_at)
+               VALUES (?, ?, 'tecnica', '2026-06-01T00:00:00Z', 10, ?)"#,
+        )
+        .bind(id)
+        .bind(format!("M {id}"))
+        .bind(deleted_at)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn list_summaries_excludes_trashed() {
+        let pool = init_pool_in_memory().await.unwrap();
+        insert_meeting(&pool, "m-active", None).await;
+        insert_meeting(&pool, "m-trashed", Some("2026-06-02T00:00:00Z")).await;
+
+        let active = list_summaries(&pool).await.unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, "m-active");
+    }
+
+    #[tokio::test]
+    async fn list_trashed_returns_only_trashed() {
+        let pool = init_pool_in_memory().await.unwrap();
+        insert_meeting(&pool, "m-active", None).await;
+        insert_meeting(&pool, "m-trashed", Some("2026-06-02T00:00:00Z")).await;
+
+        let trashed = list_trashed(&pool).await.unwrap();
+        assert_eq!(trashed.len(), 1);
+        assert_eq!(trashed[0].id, "m-trashed");
+    }
 
     #[tokio::test]
     async fn list_summaries_empty_on_fresh_db() {

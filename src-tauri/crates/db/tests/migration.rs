@@ -52,3 +52,16 @@ async fn migration_0003_adds_end_seconds_column() {
         "got columns: {cols:?}"
     );
 }
+
+#[tokio::test]
+async fn migration_0004_adds_deleted_at_column() {
+    let pool = init_pool_in_memory().await.expect("pool");
+    let cols: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info('meetings')")
+        .fetch_all(&pool)
+        .await
+        .expect("query");
+    assert!(
+        cols.iter().any(|c| c == "deleted_at"),
+        "got columns: {cols:?}"
+    );
+}
