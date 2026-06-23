@@ -4,7 +4,9 @@ use smart_noter_core::{
     models::{MeetingDetail, MeetingSummary},
     AppError,
 };
-use smart_noter_db::repos::{actions_repo, meetings_repo, participants_repo};
+use smart_noter_db::repos::{
+    actions_repo, blockers_repo, decisions_repo, meetings_repo, participants_repo,
+};
 use tauri::State;
 
 #[tauri::command]
@@ -135,4 +137,119 @@ pub async fn purge_meeting(state: State<'_, AppState>, id: String) -> Result<(),
         }
     }
     Ok(())
+}
+
+// ---- actions ----
+#[tauri::command]
+#[specta::specta]
+pub async fn create_action(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    text: String,
+    owner_participant_id: Option<String>,
+    due: Option<String>,
+) -> Result<String, AppError> {
+    actions_repo::create(
+        &state.pool,
+        &meeting_id,
+        &text,
+        owner_participant_id.as_deref(),
+        due.as_deref(),
+    )
+    .await
+    .map_err(from_db)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_action(
+    state: State<'_, AppState>,
+    action_id: String,
+    text: String,
+    owner_participant_id: Option<String>,
+    due: Option<String>,
+) -> Result<(), AppError> {
+    actions_repo::update(
+        &state.pool,
+        &action_id,
+        &text,
+        owner_participant_id.as_deref(),
+        due.as_deref(),
+    )
+    .await
+    .map_err(from_db)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_action(state: State<'_, AppState>, action_id: String) -> Result<(), AppError> {
+    actions_repo::delete(&state.pool, &action_id)
+        .await
+        .map_err(from_db)
+}
+
+// ---- decisions ----
+#[tauri::command]
+#[specta::specta]
+pub async fn create_decision(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    text: String,
+) -> Result<i64, AppError> {
+    decisions_repo::create(&state.pool, &meeting_id, &text)
+        .await
+        .map_err(from_db)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_decision(
+    state: State<'_, AppState>,
+    id: i64,
+    text: String,
+) -> Result<(), AppError> {
+    decisions_repo::update(&state.pool, id, &text)
+        .await
+        .map_err(from_db)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_decision(state: State<'_, AppState>, id: i64) -> Result<(), AppError> {
+    decisions_repo::delete(&state.pool, id)
+        .await
+        .map_err(from_db)
+}
+
+// ---- blockers ----
+#[tauri::command]
+#[specta::specta]
+pub async fn create_blocker(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    text: String,
+) -> Result<i64, AppError> {
+    blockers_repo::create(&state.pool, &meeting_id, &text)
+        .await
+        .map_err(from_db)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_blocker(
+    state: State<'_, AppState>,
+    id: i64,
+    text: String,
+) -> Result<(), AppError> {
+    blockers_repo::update(&state.pool, id, &text)
+        .await
+        .map_err(from_db)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_blocker(state: State<'_, AppState>, id: i64) -> Result<(), AppError> {
+    blockers_repo::delete(&state.pool, id)
+        .await
+        .map_err(from_db)
 }
