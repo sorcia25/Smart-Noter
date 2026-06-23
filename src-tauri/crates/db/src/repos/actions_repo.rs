@@ -42,6 +42,55 @@ pub async fn toggle(pool: &SqlitePool, action_id: &str) -> Result<bool, DbError>
     Ok(new_done != 0)
 }
 
+/// Inserts a new action (text in the caller's UI language only; text_en stays
+/// NULL until AI translation). Returns the generated id.
+pub async fn create(
+    pool: &SqlitePool,
+    meeting_id: &str,
+    text_es: &str,
+    owner_participant_id: Option<&str>,
+    due: Option<&str>,
+) -> Result<String, DbError> {
+    let id = format!("act-{}", uuid::Uuid::now_v7());
+    sqlx::query(
+        "INSERT INTO actions (id, meeting_id, text_es, owner_participant_id, due, done) \
+         VALUES (?, ?, ?, ?, ?, 0)",
+    )
+    .bind(&id)
+    .bind(meeting_id)
+    .bind(text_es)
+    .bind(owner_participant_id)
+    .bind(due)
+    .execute(pool)
+    .await?;
+    Ok(id)
+}
+
+pub async fn update(
+    pool: &SqlitePool,
+    action_id: &str,
+    text_es: &str,
+    owner_participant_id: Option<&str>,
+    due: Option<&str>,
+) -> Result<(), DbError> {
+    sqlx::query("UPDATE actions SET text_es = ?, owner_participant_id = ?, due = ? WHERE id = ?")
+        .bind(text_es)
+        .bind(owner_participant_id)
+        .bind(due)
+        .bind(action_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn delete(pool: &SqlitePool, action_id: &str) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM actions WHERE id = ?")
+        .bind(action_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +116,38 @@ mod tests {
         assert!(after_first);
         let after_second = toggle(&pool, "a1").await.unwrap();
         assert!(!after_second);
+    }
+
+    #[tokio::test]
+    async fn create_insert_then_lists() {
+        let pool = setup().await;
+        let id = create(&pool, "m1", "New action", None, None).await.unwrap();
+        let list = list_by_meeting(&pool, "m1").await.unwrap();
+        assert!(list
+            .iter()
+            .any(|a| a.id == id && a.text.es == "New action" && !a.done));
+    }
+
+    #[tokio::test]
+    async fn update_changes_text_owner_due() {
+        let pool = setup().await;
+        update(&pool, "a1", "Edited", None, Some("2026-07-01"))
+            .await
+            .unwrap();
+        let a = list_by_meeting(&pool, "m1")
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|a| a.id == "a1")
+            .unwrap();
+        assert_eq!(a.text.es, "Edited");
+        assert_eq!(a.due.as_deref(), Some("2026-07-01"));
+    }
+
+    #[tokio::test]
+    async fn delete_removes_row() {
+        let pool = setup().await;
+        delete(&pool, "a1").await.unwrap();
+        assert!(list_by_meeting(&pool, "m1").await.unwrap().is_empty());
     }
 }
