@@ -1,6 +1,7 @@
 import { Button } from '@/components/primitives/Button/Button';
 import { Icon } from '@/components/primitives/Icon/Icon';
 import { Modal } from '@/components/primitives/Modal/Modal';
+import { toast } from '@/components/primitives/Toast/Toast';
 import { useT } from '@/i18n/useT';
 import {
   useListTrashedMeetingsQuery,
@@ -19,7 +20,7 @@ export default function TrashPage() {
   const [pendingPurge, setPendingPurge] = useState<string | null>(null);
 
   return (
-    <div className={styles.page} data-screen-label="Trash">
+    <div className={styles.page} data-screen-label="09 Trash">
       <div className={styles.header}>
         <h1 className={styles.title}>{t('trashTitle')}</h1>
         <div className={styles.sub}>{t('trashSub')}</div>
@@ -40,16 +41,24 @@ export default function TrashPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    aria-label={`restore-${m.id}`}
+                    aria-label={t('restoreMeeting')}
+                    data-testid={`restore-${m.id}`}
                     icon={<Icon name="refresh" size={14} />}
-                    onClick={() => restoreMeeting(m.id)}
+                    onClick={async () => {
+                      try {
+                        await restoreMeeting(m.id).unwrap();
+                      } catch {
+                        toast.error(t('errorTitle'));
+                      }
+                    }}
                   >
                     {t('restoreMeeting')}
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    aria-label={`purge-${m.id}`}
+                    aria-label={t('deletePermanently')}
+                    data-testid={`purge-${m.id}`}
                     icon={<Icon name="trash" size={14} />}
                     onClick={() => setPendingPurge(m.id)}
                   >
@@ -75,7 +84,13 @@ export default function TrashPage() {
             <Button
               variant="primary"
               onClick={async () => {
-                if (pendingPurge) await purgeMeeting(pendingPurge).unwrap();
+                if (!pendingPurge) return;
+                try {
+                  await purgeMeeting(pendingPurge).unwrap();
+                } catch {
+                  toast.error(t('errorTitle'));
+                  return;
+                }
                 setPendingPurge(null);
               }}
             >
@@ -84,7 +99,7 @@ export default function TrashPage() {
           </>
         }
       >
-        <div />
+        {null}
       </Modal>
     </div>
   );

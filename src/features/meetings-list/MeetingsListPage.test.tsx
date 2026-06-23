@@ -3,7 +3,7 @@ import { setupListeners } from '@reduxjs/toolkit/query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@/i18n';
 import { baseApi } from '@/store/api/base';
 import { uiSlice } from '@/store/slices/ui.slice';
@@ -68,6 +68,8 @@ function renderPage() {
 }
 
 describe('MeetingsListPage', () => {
+  beforeEach(() => invoke.mockReset());
+
   it('renders heading and subtitle', async () => {
     setup();
     await waitFor(() => {
@@ -91,9 +93,11 @@ describe('MeetingsListPage', () => {
     renderPage();
     await screen.findByText(/M 1/i);
 
-    fireEvent.click(screen.getByLabelText('delete-m1'));
-    // Click the confirm button in the modal footer (role=button, same text as title but is a button)
-    fireEvent.click(screen.getByRole('button', { name: /Mover a la papelera|Move to Trash/i }));
+    fireEvent.click(screen.getByTestId('delete-m1'));
+    // The modal confirm button is the last 'Eliminar/Delete' button in the DOM (row button comes first)
+    const confirmBtns = screen.getAllByRole('button', { name: /Eliminar|Delete/i });
+    // biome-ignore lint/style/noNonNullAssertion: array is guaranteed non-empty by getAllByRole
+    fireEvent.click(confirmBtns.at(-1)!);
 
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('delete_meeting', { id: 'm1' }));
   });

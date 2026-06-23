@@ -51,7 +51,7 @@ describe('TrashPage', () => {
       </Provider>
     );
     await screen.findByText(/M 1/i);
-    fireEvent.click(screen.getByLabelText('restore-m1'));
+    fireEvent.click(screen.getByTestId('restore-m1'));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('restore_meeting', { id: 'm1' }));
   });
 });

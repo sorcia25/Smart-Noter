@@ -3,6 +3,7 @@ import { Button } from '@/components/primitives/Button/Button';
 import { Icon } from '@/components/primitives/Icon/Icon';
 import { Modal } from '@/components/primitives/Modal/Modal';
 import { SearchBox } from '@/components/primitives/SearchBox/SearchBox';
+import { toast } from '@/components/primitives/Toast/Toast';
 import { useT } from '@/i18n/useT';
 import { Paths } from '@/router/paths';
 import { useDeleteMeetingMutation, useListMeetingsQuery } from '@/store/api/meetings.api';
@@ -69,7 +70,8 @@ export default function MeetingsListPage() {
                 <MeetingRow meeting={m} onClick={() => navigate(Paths.MeetingDetail(m.id))} />
                 <button
                   type="button"
-                  aria-label={`delete-${m.id}`}
+                  aria-label={t('deleteMeeting')}
+                  data-testid={`delete-${m.id}`}
                   className={styles.deleteBtn}
                   onClick={() => setPendingDelete(m.id)}
                 >
@@ -100,16 +102,22 @@ export default function MeetingsListPage() {
             <Button
               variant="primary"
               onClick={async () => {
-                if (pendingDelete) await deleteMeeting(pendingDelete).unwrap();
+                if (!pendingDelete) return;
+                try {
+                  await deleteMeeting(pendingDelete).unwrap();
+                } catch {
+                  toast.error(t('errorTitle'));
+                  return;
+                }
                 setPendingDelete(null);
               }}
             >
-              {t('confirmDeleteTitle')}
+              {t('deleteMeeting')}
             </Button>
           </>
         }
       >
-        <div />
+        {null}
       </Modal>
     </div>
   );

@@ -91,6 +91,12 @@
 }
 
 .deleteBtn:hover {
-  color: var(--danger, #e54d4d);
-  background: var(--danger-bg, rgba(229, 77, 77, 0.08));
+  color: var(--danger, #d4183d);
+  background: var(--danger-bg, rgba(212, 24, 61, 0.08));
+}
+
+.deleteBtn:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
