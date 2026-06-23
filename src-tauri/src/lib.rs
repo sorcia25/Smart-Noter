@@ -103,7 +103,11 @@ pub fn run() {
                         match smart_noter_db::repos::meetings_repo::purge(&pool, &id).await {
                             Ok(paths) => {
                                 for p in paths {
-                                    let _ = std::fs::remove_file(&p);
+                                    if let Err(e) = std::fs::remove_file(&p) {
+                                        tracing::warn!(
+                                            "auto-purge: could not delete file {p}: {e}"
+                                        );
+                                    }
                                 }
                                 tracing::info!("auto-purged trashed meeting {id}");
                             }
