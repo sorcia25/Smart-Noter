@@ -1,4 +1,4 @@
-use super::{Action, Participant};
+use super::{Action, Blocker, Decision, Participant};
 use crate::Bilingual;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -37,7 +37,7 @@ pub struct MeetingDetail {
     pub summary: Option<Bilingual>,
     pub participants: Vec<Participant>,
     pub actions: Vec<Action>,
-    pub decisions: Vec<Bilingual>,
-    pub blockers: Vec<Bilingual>,
+    pub decisions: Vec<Decision>,
+    pub blockers: Vec<Blocker>,
     pub transcript: Vec<TranscriptLine>,
 }

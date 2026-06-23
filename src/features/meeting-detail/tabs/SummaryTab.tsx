@@ -1,6 +1,6 @@
 import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
 import { useT } from '@/i18n/useT';
-import type { Bilingual, MeetingDetail, Template } from '@/ipc/bindings';
+import type { MeetingDetail, Template } from '@/ipc/bindings';
 import { pickL } from '@/utils/format';
 import styles from './SummaryTab.module.css';
 
@@ -83,8 +83,8 @@ export function SummaryTab({ meeting, template }: SummaryTabProps) {
       render: () =>
         meeting.decisions.length === 0 ? null : (
           <ul>
-            {meeting.decisions.map((d: Bilingual) => (
-              <li key={d.es}>{pickL(d, lang)}</li>
+            {meeting.decisions.map((d) => (
+              <li key={d.id}>{pickL(d.text, lang)}</li>
             ))}
           </ul>
         ),
@@ -110,8 +110,8 @@ export function SummaryTab({ meeting, template }: SummaryTabProps) {
       render: () =>
         meeting.blockers.length === 0 ? null : (
           <ul>
-            {meeting.blockers.map((b: Bilingual) => (
-              <li key={b.es}>{pickL(b, lang)}</li>
+            {meeting.blockers.map((b) => (
+              <li key={b.id}>{pickL(b.text, lang)}</li>
             ))}
           </ul>
         ),
@@ -122,8 +122,8 @@ export function SummaryTab({ meeting, template }: SummaryTabProps) {
       render: () =>
         meeting.blockers.length === 0 ? null : (
           <ul>
-            {meeting.blockers.map((b: Bilingual) => (
-              <li key={b.es}>{pickL(b, lang)}</li>
+            {meeting.blockers.map((b) => (
+              <li key={b.id}>{pickL(b.text, lang)}</li>
             ))}
           </ul>
         ),
