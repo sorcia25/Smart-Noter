@@ -198,5 +198,16 @@
   "speaker.newSpeaker": "➕ New speaker",
   "speaker.merge": "Merge into…",
   "speaker.selectLines": "Select lines",
-  "speaker.applyReassign": "Reassign selection"
+  "speaker.applyReassign": "Reassign selection",
+  "trashTitle": "Trash",
+  "trashSub": "Deleted meetings. Permanently removed after 30 days.",
+  "trashEmpty": "Trash is empty.",
+  "navTrash": "Trash",
+  "deleteMeeting": "Delete",
+  "restoreMeeting": "Restore",
+  "deletePermanently": "Delete permanently",
+  "confirmDeleteTitle": "Move to Trash?",
+  "confirmDeleteBody": "You can restore it from Trash for 30 days.",
+  "confirmPurgeTitle": "Delete permanently?",
+  "confirmPurgeBody": "This cannot be undone. The meeting and its audio will be erased."
 }
