@@ -1,7 +1,7 @@
 use crate::error::from_db;
 use crate::state::AppState;
 use smart_noter_core::{
-    models::{MeetingDetail, MeetingSummary},
+    models::{MeetingDetail, MeetingSummary, SearchHit},
     AppError,
 };
 use smart_noter_db::repos::{
@@ -142,6 +142,18 @@ pub async fn purge_meeting(state: State<'_, AppState>, id: String) -> Result<(),
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn search_meetings(
+    state: State<'_, AppState>,
+    query: String,
+    template: Option<String>,
+) -> Result<Vec<SearchHit>, AppError> {
+    search_repo::search(&state.pool, &query, template.as_deref())
+        .await
+        .map_err(from_db)
 }
 
 // ---- actions ----
