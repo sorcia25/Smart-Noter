@@ -5,7 +5,7 @@ async fn migration_creates_expected_tables() {
     let pool = init_pool_in_memory().await.expect("pool");
 
     let tables: Vec<(String,)> = sqlx::query_as(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlx_%' AND name NOT LIKE '_sqlx_%' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlx_%' AND name NOT LIKE '_sqlx_%' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'meeting_search_%' ORDER BY name"
     )
     .fetch_all(&pool)
     .await
@@ -19,6 +19,7 @@ async fn migration_creates_expected_tables() {
             "blockers",
             "decisions",
             "meeting_assets",
+            "meeting_search",
             "meetings",
             "participants",
             "settings",
@@ -64,4 +65,18 @@ async fn migration_0004_adds_deleted_at_column() {
         cols.iter().any(|c| c == "deleted_at"),
         "got columns: {cols:?}"
     );
+}
+
+#[tokio::test]
+async fn migration_0005_creates_fts_table() {
+    let pool = init_pool_in_memory().await.expect("pool");
+    // The FTS5 virtual table is usable: insert + MATCH must work.
+    sqlx::query("INSERT INTO meeting_search (meeting_id, title, summary, body) VALUES ('m1','Hola','S','cuerpo buscable')")
+        .execute(&pool).await.expect("insert into fts");
+    let n: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM meeting_search WHERE meeting_search MATCH 'buscable'")
+            .fetch_one(&pool)
+            .await
+            .expect("match query");
+    assert_eq!(n.0, 1);
 }
