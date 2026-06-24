@@ -1,0 +1,11 @@
+.snippet {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.mark {
+  background: var(--accent-soft, rgba(99, 102, 241, 0.18));
+  color: var(--text);
+  border-radius: 3px;
+  padding: 0 2px;
+}

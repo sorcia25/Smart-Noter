@@ -5,38 +5,105 @@ import { Modal } from '@/components/primitives/Modal/Modal';
 import { SearchBox } from '@/components/primitives/SearchBox/SearchBox';
 import { toast } from '@/components/primitives/Toast/Toast';
 import { useT } from '@/i18n/useT';
+import type { MeetingSummary, SearchHit } from '@/ipc/bindings';
 import { Paths } from '@/router/paths';
-import { useDeleteMeetingMutation, useListMeetingsQuery } from '@/store/api/meetings.api';
+import {
+  useDeleteMeetingMutation,
+  useListMeetingsQuery,
+  useSearchMeetingsQuery,
+} from '@/store/api/meetings.api';
 import { useListTemplatesQuery } from '@/store/api/templates.api';
-import { pickL } from '@/utils/format';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styles from './MeetingsListPage.module.css';
 import { MeetingFilterChips } from './components/MeetingFilterChips/MeetingFilterChips';
+import { SearchSnippet } from './components/SearchSnippet/SearchSnippet';
 
 export default function MeetingsListPage() {
   const navigate = useNavigate();
   const { t, lang } = useT();
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+
+  // Debounce 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const isSearching = debouncedSearch.trim().length > 0;
 
   const { data: meetings = [] } = useListMeetingsQuery();
   const { data: templates = [] } = useListTemplatesQuery();
   const [deleteMeeting] = useDeleteMeetingMutation();
 
+  const { data: hits = [], isFetching } = useSearchMeetingsQuery(
+    { query: debouncedSearch, template: filter === 'all' ? null : filter },
+    { skip: !isSearching }
+  );
+
+  // When NOT searching: filter only by template chip (no client-side title filter)
   const filtered = useMemo(() => {
     return meetings.filter((m) => {
       if (filter !== 'all' && m.template !== filter) return false;
-      if (!search) return true;
-      return pickL(m.title, lang).toLowerCase().includes(search.toLowerCase());
+      return true;
     });
-  }, [meetings, filter, search, lang]);
+  }, [meetings, filter]);
 
   const subText =
     lang === 'es'
       ? 'Todas tus reuniones grabadas y transcritas.'
       : 'All your recorded and transcribed meetings.';
+
+  // Shared row renderer: MeetingRow + delete button (avoids duplication between branches)
+  function renderRow(meeting: MeetingSummary, snippet?: string) {
+    return (
+      <div key={meeting.id} className={styles.rowWrap}>
+        <div>
+          <MeetingRow meeting={meeting} onClick={() => navigate(Paths.MeetingDetail(meeting.id))} />
+          {snippet !== undefined && <SearchSnippet text={snippet} />}
+        </div>
+        <button
+          type="button"
+          aria-label={t('deleteMeeting')}
+          data-testid={`delete-${meeting.id}`}
+          className={styles.deleteBtn}
+          onClick={() => setPendingDelete(meeting.id)}
+        >
+          <Icon name="trash" size={16} />
+        </button>
+      </div>
+    );
+  }
+
+  function renderList() {
+    if (isSearching) {
+      if (isFetching && hits.length === 0) {
+        return <div className={styles.empty}>{t('searchingHint')}</div>;
+      }
+      if (hits.length === 0) {
+        return <div className={styles.empty}>{t('searchNoResults')}</div>;
+      }
+      return (
+        <div className={styles.list}>
+          {hits.map((hit: SearchHit) => renderRow(hit.meeting, hit.snippet))}
+        </div>
+      );
+    }
+
+    if (filtered.length === 0) {
+      return (
+        <div className={styles.empty}>
+          {lang === 'es'
+            ? 'Sin reuniones que coincidan con los filtros.'
+            : 'No meetings match the filters.'}
+        </div>
+      );
+    }
+    return <div className={styles.list}>{filtered.map((m) => renderRow(m))}</div>;
+  }
 
   return (
     <div className={styles.page} data-screen-label="02 Meetings list">
@@ -63,30 +130,7 @@ export default function MeetingsListPage() {
           totalCount={meetings.length}
           onChange={setFilter}
         />
-        {filtered.length > 0 ? (
-          <div className={styles.list}>
-            {filtered.map((m) => (
-              <div key={m.id} className={styles.rowWrap}>
-                <MeetingRow meeting={m} onClick={() => navigate(Paths.MeetingDetail(m.id))} />
-                <button
-                  type="button"
-                  aria-label={t('deleteMeeting')}
-                  data-testid={`delete-${m.id}`}
-                  className={styles.deleteBtn}
-                  onClick={() => setPendingDelete(m.id)}
-                >
-                  <Icon name="trash" size={16} />
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className={styles.empty}>
-            {lang === 'es'
-              ? 'Sin reuniones que coincidan con los filtros.'
-              : 'No meetings match the filters.'}
-          </div>
-        )}
+        {renderList()}
       </div>
 
       <Modal
