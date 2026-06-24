@@ -11,14 +11,15 @@ type MeetingMeta = (String, Option<String>, Option<String>, Option<String>);
 /// Turn a user's raw query into a safe FTS5 MATCH expression: each
 /// whitespace-separated token becomes a quoted prefix term, so `arq sist`
 /// matches `arquitectura sistema`. Quoting neutralizes FTS5 operators
-/// (AND/OR/NEAR/"/* etc.) so arbitrary input can't be a syntax error.
+/// (AND/OR/NEAR/"/* etc.). Tokens that are only quote chars collapse to empty
+/// and are dropped, so arbitrary input can't be a syntax error and an
+/// all-quotes query yields an empty expr (the caller treats that as no results).
 fn to_match_expr(query: &str) -> String {
     query
         .split_whitespace()
-        .map(|tok| {
-            let escaped = tok.replace('"', "");
-            format!("\"{escaped}\"*")
-        })
+        .map(|tok| tok.replace('"', ""))
+        .filter(|tok| !tok.is_empty())
+        .map(|tok| format!("\"{tok}\"*"))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -95,6 +96,10 @@ pub async fn search(
         return Ok(vec![]);
     }
     let expr = to_match_expr(query);
+    if expr.is_empty() {
+        // Every token was quote chars; nothing searchable.
+        return Ok(vec![]);
+    }
     let mark_start = MARK_START.to_string();
     let mark_end = MARK_END.to_string();
 
@@ -198,8 +203,23 @@ mod tests {
     async fn weird_query_is_not_a_syntax_error() {
         let pool = init_pool_in_memory().await.unwrap();
         seed_meeting(&pool, "m1", "normal title").await;
+        seed_meeting(&pool, "m2", "another title").await;
         upsert_meeting(&pool, "m1").await.unwrap();
+        upsert_meeting(&pool, "m2").await.unwrap();
         assert!(search(&pool, "a\"b OR (", None).await.is_ok());
+
+        // A token that is ONLY quote chars must not error and must not match
+        // every document (the empty quoted prefix `""*` would do one or the other).
+        let only_quotes = search(&pool, "\"\"\"", None).await;
+        assert!(
+            only_quotes.is_ok(),
+            "only-quotes query errored: {only_quotes:?}"
+        );
+        assert_eq!(
+            only_quotes.unwrap().len(),
+            0,
+            "only-quotes must not match-all"
+        );
     }
 
     #[tokio::test]

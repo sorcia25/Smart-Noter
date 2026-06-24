@@ -101,6 +101,9 @@ export const meetingsApi = baseApi.injectEndpoints({
     }),
     searchMeetings: b.query<SearchHit[], { query: string; template: string | null }>({
       query: (args) => ({ cmd: 'search_meetings', args }),
+      // Re-run search when meetings change (e.g. deleting a hit from the
+      // results) so stale rows don't linger in the cached result set.
+      providesTags: ['Meeting'],
     }),
   }),
 });
