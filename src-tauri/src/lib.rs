@@ -54,6 +54,7 @@ pub fn specta_builder() -> Builder {
         commands::meetings::create_blocker,
         commands::meetings::update_blocker,
         commands::meetings::delete_blocker,
+        commands::meetings::search_meetings,
         commands::templates::list_templates,
         commands::templates::set_default_template,
         commands::devices::list_audio_devices,
@@ -123,6 +124,11 @@ pub fn run() {
                             Err(e) => tracing::warn!("auto-purge failed for {id}: {e}"),
                         }
                     }
+                }
+
+                // Backfill the search index for meetings created before this feature.
+                if let Err(e) = smart_noter_db::repos::search_repo::backfill(&pool).await {
+                    tracing::warn!("fts backfill failed: {e}");
                 }
 
                 app_handle.manage(AppState {

@@ -25,6 +25,8 @@
   "recentMeetings": "Recent meetings",
   "seeAll": "See all",
   "searchMeetings": "Search meeting, participant, keyword…",
+  "searchNoResults": "No results for your search.",
+  "searchingHint": "Searching…",
   "captureStatus": "Capture status",
   "captureDesc": "System audio ready. Your video conferencing apps are not affected.",
   "activeDevice": "Active device",

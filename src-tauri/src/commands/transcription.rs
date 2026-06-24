@@ -322,6 +322,12 @@ pub async fn transcribe_meeting(
         ));
         match persisted {
             Ok(()) => {
+                // Refresh the search index for this meeting (best-effort).
+                if let Err(e) = tauri::async_runtime::block_on(
+                    smart_noter_db::repos::search_repo::upsert_meeting(&pool, &mid),
+                ) {
+                    tracing::warn!("fts upsert after transcription failed for {mid}: {e}");
+                }
                 for l in &lines {
                     let _ = app2.emit(
                         "transcription:segment",

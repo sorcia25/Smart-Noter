@@ -3,7 +3,7 @@ import { setupListeners } from '@reduxjs/toolkit/query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@/i18n';
 import { baseApi } from '@/store/api/base';
 import { uiSlice } from '@/store/slices/ui.slice';
@@ -69,6 +69,7 @@ function renderPage() {
 
 describe('MeetingsListPage', () => {
   beforeEach(() => invoke.mockReset());
+  afterEach(() => vi.useRealTimers());
 
   it('renders heading and subtitle', async () => {
     setup();
@@ -100,5 +101,46 @@ describe('MeetingsListPage', () => {
     fireEvent.click(confirmBtns.at(-1)!);
 
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('delete_meeting', { id: 'm1' }));
+  });
+
+  it('typing in the search box queries the backend and renders the highlighted snippet', async () => {
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_meetings') return [];
+      if (cmd === 'list_templates') return [];
+      if (cmd === 'get_settings') return null;
+      if (cmd === 'search_meetings')
+        return [
+          {
+            meeting: {
+              id: 'm1',
+              title: { es: 'M 1', en: null },
+              template: 'tecnica',
+              date: '2026-06-01T00:00:00Z',
+              durationSec: 10,
+              participants: [],
+              wordCount: 0,
+            },
+            snippet: 'hablamos de ⁨kube⁩rnetes',
+          },
+        ];
+      return null;
+    });
+    render(
+      <Provider store={makeStore()}>
+        <MemoryRouter>
+          <MeetingsListPage />
+        </MemoryRouter>
+      </Provider>
+    );
+
+    // Debounced (300ms) backend search fires after typing.
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'kube' } });
+    await waitFor(
+      () =>
+        expect(invoke).toHaveBeenCalledWith('search_meetings', { query: 'kube', template: null }),
+      { timeout: 2000 }
+    );
+    // The matched fragment is highlighted via <mark>.
+    expect(await screen.findByText('kube')).toBeInTheDocument();
   });
 });

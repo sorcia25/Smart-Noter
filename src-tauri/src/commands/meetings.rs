@@ -1,11 +1,11 @@
 use crate::error::from_db;
 use crate::state::AppState;
 use smart_noter_core::{
-    models::{MeetingDetail, MeetingSummary},
+    models::{MeetingDetail, MeetingSummary, SearchHit},
     AppError,
 };
 use smart_noter_db::repos::{
-    actions_repo, blockers_repo, decisions_repo, meetings_repo, participants_repo,
+    actions_repo, blockers_repo, decisions_repo, meetings_repo, participants_repo, search_repo,
 };
 use tauri::State;
 
@@ -38,7 +38,11 @@ pub async fn update_meeting_title(
 ) -> Result<(), AppError> {
     meetings_repo::update_title(&state.pool, &id, &title_es, title_en.as_deref())
         .await
-        .map_err(from_db)
+        .map_err(from_db)?;
+    if let Err(e) = search_repo::upsert_meeting(&state.pool, &id).await {
+        tracing::warn!("fts upsert after title edit failed for {id}: {e}");
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -131,12 +135,25 @@ pub async fn purge_meeting(state: State<'_, AppState>, id: String) -> Result<(),
     let paths = meetings_repo::purge(&state.pool, &id)
         .await
         .map_err(from_db)?;
+    let _ = search_repo::delete_meeting(&state.pool, &id).await;
     for p in paths {
         if let Err(e) = std::fs::remove_file(&p) {
             tracing::warn!("purge_meeting: could not delete audio file {p}: {e}");
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn search_meetings(
+    state: State<'_, AppState>,
+    query: String,
+    template: Option<String>,
+) -> Result<Vec<SearchHit>, AppError> {
+    search_repo::search(&state.pool, &query, template.as_deref())
+        .await
+        .map_err(from_db)
 }
 
 // ---- actions ----

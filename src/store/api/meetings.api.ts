@@ -1,4 +1,4 @@
-import type { MeetingDetail, MeetingSummary } from '@/ipc/bindings';
+import type { MeetingDetail, MeetingSummary, SearchHit } from '@/ipc/bindings';
 import { baseApi } from './base';
 
 export const meetingsApi = baseApi.injectEndpoints({
@@ -99,6 +99,12 @@ export const meetingsApi = baseApi.injectEndpoints({
       query: ({ id }) => ({ cmd: 'delete_blocker', args: { id } }),
       invalidatesTags: (_r, _e, { meetingId }) => [{ type: 'Meeting', id: meetingId }],
     }),
+    searchMeetings: b.query<SearchHit[], { query: string; template: string | null }>({
+      query: (args) => ({ cmd: 'search_meetings', args }),
+      // Re-run search when meetings change (e.g. deleting a hit from the
+      // results) so stale rows don't linger in the cached result set.
+      providesTags: ['Meeting'],
+    }),
   }),
 });
 
@@ -124,4 +130,5 @@ export const {
   useCreateBlockerMutation,
   useUpdateBlockerMutation,
   useDeleteBlockerMutation,
+  useSearchMeetingsQuery,
 } = meetingsApi;
