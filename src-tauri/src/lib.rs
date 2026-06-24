@@ -125,6 +125,11 @@ pub fn run() {
                     }
                 }
 
+                // Backfill the search index for meetings created before this feature.
+                if let Err(e) = smart_noter_db::repos::search_repo::backfill(&pool).await {
+                    tracing::warn!("fts backfill failed: {e}");
+                }
+
                 app_handle.manage(AppState {
                     pool,
                     capture_session: std::sync::Arc::new(parking_lot::Mutex::new(
