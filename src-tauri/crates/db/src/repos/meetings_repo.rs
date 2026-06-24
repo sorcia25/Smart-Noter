@@ -32,6 +32,38 @@ async fn summaries_from_sql(pool: &SqlitePool, sql: &str) -> Result<Vec<MeetingS
     Ok(out)
 }
 
+type SummaryRow = (String, String, Option<String>, String, String, i64, i64);
+
+/// Returns the summary for a single non-trashed meeting, or `None` if not found.
+/// Follows the same column order and participant-hydration pattern as
+/// `summaries_from_sql`.
+pub async fn summary_by_id(pool: &SqlitePool, id: &str) -> Result<Option<MeetingSummary>, DbError> {
+    let row: Option<SummaryRow> = sqlx::query_as(
+        "SELECT id, title_es, title_en, template_id, date, duration_sec, word_count \
+             FROM meetings WHERE id = ? AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((id, title_es, title_en, template, date, duration_sec, word_count)) = row else {
+        return Ok(None);
+    };
+    let participants = participants_repo::list_by_meeting(pool, &id).await?;
+    Ok(Some(MeetingSummary {
+        id,
+        title: Bilingual {
+            es: title_es,
+            en: title_en,
+        },
+        template,
+        date,
+        duration_sec,
+        participants,
+        word_count,
+    }))
+}
+
 pub async fn list_summaries(pool: &SqlitePool) -> Result<Vec<MeetingSummary>, DbError> {
     summaries_from_sql(
         pool,
