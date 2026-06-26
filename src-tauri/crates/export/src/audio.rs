@@ -26,8 +26,15 @@ fn read_wav_i16(path: &Path) -> Result<(Vec<i16>, u32, u16), ExportError> {
             .samples::<i32>()
             .map(|s| {
                 s.map(|v| {
-                    let shift = spec.bits_per_sample.saturating_sub(16);
-                    (v >> shift) as i16
+                    // Scale the source bit depth to full-scale i16:
+                    // <16 bits → shift up, 16 → no-op, >16 → shift down.
+                    let shift = 16i32 - spec.bits_per_sample as i32;
+                    let scaled = if shift >= 0 {
+                        v << shift
+                    } else {
+                        v >> (-shift)
+                    };
+                    scaled as i16
                 })
                 .map_err(|e| ExportError::Decode(e.to_string()))
             })
@@ -47,11 +54,18 @@ fn read_flac_i16(path: &Path) -> Result<(Vec<i16>, u32, u16), ExportError> {
     let mut reader =
         claxon::FlacReader::open(path).map_err(|e| ExportError::Decode(e.to_string()))?;
     let info = reader.streaminfo();
-    let shift = (info.bits_per_sample as i32 - 16).max(0);
+    // Scale the source bit depth to full-scale i16:
+    // <16 bits → shift up, 16 → no-op, >16 → shift down.
+    let shift = 16i32 - info.bits_per_sample as i32;
     let mut samples = Vec::new();
     for s in reader.samples() {
         let v = s.map_err(|e| ExportError::Decode(e.to_string()))?;
-        samples.push((v >> shift) as i16);
+        let scaled = if shift >= 0 {
+            v << shift
+        } else {
+            v >> (-shift)
+        };
+        samples.push(scaled as i16);
     }
     Ok((samples, info.sample_rate, info.channels as u16))
 }
@@ -230,6 +244,31 @@ mod tests {
         write_wav(&wav, 48_000, 3, 48_000); // 1s 3-channel
         let mp3 = wav_or_flac_to_mp3(&wav).unwrap();
         looks_like_mp3(&mp3);
+    }
+
+    #[test]
+    fn wav_8bit_scales_up_to_full_range() {
+        // A sub-16-bit source must scale UP to full-scale i16, not stay tiny
+        // (which would make the MP3 ~48 dB too quiet). 16-bit shift is 0 (no-op).
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("eight.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 8,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut w = hound::WavWriter::create(&p, spec).unwrap();
+        for _ in 0..100 {
+            w.write_sample(127i32).unwrap();
+        } // 8-bit full-scale
+        w.finalize().unwrap();
+        let (samples, _rate, _ch) = read_wav_i16(&p).unwrap();
+        assert!(
+            samples[0] > 30_000,
+            "8-bit max must scale up to near full-scale i16, got {}",
+            samples[0]
+        );
     }
 
     #[test]
