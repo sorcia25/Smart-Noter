@@ -1,4 +1,5 @@
 pub mod action;
+pub mod ai;
 pub mod decision;
 pub mod meeting;
 pub mod meeting_asset;
