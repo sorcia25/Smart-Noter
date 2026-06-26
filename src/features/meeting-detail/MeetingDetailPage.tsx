@@ -112,7 +112,7 @@ export default function MeetingDetailPage() {
           )}
           {tab === 'audio' && <AudioTab meeting={meeting} />}
         </div>
-        <SidePanel participants={meeting.participants} />
+        <SidePanel participants={meeting.participants} meetingId={meeting.id} />
       </div>
       <ExportModal
         key={id}

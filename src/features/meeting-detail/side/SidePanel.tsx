@@ -6,11 +6,13 @@ import { useT } from '@/i18n/useT';
 import type { Participant } from '@/ipc/bindings';
 import { useMergeSpeakersMutation, useRenameParticipantMutation } from '@/store/api/meetings.api';
 import { useAppSelector } from '@/store/hooks';
-import { type KeyboardEvent, useState } from 'react';
+import { type KeyboardEvent, useRef, useState } from 'react';
+import { useChatStream } from '../useChatStream';
 import styles from './SidePanel.module.css';
 
 export interface SidePanelProps {
   participants: Participant[];
+  meetingId: string;
 }
 
 function fallbackName(p: Participant, lang: 'es' | 'en'): string {
@@ -21,14 +23,32 @@ function fallbackName(p: Participant, lang: 'es' | 'en'): string {
     : `Subject${suffix ? ` ${suffix}` : ''}`;
 }
 
-export function SidePanel({ participants }: SidePanelProps) {
+export function SidePanel({ participants, meetingId }: SidePanelProps) {
   const { t, lang } = useT();
   const aiChatVisible = useAppSelector((s) => s.ui.aiChatVisible);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(true);
+  const [inputValue, setInputValue] = useState('');
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [renameParticipant] = useRenameParticipantMutation();
   const [mergeSpeakers] = useMergeSpeakersMutation();
+  const { messages, ask, busy } = useChatStream(meetingId);
+
+  function handleSend() {
+    const q = inputValue.trim();
+    if (!q || busy) return;
+    setInputValue('');
+    void ask(q);
+    // Scroll to bottom after next render
+    setTimeout(() => {
+      bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight, behavior: 'smooth' });
+    }, 50);
+  }
+
+  function handleInputKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') handleSend();
+  }
 
   function commitRename(id: string, value: string) {
     const trimmed = value.trim();
@@ -145,43 +165,59 @@ export function SidePanel({ participants }: SidePanelProps) {
           </div>
           {aiOpen && (
             <>
-              <div className={styles.aiBody}>
-                <div className={`${styles.aiMsg} ${styles.aiMsgBot}`}>
-                  {lang === 'es'
-                    ? '¡Hola! Tengo cargada esta reunión. Puedes preguntar cualquier cosa sobre lo que se dijo.'
-                    : 'Hi! I have this meeting loaded. Ask anything about what was said.'}
-                </div>
-                <div className={`${styles.aiMsg} ${styles.aiMsgUser}`}>
-                  {lang === 'es'
-                    ? '¿Cuáles fueron los principales bloqueos discutidos?'
-                    : 'What were the main blockers discussed?'}
-                </div>
-                <div className={`${styles.aiMsg} ${styles.aiMsgBot}`}>
-                  {lang === 'es'
-                    ? 'Dos bloqueos principales: (1) timeout en la API de SAP al cargar > 5k registros, y (2) firma pendiente del cliente para acceso al ambiente productivo. Ambos tienen acciones asignadas.'
-                    : 'Two main blockers: (1) SAP API timeout on > 5k records, and (2) pending client signature for production env. Both have assigned actions.'}
-                </div>
-              </div>
-              <div className={styles.aiSuggested}>
-                {([t('suggestedQ1'), t('suggestedQ2'), t('suggestedQ3')] as const).map((q) => (
-                  <Button
-                    key={q}
-                    variant="ghost"
-                    size="sm"
-                    disabled
-                    title={lang === 'es' ? 'Próximamente' : 'Coming soon'}
+              <div className={styles.aiBody} ref={bodyRef}>
+                {messages.length === 0 && !busy && (
+                  <div className={`${styles.aiMsg} ${styles.aiMsgBot}`}>{t('aiAsk')}</div>
+                )}
+                {messages.map((m, i) => (
+                  <div
+                    // biome-ignore lint/suspicious/noArrayIndexKey: messages are append-only; index is stable per session
+                    key={i}
+                    className={`${styles.aiMsg} ${m.role === 'user' ? styles.aiMsgUser : styles.aiMsgBot}`}
                   >
-                    {q}
-                  </Button>
+                    {m.error
+                      ? t('chatError')
+                      : m.content === '' && m.role === 'assistant'
+                        ? t('chatThinking')
+                        : m.content}
+                  </div>
                 ))}
               </div>
+              {!busy && (
+                <div className={styles.aiSuggested}>
+                  {([t('suggestedQ1'), t('suggestedQ2'), t('suggestedQ3')] as const).map((q) => (
+                    <Button
+                      key={q}
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        void ask(q);
+                        setTimeout(() => {
+                          bodyRef.current?.scrollTo({
+                            top: bodyRef.current.scrollHeight,
+                            behavior: 'smooth',
+                          });
+                        }, 50);
+                      }}
+                    >
+                      {q}
+                    </Button>
+                  ))}
+                </div>
+              )}
               <div className={styles.aiFooter}>
-                <Input disabled placeholder={t('askPlaceholder')} value="" onChange={() => {}} />
+                <Input
+                  placeholder={t('chatPlaceholder')}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleInputKeyDown}
+                  disabled={busy}
+                />
                 <Button
                   variant="primary"
                   size="icon"
-                  disabled
-                  title={lang === 'es' ? 'Próximamente' : 'Coming soon'}
+                  disabled={busy || !inputValue.trim()}
+                  onClick={handleSend}
                 >
                   <Icon name="send" size={14} stroke="currentColor" />
                 </Button>
