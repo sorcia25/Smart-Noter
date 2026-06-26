@@ -8,7 +8,8 @@ members = [
   "crates/whisper",
   "crates/diarize",
   "crates/providers",
-  "crates/export"
+  "crates/export",
+  "crates/llm"
 ]
 
 [workspace.package]
