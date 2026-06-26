@@ -105,6 +105,11 @@ impl LocalLlm {
         // of a very long transcript is preferable to crashing with GGML_ASSERT.
         let max_prompt = 4096usize.saturating_sub(max_tokens).max(1);
         let prompt_tokens = if prompt_tokens.len() > max_prompt {
+            tracing::warn!(
+                n_prompt = prompt_tokens.len(),
+                max = max_prompt,
+                "prompt truncated to fit context; transcript tail dropped"
+            );
             prompt_tokens[..max_prompt].to_vec()
         } else {
             prompt_tokens
@@ -273,11 +278,13 @@ impl LocalLlm {
             ctx.decode(&mut batch)
                 .map_err(|e| AiError::Inference(e.to_string()))?;
 
-            // Retrieve the per-token embedding of the last token (index = n_tokens - 1
-            // within the batch output buffer, which only has one output slot because
-            // only the last token had logits=true).
+            // Retrieve the per-token embedding of the LAST token (index = n_tokens - 1).
+            // With pooling_type=None + embeddings=true, llama.cpp overrides ALL tokens
+            // as outputs. embeddings_ith(i) indexes by token position, so we read the
+            // last token's hidden state, which attends to the full left context — correct
+            // last-token pooling for a causal LM.
             let emb_slice = ctx
-                .embeddings_ith(0)
+                .embeddings_ith((n_tokens - 1) as i32)
                 .map_err(|e| AiError::Inference(e.to_string()))?;
 
             // L2-normalize so cosine similarity equals dot product.

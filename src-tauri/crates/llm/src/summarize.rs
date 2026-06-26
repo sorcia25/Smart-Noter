@@ -137,7 +137,7 @@ impl Summarizer for LocalSummarizer<'_> {
 
         tracing::debug!(
             len = raw.len(),
-            raw = %&raw[..raw.len().min(800)],
+            raw = %raw.chars().take(800).collect::<String>(),
             "LLM summary raw output"
         );
 
@@ -152,7 +152,7 @@ impl Summarizer for LocalSummarizer<'_> {
 
             tracing::debug!(
                 len = raw2.len(),
-                raw = %&raw2[..raw2.len().min(800)],
+                raw = %raw2.chars().take(800).collect::<String>(),
                 "LLM summary raw output (strict retry)"
             );
 

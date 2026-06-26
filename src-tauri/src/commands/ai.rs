@@ -125,6 +125,11 @@ pub(crate) fn ensure_llm_loaded(
     Ok(())
 }
 
+// Chunk size used for both run_summary's embed step and ask_meeting's
+// embed-on-demand path. Keeping it in one place ensures both paths use the
+// same granularity so queries and documents are embedded consistently.
+const LINES_PER_CHUNK: usize = 6;
+
 // ---------------------------------------------------------------------------
 // run_summary — the shared orchestrator
 // ---------------------------------------------------------------------------
@@ -346,34 +351,42 @@ pub fn run_summary(
 
     // 7. Best-effort: chunk + embed the transcript for RAG and persist chunks.
     //    A failure here logs but does NOT fail the summary (summary text is primary).
+    //    The LLM lock is held only during inference; it is dropped before the DB write
+    //    so we don't serialize all inference behind the upsert round-trip.
     {
-        const LINES_PER_CHUNK: usize = 6;
         let text_chunks = chunk_transcript(&input.transcript, LINES_PER_CHUNK);
-        let llm_guard = llm_arc.lock();
-        if let Some(llm) = llm_guard.as_ref() {
-            match llm.embed(&text_chunks) {
-                Ok(vectors) => {
-                    let chunks_with_vectors: Vec<(i64, String, Vec<f32>)> = text_chunks
-                        .into_iter()
-                        .zip(vectors)
-                        .enumerate()
-                        .map(|(i, (text, vec))| (i as i64, text, vec))
-                        .collect();
-                    let embed_result = tauri::async_runtime::block_on(embeddings_repo::upsert(
-                        &pool,
-                        &meeting_id,
-                        &chunks_with_vectors,
-                    ));
-                    if let Err(e) = embed_result {
-                        tracing::warn!(meeting_id = %meeting_id, error = %e, "embed persist failed (non-fatal)");
+        let maybe_chunks_with_vectors: Option<Vec<(i64, String, Vec<f32>)>> = {
+            let llm_guard = llm_arc.lock();
+            if let Some(llm) = llm_guard.as_ref() {
+                match llm.embed(&text_chunks) {
+                    Ok(vectors) => Some(
+                        text_chunks
+                            .into_iter()
+                            .zip(vectors)
+                            .enumerate()
+                            .map(|(i, (text, vec))| (i as i64, text, vec))
+                            .collect(),
+                    ),
+                    Err(e) => {
+                        tracing::warn!(meeting_id = %meeting_id, error = %e, "transcript embed failed (non-fatal)");
+                        None
                     }
                 }
-                Err(e) => {
-                    tracing::warn!(meeting_id = %meeting_id, error = %e, "transcript embed failed (non-fatal)");
-                }
+            } else {
+                None
+                // If LLM slot is gone (shouldn't happen here), silently skip embed.
+            }
+        }; // llm_guard dropped here — DB write happens outside the lock
+        if let Some(chunks_with_vectors) = maybe_chunks_with_vectors {
+            let embed_result = tauri::async_runtime::block_on(embeddings_repo::upsert(
+                &pool,
+                &meeting_id,
+                &chunks_with_vectors,
+            ));
+            if let Err(e) = embed_result {
+                tracing::warn!(meeting_id = %meeting_id, error = %e, "embed persist failed (non-fatal)");
             }
         }
-        // If LLM slot is gone (shouldn't happen here), silently skip embed.
     }
 
     finish(&summary_slot);
@@ -588,9 +601,18 @@ pub fn cancel_llm_download(state: tauri::State<'_, AppState>, id: String) -> Res
 
 #[tauri::command]
 #[specta::specta]
-pub fn delete_llm_model(app: tauri::AppHandle, id: String) -> Result<(), AppError> {
+pub fn delete_llm_model(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<(), AppError> {
     let dir = app_data(&app)?;
-    llm_models::delete(&dir, &id).map_err(|e| AppError::Internal(e.to_string()))
+    llm_models::delete(&dir, &id).map_err(|e| AppError::Internal(e.to_string()))?;
+    // Reset the in-memory LLM slot so the next load re-reads from disk.
+    // Only one LocalLlm exists (the singleton), so unconditional reset is correct
+    // regardless of which model id was deleted.
+    *state.llm.lock() = None;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -770,63 +792,70 @@ pub fn ask_meeting(
                 .collect();
 
             if !transcript_pairs.is_empty() {
-                const LINES_PER_CHUNK: usize = 6;
                 let text_chunks = chunk_transcript(&transcript_pairs, LINES_PER_CHUNK);
 
-                let llm_guard = llm_arc.lock();
-                let llm = match llm_guard.as_ref() {
-                    Some(l) => l,
-                    None => {
-                        emit_error("LLM slot empty during embed-on-demand");
-                        finish();
-                        return;
-                    }
-                };
-                match llm.embed(&text_chunks) {
-                    Ok(vectors) => {
-                        let chunks_with_vectors: Vec<(i64, String, Vec<f32>)> = text_chunks
-                            .into_iter()
-                            .zip(vectors)
-                            .enumerate()
-                            .map(|(i, (text, vec))| (i as i64, text, vec))
-                            .collect();
-                        let upsert_result = tauri::async_runtime::block_on(
-                            embeddings_repo::upsert(&pool, &mid, &chunks_with_vectors),
-                        );
-                        match upsert_result {
-                            Ok(()) => {
-                                // Reload the fresh chunks.
-                                match tauri::async_runtime::block_on(embeddings_repo::load(
-                                    &pool, &mid,
-                                )) {
-                                    Ok(c) => chunks = c,
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            meeting_id = %mid,
-                                            error = %e,
-                                            "reload embed chunks failed (non-fatal, continuing with empty context)"
-                                        );
-                                    }
-                                }
-                            }
+                // Hold the lock only during inference; drop it before any DB IO.
+                let maybe_chunks_with_vectors: Option<Vec<(i64, String, Vec<f32>)>> = {
+                    let llm_guard = llm_arc.lock();
+                    match llm_guard.as_ref() {
+                        Some(llm) => match llm.embed(&text_chunks) {
+                            Ok(vectors) => Some(
+                                text_chunks
+                                    .into_iter()
+                                    .zip(vectors)
+                                    .enumerate()
+                                    .map(|(i, (text, vec))| (i as i64, text, vec))
+                                    .collect(),
+                            ),
                             Err(e) => {
                                 tracing::warn!(
                                     meeting_id = %mid,
                                     error = %e,
-                                    "embed-on-demand persist failed (non-fatal, continuing with empty context)"
+                                    "embed-on-demand inference failed (non-fatal, continuing with empty context)"
                                 );
+                                None
                             }
+                        },
+                        None => {
+                            tracing::warn!(
+                                meeting_id = %mid,
+                                "LLM slot empty during embed-on-demand (non-fatal, continuing with empty context)"
+                            );
+                            None
                         }
                     }
-                    Err(e) => {
-                        tracing::warn!(
-                            meeting_id = %mid,
-                            error = %e,
-                            "embed-on-demand inference failed (non-fatal, continuing with empty context)"
-                        );
+                }; // llm_guard dropped here — DB IO happens outside the lock
+
+                if let Some(chunks_with_vectors) = maybe_chunks_with_vectors {
+                    let upsert_result = tauri::async_runtime::block_on(embeddings_repo::upsert(
+                        &pool,
+                        &mid,
+                        &chunks_with_vectors,
+                    ));
+                    match upsert_result {
+                        Ok(()) => {
+                            // Reload the fresh chunks.
+                            match tauri::async_runtime::block_on(embeddings_repo::load(&pool, &mid))
+                            {
+                                Ok(c) => chunks = c,
+                                Err(e) => {
+                                    tracing::warn!(
+                                        meeting_id = %mid,
+                                        error = %e,
+                                        "reload embed chunks failed (non-fatal, continuing with empty context)"
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                meeting_id = %mid,
+                                error = %e,
+                                "embed-on-demand persist failed (non-fatal, continuing with empty context)"
+                            );
+                        }
                     }
                 }
-                // llm_guard dropped here — LLM lock released before answer step.
             }
         }
 

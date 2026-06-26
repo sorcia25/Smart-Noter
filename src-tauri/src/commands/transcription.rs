@@ -399,14 +399,19 @@ pub async fn transcribe_meeting(
 
                         match load_result {
                             Ok(()) => {
-                                run_summary(
-                                    pool.clone(),
-                                    app2.clone(),
-                                    mid.clone(),
-                                    auto_summary_llm.clone(),
-                                    auto_summary_slot.clone(),
-                                    auto_abort,
-                                );
+                                // Spawn on its own thread so the transcription thread
+                                // proceeds to finish(&slot) immediately — the user can
+                                // start another recording's transcription without waiting
+                                // ~60s for the summary to complete.
+                                // run_summary owns summary_slot and calls finish() itself.
+                                let pool2 = pool.clone();
+                                let app3 = app2.clone();
+                                let mid2 = mid.clone();
+                                let llm2 = auto_summary_llm.clone();
+                                let slot2 = auto_summary_slot.clone();
+                                std::thread::spawn(move || {
+                                    run_summary(pool2, app3, mid2, llm2, slot2, auto_abort);
+                                });
                             }
                             Err(e) => {
                                 // Model absent or load failed: log and clear the slot we

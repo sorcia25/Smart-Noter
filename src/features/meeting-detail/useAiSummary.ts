@@ -58,6 +58,7 @@ export function useAiSummary(meetingId: string) {
     sub<{ meetingId: string; code?: string; message?: string }>('summary:failed', (p) => {
       if (!mine(p.meetingId)) return;
       setStatus('failed');
+      setPct(0);
       toast.error(tRef.current('summaryFailed'));
     });
 
