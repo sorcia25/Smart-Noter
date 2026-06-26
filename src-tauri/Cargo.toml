@@ -91,3 +91,5 @@ smart-noter-audio = { path = "crates/audio" }
 smart-noter-whisper = { path = "crates/whisper" }
 smart-noter-diarize = { path = "crates/diarize" }
 smart-noter-providers = { path = "crates/providers" }
+smart-noter-export = { path = "crates/export" }
+tauri-plugin-dialog = "2"

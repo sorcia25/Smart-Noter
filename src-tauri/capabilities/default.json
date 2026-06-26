@@ -14,6 +14,8 @@
     "core:window:allow-set-title",
     "core:path:default",
     "core:event:default",
-    "core:app:default"
+    "core:app:default",
+    "dialog:allow-save",
+    "dialog:allow-open"
   ]
 }
