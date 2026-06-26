@@ -1,12 +1,53 @@
-use crate::AiError;
+use crate::engine::LocalLlm;
 use smart_noter_core::models::ai::Chunk;
+use smart_noter_core::traits::ChatEngine;
+use std::sync::atomic::AtomicBool;
 
-pub struct ChatEngine;
+/// RAG-based chat engine backed by a `LocalLlm` instance.
+///
+/// `embed` delegates directly to `LocalLlm::embed`.
+/// `answer` builds a context string from the top-k retrieved chunks, formats a
+/// prompt, and streams tokens through `on_token` using `LocalLlm::generate`.
+pub struct LocalChat<'a> {
+    pub llm: &'a LocalLlm,
+}
 
-impl ChatEngine {
-    pub fn placeholder() -> Result<(), AiError> {
-        Ok(())
+impl ChatEngine for LocalChat<'_> {
+    fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+        self.llm.embed(texts).map_err(|e| e.to_string())
     }
+
+    fn answer(
+        &self,
+        question: &str,
+        context: &[Chunk],
+        lang: &str,
+        on_token: &mut dyn FnMut(&str),
+        abort: &AtomicBool,
+    ) -> Result<(), String> {
+        let ctx = context
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+
+        let prompt = format!(
+            "Responde en {lang} usando SOLO el contexto de la reunión. \
+Si no está en el contexto, dilo.\n\nContexto:\n{ctx}\n\nPregunta: {question}\nRespuesta:"
+        );
+
+        self.llm
+            .generate(&prompt, 512, on_token, abort)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+}
+
+#[allow(dead_code)]
+fn _assert_send_sync()
+where
+    LocalChat<'static>: Send + Sync,
+{
 }
 
 /// Split transcript lines into overlapping-window text chunks.

@@ -18,9 +18,11 @@ use serde::Serialize;
 use smart_noter_core::traits::{AnalysisInput, Summarizer};
 use smart_noter_core::{AppError, Bilingual};
 use smart_noter_db::repos::{
-    actions_repo, blockers_repo, decisions_repo, meetings_repo, templates_repo,
+    actions_repo, blockers_repo, decisions_repo, embeddings_repo, meetings_repo, templates_repo,
 };
-use smart_noter_llm::{engine::LocalLlm, models as llm_models, summarize::LocalSummarizer};
+use smart_noter_llm::{
+    chat::chunk_transcript, engine::LocalLlm, models as llm_models, summarize::LocalSummarizer,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
@@ -322,8 +324,6 @@ pub fn run_summary(
             .await?;
         }
 
-        // TODO(Task10): chunk + embed the transcript for RAG and persist chunks.
-
         Ok::<(), smart_noter_db::DbError>(())
     });
 
@@ -334,7 +334,41 @@ pub fn run_summary(
         }
         Err(e) => {
             emit_failed("DatabaseError", &e.to_string());
+            finish(&summary_slot);
+            return;
         }
+    }
+
+    // 7. Best-effort: chunk + embed the transcript for RAG and persist chunks.
+    //    A failure here logs but does NOT fail the summary (summary text is primary).
+    {
+        const LINES_PER_CHUNK: usize = 6;
+        let text_chunks = chunk_transcript(&input.transcript, LINES_PER_CHUNK);
+        let llm_guard = llm_arc.lock();
+        if let Some(llm) = llm_guard.as_ref() {
+            match llm.embed(&text_chunks) {
+                Ok(vectors) => {
+                    let chunks_with_vectors: Vec<(i64, String, Vec<f32>)> = text_chunks
+                        .into_iter()
+                        .zip(vectors)
+                        .enumerate()
+                        .map(|(i, (text, vec))| (i as i64, text, vec))
+                        .collect();
+                    let embed_result = tauri::async_runtime::block_on(embeddings_repo::upsert(
+                        &pool,
+                        &meeting_id,
+                        &chunks_with_vectors,
+                    ));
+                    if let Err(e) = embed_result {
+                        tracing::warn!(meeting_id = %meeting_id, error = %e, "embed persist failed (non-fatal)");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(meeting_id = %meeting_id, error = %e, "transcript embed failed (non-fatal)");
+                }
+            }
+        }
+        // If LLM slot is gone (shouldn't happen here), silently skip embed.
     }
 
     finish(&summary_slot);
