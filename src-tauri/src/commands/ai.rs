@@ -93,7 +93,7 @@ struct LlmDownloadFailEvent {
 ///
 /// **The Mutex is locked only for the duration of the load, then dropped.**
 /// The caller receives the Arc and can lock it independently to run inference.
-fn ensure_llm_loaded(
+pub(crate) fn ensure_llm_loaded(
     llm_arc: &Arc<parking_lot::Mutex<Option<LocalLlm>>>,
     app_data_dir: &std::path::Path,
     n_gpu_layers: u32,

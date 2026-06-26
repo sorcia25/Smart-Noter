@@ -3,7 +3,6 @@ use crate::state::{AppState, DownloadHandle, SummaryHandle, TranscriptionHandle}
 use serde::Serialize;
 use smart_noter_core::AppError;
 use smart_noter_db::repos::transcript_repo::{replace_lines, LineInput};
-use smart_noter_llm::models as llm_models;
 use smart_noter_whisper::error::{TranscriptionError, TranscriptionErrorCode};
 use smart_noter_whisper::transcribe::{transcribe, TranscribeOpts};
 use smart_noter_whisper::{decode, models};
@@ -362,85 +361,61 @@ pub async fn transcribe_meeting(
                     .unwrap_or(false);
 
                 if should_auto_summarize {
-                    // Gate on model presence (GGUF on disk). If not downloaded, skip silently.
-                    let app_data_dir = app2.path().app_data_dir();
-                    let model_present = app_data_dir
-                        .ok()
-                        .map(|d| llm_models::model_path(&d, "qwen2.5-3b-instruct-q4").is_file())
-                        .unwrap_or(false);
+                    // Reserve the summary slot (best-effort — if a manual summary is
+                    // already running, skip without erroring the transcription).
+                    let auto_abort = Arc::new(AtomicBool::new(false));
+                    let reserved = {
+                        let mut summary_guard = auto_summary_slot.lock();
+                        if summary_guard.is_none() {
+                            *summary_guard = Some(SummaryHandle {
+                                meeting_id: mid.clone(),
+                                abort: auto_abort.clone(),
+                            });
+                            true
+                        } else {
+                            tracing::info!(
+                                meeting_id = %mid,
+                                "auto-summary skipped: a summary job is already running"
+                            );
+                            false
+                        }
+                    };
 
-                    if model_present {
-                        // Reserve the summary slot (best-effort — if a manual summary is
-                        // already running, skip without erroring the transcription).
-                        let auto_abort = Arc::new(AtomicBool::new(false));
-                        let reserved = {
-                            let mut summary_guard = auto_summary_slot.lock();
-                            if summary_guard.is_none() {
-                                *summary_guard = Some(SummaryHandle {
-                                    meeting_id: mid.clone(),
-                                    abort: auto_abort.clone(),
-                                });
-                                true
-                            } else {
-                                tracing::info!(
-                                    meeting_id = %mid,
-                                    "auto-summary skipped: a summary job is already running"
-                                );
-                                false
-                            }
+                    if reserved {
+                        // Lazy-load the LLM via the same shared helper the generate_summary
+                        // command uses. It is idempotent (no-op if already loaded) and
+                        // returns NotFound if the GGUF isn't downloaded — in which case we
+                        // skip silently (the user hasn't set up the model yet). n_gpu_layers
+                        // mirrors the command: 0 (CPU-only) until a settings field exists.
+                        let n_gpu_layers: u32 = 0;
+                        let load_result = match app2.path().app_data_dir() {
+                            Ok(dir) => crate::commands::ai::ensure_llm_loaded(
+                                &auto_summary_llm,
+                                &dir,
+                                n_gpu_layers,
+                            ),
+                            Err(e) => Err(AppError::Internal(format!("app_data_dir: {e}"))),
                         };
 
-                        if reserved {
-                            // Lazy-load the LLM (may already be loaded from a prior call).
-                            // run_summary itself guards the slot and clears it on completion.
-                            let n_gpu_layers: u32 = 0;
-                            let load_result = {
-                                let mut slot_guard = auto_summary_llm.lock();
-                                if slot_guard.is_none() {
-                                    let app_dir = app2.path().app_data_dir();
-                                    match app_dir {
-                                        Ok(dir) => {
-                                            let model_path = llm_models::model_path(
-                                                &dir,
-                                                "qwen2.5-3b-instruct-q4",
-                                            );
-                                            match smart_noter_llm::engine::LocalLlm::load(
-                                                &model_path,
-                                                n_gpu_layers,
-                                            ) {
-                                                Ok(llm) => {
-                                                    *slot_guard = Some(llm);
-                                                    Ok(())
-                                                }
-                                                Err(e) => Err(format!("LLM load failed: {e}")),
-                                            }
-                                        }
-                                        Err(e) => Err(format!("app_data_dir: {e}")),
-                                    }
-                                } else {
-                                    Ok(()) // already loaded
-                                }
-                            };
-
-                            match load_result {
-                                Ok(()) => {
-                                    run_summary(
-                                        pool.clone(),
-                                        app2.clone(),
-                                        mid.clone(),
-                                        auto_summary_llm.clone(),
-                                        auto_summary_slot.clone(),
-                                        auto_abort,
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        meeting_id = %mid,
-                                        "auto-summary skipped: LLM load error: {e}"
-                                    );
-                                    // Clear the slot we reserved.
-                                    *auto_summary_slot.lock() = None;
-                                }
+                        match load_result {
+                            Ok(()) => {
+                                run_summary(
+                                    pool.clone(),
+                                    app2.clone(),
+                                    mid.clone(),
+                                    auto_summary_llm.clone(),
+                                    auto_summary_slot.clone(),
+                                    auto_abort,
+                                );
+                            }
+                            Err(e) => {
+                                // Model absent or load failed: log and clear the slot we
+                                // reserved. Never fails the (already-completed) transcription.
+                                tracing::info!(
+                                    meeting_id = %mid,
+                                    "auto-summary skipped: {e}"
+                                );
+                                *auto_summary_slot.lock() = None;
                             }
                         }
                     }
