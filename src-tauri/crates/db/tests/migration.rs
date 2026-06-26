@@ -17,6 +17,7 @@ async fn migration_creates_expected_tables() {
         vec![
             "actions",
             "blockers",
+            "chat_messages",
             "decisions",
             "meeting_assets",
             "meeting_search",
@@ -24,6 +25,7 @@ async fn migration_creates_expected_tables() {
             "participants",
             "settings",
             "templates",
+            "transcript_embeddings",
             "transcript_lines"
         ]
     );
@@ -65,6 +67,47 @@ async fn migration_0004_adds_deleted_at_column() {
         cols.iter().any(|c| c == "deleted_at"),
         "got columns: {cols:?}"
     );
+}
+
+#[tokio::test]
+async fn migration_0006_adds_ai_columns_and_tables() {
+    let pool = init_pool_in_memory().await.expect("pool");
+
+    // meetings.summarized_at exists
+    let meeting_cols: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('meetings')")
+            .fetch_all(&pool)
+            .await
+            .expect("query");
+    assert!(
+        meeting_cols.iter().any(|c| c == "summarized_at"),
+        "summarized_at missing from meetings; got: {meeting_cols:?}"
+    );
+
+    // decisions.source exists with default 'manual'
+    let dec_cols: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('decisions')")
+            .fetch_all(&pool)
+            .await
+            .expect("query");
+    assert!(
+        dec_cols.iter().any(|c| c == "source"),
+        "source missing from decisions; got: {dec_cols:?}"
+    );
+
+    // chat_messages table is queryable
+    let n: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM chat_messages")
+        .fetch_one(&pool)
+        .await
+        .expect("chat_messages count");
+    assert_eq!(n.0, 0);
+
+    // transcript_embeddings table is queryable
+    let n: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM transcript_embeddings")
+        .fetch_one(&pool)
+        .await
+        .expect("transcript_embeddings count");
+    assert_eq!(n.0, 0);
 }
 
 #[tokio::test]

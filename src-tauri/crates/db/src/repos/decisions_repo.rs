@@ -28,6 +28,31 @@ pub async fn delete(pool: &SqlitePool, id: i64) -> Result<(), DbError> {
     Ok(())
 }
 
+pub async fn create_with_source(
+    pool: &SqlitePool,
+    meeting_id: &str,
+    text_es: &str,
+    source: &str,
+) -> Result<i64, DbError> {
+    let row: (i64,) = sqlx::query_as(
+        "INSERT INTO decisions (meeting_id, text_es, source) VALUES (?, ?, ?) RETURNING id",
+    )
+    .bind(meeting_id)
+    .bind(text_es)
+    .bind(source)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0)
+}
+
+pub async fn delete_ai(pool: &SqlitePool, meeting_id: &str) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM decisions WHERE meeting_id = ? AND source = 'ai'")
+        .bind(meeting_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,5 +89,26 @@ mod tests {
 
         delete(&pool, id).await.unwrap();
         assert_eq!(count(&pool).await, 0);
+    }
+
+    #[tokio::test]
+    async fn delete_ai_removes_only_ai_decisions() {
+        let pool = setup().await;
+        create_with_source(&pool, "m1", "AI decision", "ai")
+            .await
+            .unwrap();
+        create_with_source(&pool, "m1", "Manual decision", "manual")
+            .await
+            .unwrap();
+        assert_eq!(count(&pool).await, 2);
+
+        delete_ai(&pool, "m1").await.unwrap();
+        assert_eq!(count(&pool).await, 1);
+
+        let txt: (String,) = sqlx::query_as("SELECT text_es FROM decisions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(txt.0, "Manual decision");
     }
 }

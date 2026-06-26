@@ -66,6 +66,38 @@ pub async fn create(
     Ok(id)
 }
 
+pub async fn create_with_source(
+    pool: &SqlitePool,
+    meeting_id: &str,
+    text_es: &str,
+    owner_participant_id: Option<&str>,
+    due: Option<&str>,
+    source: &str,
+) -> Result<String, DbError> {
+    let id = format!("act-{}", uuid::Uuid::now_v7());
+    sqlx::query(
+        "INSERT INTO actions (id, meeting_id, text_es, owner_participant_id, due, done, source) \
+         VALUES (?, ?, ?, ?, ?, 0, ?)",
+    )
+    .bind(&id)
+    .bind(meeting_id)
+    .bind(text_es)
+    .bind(owner_participant_id)
+    .bind(due)
+    .bind(source)
+    .execute(pool)
+    .await?;
+    Ok(id)
+}
+
+pub async fn delete_ai(pool: &SqlitePool, meeting_id: &str) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM actions WHERE meeting_id = ? AND source = 'ai'")
+        .bind(meeting_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn update(
     pool: &SqlitePool,
     action_id: &str,
@@ -149,5 +181,23 @@ mod tests {
         let pool = setup().await;
         delete(&pool, "a1").await.unwrap();
         assert!(list_by_meeting(&pool, "m1").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_ai_removes_only_ai_actions() {
+        let pool = setup().await;
+        // a1 is 'manual' (inserted by setup with no source -> DEFAULT 'manual')
+        let ai_id = create_with_source(&pool, "m1", "AI action", None, None, "ai")
+            .await
+            .unwrap();
+        let list = list_by_meeting(&pool, "m1").await.unwrap();
+        assert_eq!(list.len(), 2);
+
+        delete_ai(&pool, "m1").await.unwrap();
+
+        let list = list_by_meeting(&pool, "m1").await.unwrap();
+        assert_eq!(list.len(), 1, "only manual action should remain");
+        assert_eq!(list[0].id, "a1");
+        assert!(!list.iter().any(|a| a.id == ai_id));
     }
 }
