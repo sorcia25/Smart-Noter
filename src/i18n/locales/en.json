@@ -221,5 +221,9 @@
   "itemTextPh": "Type here…",
   "ownerLabel": "Owner",
   "dueLabel": "Due",
-  "noOwner": "No owner"
+  "noOwner": "No owner",
+  "exporting": "Exporting…",
+  "exportDone": "Export ready",
+  "exportFailed": "Export failed",
+  "exportCancelled": "Export cancelled"
 }

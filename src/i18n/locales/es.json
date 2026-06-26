@@ -221,5 +221,9 @@
   "itemTextPh": "Escribe aquí…",
   "ownerLabel": "Responsable",
   "dueLabel": "Vence",
-  "noOwner": "Sin responsable"
+  "noOwner": "Sin responsable",
+  "exporting": "Exportando…",
+  "exportDone": "Exportación lista",
+  "exportFailed": "No se pudo exportar",
+  "exportCancelled": "Exportación cancelada"
 }

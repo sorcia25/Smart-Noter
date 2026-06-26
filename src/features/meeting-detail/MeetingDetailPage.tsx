@@ -118,6 +118,7 @@ export default function MeetingDetailPage() {
         open={exportOpen}
         onClose={() => setExportOpen(false)}
         meetingTitle={pickL(meeting.title, lang)}
+        meetingId={id ?? ''}
       />
     </div>
   );
