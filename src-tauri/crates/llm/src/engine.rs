@@ -8,7 +8,10 @@
 //!   - LlamaContextParams::default().with_embeddings(true).with_n_ctx(...)
 //!   - model.str_to_token(str, AddBos::Always / AddBos::Never)
 //!   - LlamaBatch::new(capacity, n_seq_max) + batch.add(token, pos, seq_ids, logits)
+//!     → batch.add returns Err(InsufficientSpace) if tokens exceed allocated capacity
+//!     → batch.clear() resets n_tokens to 0 without freeing memory (safe to reuse)
 //!   - ctx.decode(&mut batch)  /  ctx.encode(&mut batch)
+//!   - ctx.clear_kv_cache()  — clears all KV cache entries (context/kv_cache.rs)
 //!   - LlamaSampler::chain_simple([...]) + sampler.sample(&ctx, last_token_idx)
 //!   - model.token_to_piece(token, &mut decoder, special, lstrip)
 //!   - model.is_eog_token(token)
@@ -95,19 +98,37 @@ impl LocalLlm {
             return Ok(String::new());
         }
 
-        // Feed the prompt tokens in one batch.
+        // Truncate: ensure prompt + generation fit within n_ctx (4096).
+        // We keep the FIRST tokens (instruction + start of transcript); dropping the tail
+        // of a very long transcript is preferable to crashing with GGML_ASSERT.
+        let max_prompt = 4096usize.saturating_sub(max_tokens).max(1);
+        let prompt_tokens = if prompt_tokens.len() > max_prompt {
+            prompt_tokens[..max_prompt].to_vec()
+        } else {
+            prompt_tokens
+        };
         let n_prompt = prompt_tokens.len();
-        let mut batch = LlamaBatch::new(n_prompt.max(1), 1);
 
-        for (i, &tok) in prompt_tokens.iter().enumerate() {
-            let is_last = i == n_prompt - 1;
-            batch
-                .add(tok, i as i32, &[0], is_last)
+        // Feed the prompt in n_batch (512) chunks so we never exceed the batch limit
+        // that llama.cpp enforces: n_tokens_all <= cparams.n_batch.
+        // Only the LAST token of the full prompt needs its logits flag set.
+        const N_BATCH: usize = 512;
+        let mut batch = LlamaBatch::new(N_BATCH, 1);
+        let mut fed = 0usize;
+        while fed < n_prompt {
+            let end = (fed + N_BATCH).min(n_prompt);
+            batch.clear();
+            for (chunk_idx, &tok) in prompt_tokens[fed..end].iter().enumerate() {
+                let abs_pos = fed + chunk_idx;
+                let is_last_of_prompt = abs_pos == n_prompt - 1;
+                batch
+                    .add(tok, abs_pos as i32, &[0], is_last_of_prompt)
+                    .map_err(|e| AiError::Inference(e.to_string()))?;
+            }
+            ctx.decode(&mut batch)
                 .map_err(|e| AiError::Inference(e.to_string()))?;
+            fed = end;
         }
-
-        ctx.decode(&mut batch)
-            .map_err(|e| AiError::Inference(e.to_string()))?;
 
         // Sampler: temperature 0.8 → greedy for deterministic-ish but not boring output.
         let mut sampler = LlamaSampler::chain_simple([
@@ -191,7 +212,12 @@ impl LocalLlm {
 
         let mut results: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
 
-        for (seq_id, text) in texts.iter().enumerate() {
+        // We reuse the same context for every text, clearing the KV cache between runs.
+        // Each text is treated as seq_id 0 (fresh context = no prior state).
+        // Truncate each text to at most 480 tokens — leaves a safe margin under n_ctx=512.
+        const MAX_EMBED_TOKENS: usize = 480;
+
+        for text in texts.iter() {
             // Tokenize without BOS for embeddings (e5 convention).
             let tokens = self
                 .model
@@ -205,15 +231,23 @@ impl LocalLlm {
                 continue;
             }
 
+            // Truncate to stay within the context window.
+            let tokens = if tokens.len() > MAX_EMBED_TOKENS {
+                tokens[..MAX_EMBED_TOKENS].to_vec()
+            } else {
+                tokens
+            };
             let n_tokens = tokens.len();
-            let seq_id_i32 = seq_id as i32;
 
-            // Build a batch for this single sequence.
+            // Clear KV cache so this text is isolated from previous ones (seq_id 0 reuse).
+            ctx.clear_kv_cache();
+
+            // Build a batch for this single sequence (seq_id 0).
             let mut batch = LlamaBatch::new(n_tokens, 1);
             for (i, &tok) in tokens.iter().enumerate() {
                 let is_last = i == n_tokens - 1;
                 batch
-                    .add(tok, i as i32, &[seq_id_i32], is_last)
+                    .add(tok, i as i32, &[0], is_last)
                     .map_err(|e| AiError::Inference(e.to_string()))?;
             }
 
@@ -221,9 +255,9 @@ impl LocalLlm {
             ctx.encode(&mut batch)
                 .map_err(|e| AiError::Inference(e.to_string()))?;
 
-            // Retrieve the sequence-level (pooled) embedding.
+            // Retrieve the sequence-level (pooled) embedding for seq_id 0.
             let emb_slice = ctx
-                .embeddings_seq_ith(seq_id_i32)
+                .embeddings_seq_ith(0)
                 .map_err(|e| AiError::Inference(e.to_string()))?;
 
             // L2-normalize (e5 convention).
