@@ -239,8 +239,12 @@ pub fn run_summary(
         .find(|t| t.id == template_id)
         .map(|t| t.sections.clone())
         .unwrap_or_default();
+    if template_sections.is_empty() {
+        tracing::warn!(meeting_id = %meeting_id, template = %template_id, "no template sections found; summary will be unstructured");
+    }
 
-    // Detect language: use "es" when any transcript text has content (app is Spanish-primary).
+    // App is Spanish-primary, so summaries are generated in Spanish for now.
+    // TODO(future): derive from settings.language once multi-language summary is supported.
     let lang = "es".to_string();
 
     let input = AnalysisInput {
