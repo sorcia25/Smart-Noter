@@ -14,6 +14,7 @@ vi.mock('@tauri-apps/api/core', () => ({
     if (cmd === 'list_templates') return [];
     if (cmd === 'list_whisper_models') return [];
     if (cmd === 'list_diarization_models') return [];
+    if (cmd === 'list_llm_models') return [];
     if (cmd === 'get_settings') {
       return {
         theme: 'light',
