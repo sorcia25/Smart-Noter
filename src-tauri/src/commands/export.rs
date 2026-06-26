@@ -15,6 +15,27 @@ fn ext_for(fmt: &str) -> &'static str {
     }
 }
 
+/// Replace characters that are illegal in filenames (Windows is the strictest)
+/// so the export can actually be written to disk. Spanish meeting titles often
+/// contain `:` (e.g. "Reunión: alineación"), which would make `fs::write` fail
+/// on Windows. Falls back to "export" if nothing usable remains.
+fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| match c {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
+            c if (c as u32) < 0x20 => '-',
+            c => c,
+        })
+        .collect();
+    let trimmed = cleaned.trim_matches(['.', ' ', '-']);
+    if trimmed.is_empty() {
+        "export".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Generate the bytes for one format. `audio` needs the audio path from the DB.
 async fn bytes_for(
     pool: &sqlx::SqlitePool,
@@ -24,7 +45,16 @@ async fn bytes_for(
 ) -> Result<Vec<u8>, AppError> {
     match fmt {
         "md" => Ok(to_markdown(detail, opts).into_bytes()),
-        "pdf" => to_pdf(detail, opts).map_err(|e| AppError::Internal(e.to_string())),
+        "pdf" => {
+            // PDF layout (genpdf) is CPU-bound; offload it like the MP3 encode
+            // so a large transcript doesn't block the async runtime's reactor.
+            let detail = detail.clone();
+            let opts = *opts;
+            tauri::async_runtime::spawn_blocking(move || to_pdf(&detail, &opts))
+                .await
+                .map_err(|e| AppError::Internal(e.to_string()))?
+                .map_err(|e| AppError::Internal(e.to_string()))
+        }
         "audio" => {
             let asset = MeetingAssetsRepo(pool)
                 .get_audio(&detail.id)
@@ -55,6 +85,9 @@ pub async fn export_meeting(
     if formats.is_empty() {
         return Err(AppError::Validation("no formats selected".into()));
     }
+    // Defend against filesystem-illegal characters before they reach
+    // set_file_name / dir.join (the dialog hint and the actual write path).
+    let file_name = sanitize_filename(&file_name);
 
     let detail = meetings_repo::get_detail(&state.pool, &meeting_id)
         .await
@@ -106,4 +139,35 @@ pub async fn export_meeting(
     };
 
     Ok(written)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_filename;
+
+    #[test]
+    fn strips_windows_illegal_chars() {
+        // Spanish titles routinely contain ':' which is illegal on Windows.
+        assert_eq!(
+            sanitize_filename("Reunión: alineación"),
+            "Reunión- alineación"
+        );
+        assert_eq!(sanitize_filename("a/b\\c"), "a-b-c");
+        assert_eq!(sanitize_filename("q?<>|*\"x"), "q------x");
+    }
+
+    #[test]
+    fn keeps_accents_and_normal_chars() {
+        assert_eq!(
+            sanitize_filename("plan-Q2_diseño 2026"),
+            "plan-Q2_diseño 2026"
+        );
+    }
+
+    #[test]
+    fn falls_back_when_nothing_usable_remains() {
+        assert_eq!(sanitize_filename(":::"), "export");
+        assert_eq!(sanitize_filename("   "), "export");
+        assert_eq!(sanitize_filename(""), "export");
+    }
 }

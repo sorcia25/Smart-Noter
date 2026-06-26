@@ -72,6 +72,11 @@ fn read_flac_i16(path: &Path) -> Result<(Vec<i16>, u32, u16), ExportError> {
 
 pub fn wav_or_flac_to_mp3(path: &Path) -> Result<Vec<u8>, ExportError> {
     let (pcm, rate, channels) = decode_interleaved_i16(path)?;
+    // A 0-channel source (corrupt header) would panic in chunks_exact(0) below
+    // and can't be encoded anyway — reject it up front.
+    if channels == 0 {
+        return Err(ExportError::UnsupportedAudio("0 channels".into()));
+    }
 
     // MP3 can physically hold at most 2 channels, so the encoder input must be
     // mono or stereo. Resolve the source layout to one of those, matched
@@ -116,7 +121,9 @@ pub fn wav_or_flac_to_mp3(path: &Path) -> Result<Vec<u8>, ExportError> {
     let mut out: Vec<u8> = Vec::new();
     let n = match channels {
         2 => {
-            out.reserve(mp3lame_encoder::max_required_buffer_size(pcm.len()));
+            // InterleavedPcm encodes pcm.len()/2 frames; size the buffer to the
+            // per-channel frame count, not the total interleaved sample count.
+            out.reserve(mp3lame_encoder::max_required_buffer_size(pcm.len() / 2));
             encoder
                 .encode(InterleavedPcm(&pcm), out.spare_capacity_mut())
                 .map_err(|e| ExportError::Mp3(format!("encode: {e:?}")))?
