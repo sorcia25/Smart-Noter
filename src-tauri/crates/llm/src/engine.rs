@@ -42,10 +42,18 @@ unsafe impl Sync for LocalLlm {}
 impl LocalLlm {
     /// Load a GGUF model from `path`. `n_gpu_layers = 0` forces CPU-only inference.
     pub fn load(path: &Path, n_gpu_layers: u32) -> Result<Self, AiError> {
-        // init() returns BackendAlreadyInitialized if called twice — treat as OK.
-        // All errors (including BackendAlreadyInitialized) are mapped to AiError::Load;
-        // callers should hold a single LocalLlm instance per process.
-        let backend = LlamaBackend::init().map_err(|e| AiError::Load(e.to_string()))?;
+        // The llama backend can only be initialized once per process. A second
+        // LocalLlm::load() therefore fails with BackendAlreadyInitialized — surface
+        // that clearly. Task 7 owns a single LocalLlm in a process-global OnceLock,
+        // so in practice load() runs exactly once.
+        let backend = LlamaBackend::init().map_err(|e| match e {
+            llama_cpp_2::LlamaCppError::BackendAlreadyInitialized => AiError::Load(
+                "LlamaBackend already initialized — only one LocalLlm may exist per \
+                 process (Task 7 owns the singleton)"
+                    .into(),
+            ),
+            other => AiError::Load(other.to_string()),
+        })?;
 
         let model_params = LlamaModelParams::default().with_n_gpu_layers(n_gpu_layers);
 
@@ -120,8 +128,11 @@ impl LocalLlm {
                 break;
             }
 
-            // Sample from the last decoded position.
-            let new_token = sampler.sample(&ctx, n_cur - 1);
+            // Sample from the last available logit. llama.cpp resolves -1 to the
+            // final decoded token's logits — correct for BOTH the initial multi-token
+            // prompt batch AND the single-token loop batches below (after batch.clear()
+            // the batch holds one token at offset 0, so n_cur-1 would index OOB).
+            let new_token = sampler.sample(&ctx, -1);
 
             // Stop at end-of-generation.
             if self.model.is_eog_token(new_token) {
@@ -254,13 +265,6 @@ mod tests {
         let v = vec![3.0f32, 4.0];
         let n = l2_norm(&v);
         assert!((n - 5.0).abs() < 1e-5, "expected 5.0, got {n}");
-    }
-
-    #[test]
-    fn embed_empty_input_returns_empty() {
-        // We cannot load a model in CI; test the empty-slice fast path at the API boundary.
-        // This exercises the logic before any LlamaBackend call.
-        // (The real embed() call on a loaded model is covered by the #[ignore] test.)
     }
 
     /// Full smoke test: requires a downloaded GGUF model.
