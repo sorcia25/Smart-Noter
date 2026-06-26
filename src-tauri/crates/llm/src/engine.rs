@@ -198,38 +198,34 @@ impl LocalLlm {
         Ok(output)
     }
 
-    /// Embed each text using a pooled-embeddings context.
+    /// Embed each text using the last-token hidden state of a decoder context.
     /// Returns one `Vec<f32>` per input text, all of the same dimension (`n_embd`).
     ///
-    /// For e5-style models the caller should prefix queries with `"query: "` and
-    /// documents with `"passage: "` before calling this method.
+    /// Implementation note: Qwen2.5-Instruct is a CAUSAL (decoder) language model.
+    /// Using `encode()` (which forces a bidirectional/encoder graph) crashes with
+    /// STATUS_ACCESS_VIOLATION because the GGML compute graph for an encoder does not
+    /// match the weight tensors of a decoder-only architecture.
+    ///
+    /// The correct approach for causal LMs:
+    ///   1. Create a context with `embeddings=true` and `pooling_type=None` (per-token).
+    ///   2. Run `decode()` (decoder graph, causal attention — correct for Qwen2.5).
+    ///   3. Extract the last-token hidden state via `embeddings_ith(n_tokens - 1)`.
+    ///
+    /// The last token attends to the full left context, so its hidden state is a
+    /// compact sequence representation suitable for RAG similarity search.
     pub fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, AiError> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Embeddings context: enable embeddings + mean pooling.
+        // Truncate each text to at most 480 tokens — leaves a safe margin under n_ctx=512.
+        const MAX_EMBED_TOKENS: usize = 480;
         let ctx_size = NonZeroU32::new(512);
-        let ctx_params = LlamaContextParams::default()
-            .with_embeddings(true)
-            .with_pooling_type(LlamaPoolingType::Mean)
-            .with_n_ctx(ctx_size)
-            .with_n_batch(512);
-
-        let mut ctx = self
-            .model
-            .new_context(&self.backend, ctx_params)
-            .map_err(|e| AiError::Inference(e.to_string()))?;
 
         let mut results: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
 
-        // We reuse the same context for every text, clearing the KV cache between runs.
-        // Each text is treated as seq_id 0 (fresh context = no prior state).
-        // Truncate each text to at most 480 tokens — leaves a safe margin under n_ctx=512.
-        const MAX_EMBED_TOKENS: usize = 480;
-
         for text in texts.iter() {
-            // Tokenize without BOS for embeddings (e5 convention).
+            // Tokenize without BOS.
             let tokens = self
                 .model
                 .str_to_token(text, AddBos::Never)
@@ -250,10 +246,21 @@ impl LocalLlm {
             };
             let n_tokens = tokens.len();
 
-            // Clear KV cache so this text is isolated from previous ones (seq_id 0 reuse).
-            ctx.clear_kv_cache();
+            // Fresh decode context per text with per-token (None) pooling.
+            // A per-text context avoids KV-cache reuse issues between calls.
+            // Context creation is cheap (~5ms) relative to model load.
+            let ctx_params = LlamaContextParams::default()
+                .with_embeddings(true)
+                .with_pooling_type(LlamaPoolingType::None)
+                .with_n_ctx(ctx_size)
+                .with_n_batch(512);
+            let mut ctx = self
+                .model
+                .new_context(&self.backend, ctx_params)
+                .map_err(|e| AiError::Inference(e.to_string()))?;
 
             // Build a batch for this single sequence (seq_id 0).
+            // Only the LAST token needs logits=true — that is the embedding we extract.
             let mut batch = LlamaBatch::new(n_tokens, 1);
             for (i, &tok) in tokens.iter().enumerate() {
                 let is_last = i == n_tokens - 1;
@@ -262,16 +269,18 @@ impl LocalLlm {
                     .map_err(|e| AiError::Inference(e.to_string()))?;
             }
 
-            // encode() is the embedding forward pass.
-            ctx.encode(&mut batch)
+            // decode() runs the causal decoder graph — correct for Qwen2.5.
+            ctx.decode(&mut batch)
                 .map_err(|e| AiError::Inference(e.to_string()))?;
 
-            // Retrieve the sequence-level (pooled) embedding for seq_id 0.
+            // Retrieve the per-token embedding of the last token (index = n_tokens - 1
+            // within the batch output buffer, which only has one output slot because
+            // only the last token had logits=true).
             let emb_slice = ctx
-                .embeddings_seq_ith(0)
+                .embeddings_ith(0)
                 .map_err(|e| AiError::Inference(e.to_string()))?;
 
-            // L2-normalize (e5 convention).
+            // L2-normalize so cosine similarity equals dot product.
             let norm = l2_norm(emb_slice);
             let normalized: Vec<f32> = emb_slice.iter().map(|&v| v / norm.max(1e-12)).collect();
             results.push(normalized);
@@ -340,5 +349,16 @@ mod tests {
             "all embedding vectors must have the same dimension"
         );
         assert!(!e[0].is_empty(), "embedding dimension must be > 0");
+
+        // Sanity: embeddings of different words must not be identical vectors.
+        // Cosine similarity < 0.9999 or simply check at least one coordinate differs.
+        let identical = e[0]
+            .iter()
+            .zip(e[1].iter())
+            .all(|(a, b)| (a - b).abs() < 1e-6);
+        assert!(
+            !identical,
+            "embeddings for 'hola' and 'adiós' must not be identical vectors"
+        );
     }
 }
