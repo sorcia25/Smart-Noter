@@ -196,11 +196,6 @@ export function SummaryTab({ meeting, template }: SummaryTabProps) {
   ];
 
   const sections: Record<string, SectionConfig> = {
-    summary: {
-      titleKey: 'secSummary',
-      icon: 'sparkles',
-      render: () => <SummaryBody meeting={meeting} />,
-    },
     decisions: {
       titleKey: 'secDecisions',
       icon: 'check',
@@ -245,8 +240,19 @@ export function SummaryTab({ meeting, template }: SummaryTabProps) {
 
   return (
     <div>
+      {/* The AI summary is Sub-5's primary output — always render it first,
+          regardless of whether the meeting's template lists a "summary" section
+          (most templates, e.g. "tecnica", do not). */}
+      <div className={styles.block}>
+        <h3>
+          <Icon name="sparkles" size={14} />
+          <span>{t('secSummary')}</span>
+        </h3>
+        <SummaryBody meeting={meeting} />
+      </div>
       {sectionsForTemplate.map((key: string) => {
-        if (key === 'actions') return null;
+        // 'summary' is rendered above; 'actions' lives in the Actions tab.
+        if (key === 'actions' || key === 'summary') return null;
         const conf = sections[key];
         if (!conf) return null;
         const body = conf.render();
