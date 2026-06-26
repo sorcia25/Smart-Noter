@@ -20,6 +20,9 @@ fn heading(text: &str, size: u8) -> impl Element {
     elements::Paragraph::new(text).styled(Style::new().bold().with_font_size(size))
 }
 
+// genpdf with the embedded Liberation Sans family renders full UTF-8
+// (Spanish accents, ñ, ¿, ¡, •) correctly — verified via pdftotext. Do NOT
+// strip non-ASCII from headings or content.
 pub fn to_pdf(m: &MeetingDetail, opts: &ExportOpts) -> Result<Vec<u8>, ExportError> {
     let mut doc = Document::new(embedded_font_family()?);
     doc.set_title(m.title.es.clone());
@@ -74,7 +77,7 @@ pub fn to_pdf(m: &MeetingDetail, opts: &ExportOpts) -> Result<Vec<u8>, ExportErr
         doc.push(elements::Break::new(1));
     }
 
-    doc.push(heading("Transcripcion", 14));
+    doc.push(heading("Transcripción", 14));
     for line in &m.transcript {
         let ts = if opts.timestamps {
             format!("[{}] ", line.t)
@@ -86,7 +89,7 @@ pub fn to_pdf(m: &MeetingDetail, opts: &ExportOpts) -> Result<Vec<u8>, ExportErr
             .iter()
             .find(|p| p.id == line.speaker_id)
             .map(|p| p.name.clone().unwrap_or_else(|| p.label.clone()))
-            .unwrap_or_else(|| "-".into());
+            .unwrap_or_else(|| "—".into());
         doc.push(elements::Paragraph::new(format!(
             "{ts}{who}: {}",
             bi(&line.text, opts)
@@ -110,7 +113,7 @@ mod tests {
         MeetingDetail {
             id: "m1".into(),
             title: Bilingual {
-                es: "Reunion".into(),
+                es: "Reunión".into(),
                 en: None,
             },
             template: "tecnica".into(),
