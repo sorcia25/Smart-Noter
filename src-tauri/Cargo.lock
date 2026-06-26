@@ -4497,6 +4497,7 @@ dependencies = [
  "smart-noter-db",
  "smart-noter-diarize",
  "smart-noter-export",
+ "smart-noter-llm",
  "smart-noter-providers",
  "smart-noter-whisper",
  "specta",

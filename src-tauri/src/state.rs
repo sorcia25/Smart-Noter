@@ -27,6 +27,14 @@ pub struct AppState {
     pub recorder: Arc<Mutex<Option<Recorder>>>,
     pub transcription: Arc<Mutex<Option<TranscriptionHandle>>>,
     pub download: Arc<Mutex<Option<DownloadHandle>>>,
+    /// The local LLM singleton. `LocalLlm::load()` calls `LlamaBackend::init()` which
+    /// can only run ONCE per process — a second call errors. We lazy-load on first use
+    /// and hold the loaded instance here forever. When `Some`, reuse it; never reload.
+    pub llm: Arc<Mutex<Option<smart_noter_llm::engine::LocalLlm>>>,
+    /// Active summary job (one at a time). Mirrors the transcription handle pattern.
+    pub summary: Arc<Mutex<Option<SummaryHandle>>>,
+    /// Active LLM model download (one at a time, shares the same DownloadHandle type).
+    pub llm_download: Arc<Mutex<Option<DownloadHandle>>>,
 }
 
 /// Live transcription job (one at a time). `pct` is updated by the progress
@@ -43,5 +51,13 @@ pub struct TranscriptionHandle {
 #[derive(Clone)]
 pub struct DownloadHandle {
     pub id: String,
+    pub abort: Arc<AtomicBool>,
+}
+
+/// Live summary job (one at a time). Abort is polled cooperatively by the LLM
+/// generate loop (via the AtomicBool passed to LocalLlm::generate).
+#[derive(Clone)]
+pub struct SummaryHandle {
+    pub meeting_id: String,
     pub abort: Arc<AtomicBool>,
 }

@@ -93,4 +93,5 @@ smart-noter-whisper = { path = "crates/whisper" }
 smart-noter-diarize = { path = "crates/diarize" }
 smart-noter-providers = { path = "crates/providers" }
 smart-noter-export = { path = "crates/export" }
+smart-noter-llm = { path = "crates/llm" }
 tauri-plugin-dialog = "2"

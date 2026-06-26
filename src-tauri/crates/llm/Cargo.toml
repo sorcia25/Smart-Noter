@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 smart-noter-core = { path = "../core" }
 thiserror = { workspace = true }
-llama-cpp-2 = { version = "0.1.150", default-features = false, features = ["common"] }
+llama-cpp-2 = { version = "0.1.150", default-features = false, features = ["common", "dynamic-link"] }
 encoding_rs = "0.8"
 ureq = "2.10"
 sha2 = "0.10"

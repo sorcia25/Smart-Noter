@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod audio;
 pub mod devices;
 pub mod export;
