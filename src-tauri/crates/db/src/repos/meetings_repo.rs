@@ -186,6 +186,23 @@ pub async fn update_title(
     Ok(())
 }
 
+pub async fn update_summary(
+    pool: &SqlitePool,
+    id: &str,
+    summary: &Bilingual,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE meetings SET summary_es = ?, summary_en = ?, summarized_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&summary.es)
+    .bind(summary.en.as_deref())
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(DbError::from)?;
+    Ok(())
+}
+
 pub async fn soft_delete(pool: &SqlitePool, id: &str) -> Result<(), DbError> {
     sqlx::query("UPDATE meetings SET deleted_at = datetime('now') WHERE id = ?")
         .bind(id)
@@ -547,5 +564,34 @@ mod tests {
 
         let ids = list_purgeable(&pool).await.unwrap();
         assert_eq!(ids, vec!["m-old".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn update_summary_writes_summary_and_summarized_at() {
+        let pool = init_pool_in_memory().await.unwrap();
+        insert_meeting(&pool, "m-sum", None).await;
+
+        let summary = Bilingual {
+            es: "Resumen de prueba".into(),
+            en: Some("Test summary".into()),
+        };
+        update_summary(&pool, "m-sum", &summary).await.unwrap();
+
+        // Confirm summary_es / summary_en written via get_detail.
+        let detail = get_detail(&pool, "m-sum").await.unwrap();
+        let s = detail.summary.expect("summary should be Some");
+        assert_eq!(s.es, "Resumen de prueba");
+        assert_eq!(s.en.as_deref(), Some("Test summary"));
+
+        // Confirm summarized_at is non-null via a direct SELECT.
+        let at: Option<String> =
+            sqlx::query_scalar("SELECT summarized_at FROM meetings WHERE id = 'm-sum'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            at.is_some(),
+            "summarized_at should be non-null after update_summary"
+        );
     }
 }

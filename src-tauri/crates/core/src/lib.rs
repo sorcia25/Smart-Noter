@@ -1,6 +1,7 @@
 pub mod error;
 pub mod lang;
 pub mod models;
+pub mod traits;
 
 pub use error::AppError;
 pub use error::AudioErrorCode;

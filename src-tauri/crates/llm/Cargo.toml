@@ -1,0 +1,22 @@
+[package]
+name = "smart-noter-llm"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+smart-noter-core = { path = "../core" }
+thiserror = { workspace = true }
+llama-cpp-2 = { version = "0.1.150", default-features = false, features = ["common", "dynamic-link"] }
+encoding_rs = "0.8"
+ureq = "2.10"
+sha2 = "0.10"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+cuda = ["llama-cpp-2/cuda"]
+vulkan = ["llama-cpp-2/vulkan"]

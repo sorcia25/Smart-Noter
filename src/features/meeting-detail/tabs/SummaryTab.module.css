@@ -39,31 +39,57 @@
   color: var(--text);
 }
 
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+.summaryState {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
 }
 
-.metric {
-  padding: 12px;
-  background: var(--bg-inset);
-  border-radius: 8px;
-}
-
-.metricLabel {
-  font-size: 11px;
+.emptyHint {
+  margin: 0;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
-.metricValue {
-  font-size: 20px;
-  font-weight: 600;
-  margin-top: 4px;
+.summaryEdit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.metricSub {
-  font-size: 11px;
-  color: var(--text-subtle);
-  margin-top: 2px;
+.summaryTextarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text);
+  background: var(--bg-inset);
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.summaryTextarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.summaryActions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
 }

@@ -1,4 +1,5 @@
-use crate::state::{AppState, DownloadHandle, TranscriptionHandle};
+use crate::commands::ai::run_summary;
+use crate::state::{AppState, DownloadHandle, SummaryHandle, TranscriptionHandle};
 use serde::Serialize;
 use smart_noter_core::AppError;
 use smart_noter_db::repos::transcript_repo::{replace_lines, LineInput};
@@ -157,6 +158,9 @@ pub async fn transcribe_meeting(
     let pct = handle.pct.clone();
     let app2 = app.clone();
     let mid = meeting_id.clone();
+    // Clones for auto-summary chain (used after transcription:completed).
+    let auto_summary_llm = state.llm.clone();
+    let auto_summary_slot = state.summary.clone();
     std::thread::spawn(move || {
         let finish = |slot: &Arc<parking_lot::Mutex<Option<TranscriptionHandle>>>| {
             *slot.lock() = None;
@@ -346,6 +350,81 @@ pub async fn transcribe_meeting(
                         word_count: words,
                     },
                 );
+
+                // ── Auto-summary chain (best-effort, never fails the transcription) ──
+                // Load settings to check if auto_generate_summary is enabled.
+                let auto_settings = tauri::async_runtime::block_on(
+                    smart_noter_db::repos::settings_repo::get(&pool),
+                );
+                let should_auto_summarize = auto_settings
+                    .map(|s| s.auto_generate_summary)
+                    .unwrap_or(false);
+
+                if should_auto_summarize {
+                    // Reserve the summary slot (best-effort — if a manual summary is
+                    // already running, skip without erroring the transcription).
+                    let auto_abort = Arc::new(AtomicBool::new(false));
+                    let reserved = {
+                        let mut summary_guard = auto_summary_slot.lock();
+                        if summary_guard.is_none() {
+                            *summary_guard = Some(SummaryHandle {
+                                meeting_id: mid.clone(),
+                                abort: auto_abort.clone(),
+                            });
+                            true
+                        } else {
+                            tracing::info!(
+                                meeting_id = %mid,
+                                "auto-summary skipped: a summary job is already running"
+                            );
+                            false
+                        }
+                    };
+
+                    if reserved {
+                        // Lazy-load the LLM via the same shared helper the generate_summary
+                        // command uses. It is idempotent (no-op if already loaded) and
+                        // returns NotFound if the GGUF isn't downloaded — in which case we
+                        // skip silently (the user hasn't set up the model yet). n_gpu_layers
+                        // mirrors the command: 0 (CPU-only) until a settings field exists.
+                        let n_gpu_layers: u32 = 0;
+                        let load_result = match app2.path().app_data_dir() {
+                            Ok(dir) => crate::commands::ai::ensure_llm_loaded(
+                                &auto_summary_llm,
+                                &dir,
+                                n_gpu_layers,
+                            ),
+                            Err(e) => Err(AppError::Internal(format!("app_data_dir: {e}"))),
+                        };
+
+                        match load_result {
+                            Ok(()) => {
+                                // Spawn on its own thread so the transcription thread
+                                // proceeds to finish(&slot) immediately — the user can
+                                // start another recording's transcription without waiting
+                                // ~60s for the summary to complete.
+                                // run_summary owns summary_slot and calls finish() itself.
+                                let pool2 = pool.clone();
+                                let app3 = app2.clone();
+                                let mid2 = mid.clone();
+                                let llm2 = auto_summary_llm.clone();
+                                let slot2 = auto_summary_slot.clone();
+                                std::thread::spawn(move || {
+                                    run_summary(pool2, app3, mid2, llm2, slot2, auto_abort);
+                                });
+                            }
+                            Err(e) => {
+                                // Model absent or load failed: log and clear the slot we
+                                // reserved. Never fails the (already-completed) transcription.
+                                tracing::info!(
+                                    meeting_id = %mid,
+                                    "auto-summary skipped: {e}"
+                                );
+                                *auto_summary_slot.lock() = None;
+                            }
+                        }
+                    }
+                }
             }
             Err(e) => {
                 let _ = app2.emit(

@@ -71,6 +71,17 @@ pub fn specta_builder() -> Builder {
         commands::transcription::download_diarization_model,
         commands::transcription::delete_diarization_model,
         commands::export::export_meeting,
+        commands::ai::generate_summary,
+        commands::ai::cancel_summary,
+        commands::ai::update_summary_text,
+        commands::ai::get_summary_state,
+        commands::ai::list_llm_models,
+        commands::ai::download_llm_model,
+        commands::ai::cancel_llm_download,
+        commands::ai::delete_llm_model,
+        commands::ai::ask_meeting,
+        commands::ai::cancel_chat,
+        commands::ai::list_chat,
     ])
 }
 
@@ -141,6 +152,10 @@ pub fn run() {
                     recorder: std::sync::Arc::new(parking_lot::Mutex::new(None)),
                     transcription: std::sync::Arc::new(parking_lot::Mutex::new(None)),
                     download: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+                    llm: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+                    summary: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+                    llm_download: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+                    chat: std::sync::Arc::new(parking_lot::Mutex::new(None)),
                 });
             });
             Ok(())

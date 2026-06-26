@@ -225,5 +225,19 @@
   "exporting": "Exporting…",
   "exportDone": "Export ready",
   "exportFailed": "Export failed",
-  "exportCancelled": "Export cancelled"
+  "exportCancelled": "Export cancelled",
+  "generateSummary": "Generate summary",
+  "regenerate": "Regenerate",
+  "summarizing": "Generating summary…",
+  "summaryEmpty": "No summary yet. Generate one using the button above.",
+  "summaryFailed": "Summary failed. Please try again.",
+  "editSummary": "Edit summary",
+  "aiModel": "AI model",
+  "downloadModel": "Download model",
+  "autoSummary": "Auto summary",
+  "chatPlaceholder": "Type your question about the meeting…",
+  "chatThinking": "Thinking…",
+  "chatError": "Failed to answer. Please try again.",
+  "confirmRegenerateTitle": "Regenerate summary?",
+  "confirmRegenerateBody": "This will replace the AI-generated summary and items. Your manual edits are kept."
 }

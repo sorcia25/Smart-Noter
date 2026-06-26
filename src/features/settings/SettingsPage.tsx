@@ -12,6 +12,7 @@ import { useAppDispatch } from '@/store/hooks';
 import { setAccent, setLanguage, setTheme } from '@/store/slices/ui.slice';
 import { pickL } from '@/utils/format';
 import { useEffect, useState } from 'react';
+import { AiModelPanel } from './AiModelPanel';
 import { DiarizationPanel } from './DiarizationPanel';
 import styles from './SettingsPage.module.css';
 import { TranscriptionPanel } from './TranscriptionPanel';
@@ -424,6 +425,11 @@ export default function SettingsPage() {
         {/* Diarization model management */}
         <div className={styles.group}>
           <DiarizationPanel />
+        </div>
+
+        {/* AI model management + auto-summary toggle */}
+        <div className={styles.group}>
+          <AiModelPanel draft={draft} patch={patch} />
         </div>
 
         {/* Privacy + storage */}

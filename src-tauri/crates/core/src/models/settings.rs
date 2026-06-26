@@ -26,6 +26,8 @@ pub struct AppSettings {
     pub identify_speakers: bool,
     #[serde(default = "default_diar_model")]
     pub diarization_model: String,
+    #[serde(default = "default_true")]
+    pub auto_generate_summary: bool,
 }
 
 #[derive(Debug, Clone, Type, Serialize, Deserialize, PartialEq, Eq)]
@@ -69,6 +71,7 @@ impl Default for AppSettings {
             default_template: "tecnica".into(),
             identify_speakers: true,
             diarization_model: "default".into(),
+            auto_generate_summary: true,
         }
     }
 }
@@ -129,5 +132,6 @@ mod tests {
         let parsed: AppSettings = serde_json::from_str(json).expect("legacy blob must deserialize");
         assert!(parsed.identify_speakers);
         assert_eq!(parsed.diarization_model, "default");
+        assert!(parsed.auto_generate_summary);
     }
 }

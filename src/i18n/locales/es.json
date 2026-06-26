@@ -225,5 +225,19 @@
   "exporting": "Exportando…",
   "exportDone": "Exportación lista",
   "exportFailed": "No se pudo exportar",
-  "exportCancelled": "Exportación cancelada"
+  "exportCancelled": "Exportación cancelada",
+  "generateSummary": "Generar resumen",
+  "regenerate": "Regenerar",
+  "summarizing": "Generando resumen…",
+  "summaryEmpty": "Aún no hay resumen. Genera uno con el botón de arriba.",
+  "summaryFailed": "El resumen falló. Inténtalo de nuevo.",
+  "editSummary": "Editar resumen",
+  "aiModel": "Modelo de IA",
+  "downloadModel": "Descargar modelo",
+  "autoSummary": "Resumen automático",
+  "chatPlaceholder": "Escribe tu pregunta sobre la reunión…",
+  "chatThinking": "Pensando…",
+  "chatError": "Error al responder. Inténtalo de nuevo.",
+  "confirmRegenerateTitle": "¿Regenerar el resumen?",
+  "confirmRegenerateBody": "Se reemplazará el resumen y los elementos generados por IA. Tus ediciones manuales se conservan."
 }
