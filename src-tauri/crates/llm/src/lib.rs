@@ -3,6 +3,7 @@
 pub mod chat;
 pub mod engine;
 pub mod models;
+pub mod prompt;
 pub mod summarize;
 
 use thiserror::Error;

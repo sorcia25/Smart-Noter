@@ -1,4 +1,4 @@
-use crate::{engine::LocalLlm, AiError};
+use crate::{engine::LocalLlm, prompt::chatml, AiError};
 use serde::Deserialize;
 use smart_noter_core::models::ai::{ExtractedAction, MeetingAnalysis};
 use smart_noter_core::traits::{AnalysisInput, Summarizer};
@@ -78,8 +78,12 @@ pub fn parse_analysis(raw: &str, lang: &str) -> Result<MeetingAnalysis, AiError>
     })
 }
 
-/// Build a template-aware instruction that forces the LLM to emit a single JSON object.
-pub fn build_prompt(input: &AnalysisInput) -> String {
+/// Build a ChatML-wrapped prompt for Qwen2.5-Instruct.
+///
+/// `strict`: when `true` an extra instruction is prepended to the system role
+/// reminding the model to emit ONLY the JSON object, no prose. This is used
+/// on the second attempt when the first response fails to parse.
+pub fn build_prompt(input: &AnalysisInput, strict: bool) -> String {
     let body: String = input
         .transcript
         .iter()
@@ -89,15 +93,22 @@ pub fn build_prompt(input: &AnalysisInput) -> String {
     let sections = input.template_sections.join(", ");
     let lang = &input.lang;
 
-    format!(
-        "Eres un asistente que resume reuniones. Plantilla con secciones: [{sections}].\n\
+    let strict_prefix = if strict {
+        "IMPORTANTE: responde ÚNICAMENTE el JSON empezando por {. Sin texto adicional.\n"
+    } else {
+        ""
+    };
+
+    let system = format!(
+        "{strict_prefix}\
+         Eres un asistente que resume reuniones. Plantilla con secciones: [{sections}].\n\
          Devuelve SOLO un objeto JSON válido con las claves exactas: \"summary\" (string, en {lang}),\n\
          \"decisions\" (array de strings), \"blockers\" (array de strings), \"actions\"\n\
-         (array de objetos {{\"text\":..,\"owner\":..|null,\"due\":..|null}}). No añadas texto fuera del JSON.\n\
-         \n\
-         Transcripción:\n\
-         {body}"
-    )
+         (array de objetos {{\"text\":..,\"owner\":..|null,\"due\":..|null}}). No añadas texto fuera del JSON."
+    );
+    let user = format!("Transcripción:\n{body}");
+
+    chatml(&system, &user)
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +127,7 @@ impl Summarizer for LocalSummarizer<'_> {
         abort: &AtomicBool,
     ) -> Result<MeetingAnalysis, String> {
         progress(5);
-        let prompt = build_prompt(input);
+        let prompt = build_prompt(input, false);
         let mut sink = |_: &str| {};
         let raw = self
             .llm
@@ -124,14 +135,27 @@ impl Summarizer for LocalSummarizer<'_> {
             .map_err(|e| e.to_string())?;
         progress(80);
 
+        tracing::debug!(
+            len = raw.len(),
+            raw = %&raw[..raw.len().min(800)],
+            "LLM summary raw output"
+        );
+
         let analysis = parse_analysis(&raw, &input.lang).or_else(|_| {
-            // Retry with a stricter instruction when the first parse fails.
-            let strict =
-                format!("{prompt}\n\nIMPORTANTE: responde ÚNICAMENTE el JSON, empezando por {{.");
+            // Retry with a stricter system instruction; rebuild via ChatML so the
+            // structure stays intact (prepends "IMPORTANTE" to the system role).
+            let strict_prompt = build_prompt(input, true);
             let raw2 = self
                 .llm
-                .generate(&strict, 1024, &mut |_| {}, abort)
+                .generate(&strict_prompt, 1024, &mut |_| {}, abort)
                 .map_err(|e| e.to_string())?;
+
+            tracing::debug!(
+                len = raw2.len(),
+                raw = %&raw2[..raw2.len().min(800)],
+                "LLM summary raw output (strict retry)"
+            );
+
             parse_analysis(&raw2, &input.lang).map_err(|e| e.to_string())
         })?;
 

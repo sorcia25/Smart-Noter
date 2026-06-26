@@ -1,4 +1,4 @@
-use crate::engine::LocalLlm;
+use crate::{engine::LocalLlm, prompt::chatml};
 use smart_noter_core::models::ai::Chunk;
 use smart_noter_core::traits::ChatEngine;
 use std::sync::atomic::AtomicBool;
@@ -31,10 +31,11 @@ impl ChatEngine for LocalChat<'_> {
             .collect::<Vec<_>>()
             .join("\n---\n");
 
-        let prompt = format!(
+        let system = format!(
             "Responde en {lang} usando SOLO el contexto de la reunión. \
-Si no está en el contexto, dilo.\n\nContexto:\n{ctx}\n\nPregunta: {question}\nRespuesta:"
+Si no está en el contexto, dilo.\n\nContexto:\n{ctx}"
         );
+        let prompt = chatml(&system, question);
 
         self.llm
             .generate(&prompt, 512, on_token, abort)

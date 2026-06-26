@@ -88,10 +88,12 @@ impl LocalLlm {
             .new_context(&self.backend, ctx_params)
             .map_err(|e| AiError::Inference(e.to_string()))?;
 
-        // Tokenize the prompt with BOS.
+        // Tokenize without BOS: the ChatML template already opens with <|im_start|>
+        // which is the true start of the Qwen2.5 prompt; a spurious BOS token before
+        // it would confuse the model's attention over the turn boundaries.
         let prompt_tokens = self
             .model
-            .str_to_token(prompt, AddBos::Always)
+            .str_to_token(prompt, AddBos::Never)
             .map_err(|e| AiError::Inference(e.to_string()))?;
 
         if prompt_tokens.is_empty() {
@@ -139,6 +141,7 @@ impl LocalLlm {
 
         let mut decoder = encoding_rs::UTF_8.new_decoder();
         let mut output = String::new();
+        const IM_END: &str = "<|im_end|>";
 
         // n_cur tracks the KV-cache position; starts right after the prompt.
         let mut n_cur = n_prompt as i32;
@@ -168,6 +171,14 @@ impl LocalLlm {
 
             on_token(&piece);
             output.push_str(&piece);
+
+            // Defensive stop: if the model emits <|im_end|> as text rather than
+            // triggering is_eog_token (shouldn't happen with Qwen2.5 but guards
+            // against model variants that don't mark it as EOG), strip it and stop.
+            if output.ends_with(IM_END) {
+                output.truncate(output.len() - IM_END.len());
+                break;
+            }
 
             // Feed the new token back into the context.
             batch.clear();
