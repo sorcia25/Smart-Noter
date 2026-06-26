@@ -9,6 +9,7 @@ pub mod pdf;
 
 use thiserror::Error;
 
+use smart_noter_core::models::Participant;
 use smart_noter_core::Bilingual;
 
 /// One text line for a bilingual value: `es` always; ` / en` appended when
@@ -17,6 +18,28 @@ pub(crate) fn bi(text: &Bilingual, opts: &ExportOpts) -> String {
     match (&text.en, opts.bilingual) {
         (Some(en), true) if !en.is_empty() => format!("{} / {}", text.es, en),
         _ => text.es.clone(),
+    }
+}
+
+/// Resolves a transcript line's speaker to a display name: the participant's
+/// `name` if set, else its `label`, else an em dash for unknown speakers.
+pub(crate) fn speaker_name(participants: &[Participant], speaker_id: &str) -> String {
+    participants
+        .iter()
+        .find(|p| p.id == speaker_id)
+        .map(|p| p.name.clone().unwrap_or_else(|| p.label.clone()))
+        .unwrap_or_else(|| "—".into())
+}
+
+/// Formats a duration in seconds as `MM:SS`, or `H:MM:SS` when at least an hour.
+pub(crate) fn fmt_duration(sec: i64) -> String {
+    let h = sec / 3600;
+    let m = (sec % 3600) / 60;
+    let s = sec % 60;
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m:02}:{s:02}")
     }
 }
 

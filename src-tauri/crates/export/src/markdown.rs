@@ -1,24 +1,5 @@
-use crate::{bi, ExportOpts};
-use smart_noter_core::models::{MeetingDetail, Participant};
-
-fn speaker_name(participants: &[Participant], speaker_id: &str) -> String {
-    participants
-        .iter()
-        .find(|p| p.id == speaker_id)
-        .map(|p| p.name.clone().unwrap_or_else(|| p.label.clone()))
-        .unwrap_or_else(|| "—".into())
-}
-
-fn fmt_duration(sec: i64) -> String {
-    let h = sec / 3600;
-    let m = (sec % 3600) / 60;
-    let s = sec % 60;
-    if h > 0 {
-        format!("{h}:{m:02}:{s:02}")
-    } else {
-        format!("{m:02}:{s:02}")
-    }
-}
+use crate::{bi, fmt_duration, speaker_name, ExportOpts};
+use smart_noter_core::models::MeetingDetail;
 
 pub fn to_markdown(m: &MeetingDetail, opts: &ExportOpts) -> String {
     let mut out = String::new();

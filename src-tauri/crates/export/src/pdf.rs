@@ -33,6 +33,10 @@ pub fn to_pdf(m: &MeetingDetail, opts: &ExportOpts) -> Result<Vec<u8>, ExportErr
 
     doc.push(heading(&bi(&m.title, opts), 18));
     doc.push(elements::Paragraph::new(format!("Fecha: {}", m.date)));
+    doc.push(elements::Paragraph::new(format!(
+        "Duración: {}",
+        crate::fmt_duration(m.duration_sec)
+    )));
     doc.push(elements::Break::new(1));
 
     if !m.participants.is_empty() {
@@ -69,10 +73,11 @@ pub fn to_pdf(m: &MeetingDetail, opts: &ExportOpts) -> Result<Vec<u8>, ExportErr
         doc.push(heading("Acciones", 14));
         for a in &m.actions {
             let mark = if a.done { "[x]" } else { "[ ]" };
-            doc.push(elements::Paragraph::new(format!(
-                "{mark} {}",
-                bi(&a.text, opts)
-            )));
+            let mut line = format!("{mark} {}", bi(&a.text, opts));
+            if let Some(due) = &a.due {
+                line.push_str(&format!(" (vence: {due})"));
+            }
+            doc.push(elements::Paragraph::new(line));
         }
         doc.push(elements::Break::new(1));
     }
@@ -84,12 +89,7 @@ pub fn to_pdf(m: &MeetingDetail, opts: &ExportOpts) -> Result<Vec<u8>, ExportErr
         } else {
             String::new()
         };
-        let who = m
-            .participants
-            .iter()
-            .find(|p| p.id == line.speaker_id)
-            .map(|p| p.name.clone().unwrap_or_else(|| p.label.clone()))
-            .unwrap_or_else(|| "—".into());
+        let who = crate::speaker_name(&m.participants, &line.speaker_id);
         doc.push(elements::Paragraph::new(format!(
             "{ts}{who}: {}",
             bi(&line.text, opts)
@@ -106,9 +106,15 @@ pub fn to_pdf(m: &MeetingDetail, opts: &ExportOpts) -> Result<Vec<u8>, ExportErr
 mod tests {
     use super::*;
     use crate::ExportOpts;
-    use smart_noter_core::models::{MeetingDetail, TranscriptLine};
+    use smart_noter_core::models::{
+        Action, Blocker, Decision, MeetingDetail, Participant, TranscriptLine,
+    };
     use smart_noter_core::Bilingual;
 
+    /// A rich fixture that exercises every section's code path: a named
+    /// participant, a summary, a decision, a blocker, and a done action with a
+    /// due date. This ensures `to_pdf` renders all branches without panicking
+    /// on real data (an empty fixture skipped most sections).
     fn fixture() -> MeetingDetail {
         MeetingDetail {
             id: "m1".into(),
@@ -118,14 +124,47 @@ mod tests {
             },
             template: "tecnica".into(),
             date: "2026-06-20T15:00:00Z".into(),
-            duration_sec: 60,
+            duration_sec: 95,
             device_used: None,
             word_count: 1,
-            summary: None,
-            participants: vec![],
-            actions: vec![],
-            decisions: vec![],
-            blockers: vec![],
+            summary: Some(Bilingual {
+                es: "Resumen de la reunión".into(),
+                en: None,
+            }),
+            participants: vec![Participant {
+                id: "p1".into(),
+                meeting_id: "m1".into(),
+                label: "S1".into(),
+                name: Some("Ana".into()),
+                color_class: "c1".into(),
+                word_count: 1,
+                talk_pct: 100,
+            }],
+            actions: vec![Action {
+                id: "a1".into(),
+                meeting_id: "m1".into(),
+                text: Bilingual {
+                    es: "Enviar reporte".into(),
+                    en: None,
+                },
+                owner_participant_id: Some("p1".into()),
+                due: Some("2026-07-01".into()),
+                done: true,
+            }],
+            decisions: vec![Decision {
+                id: 1,
+                text: Bilingual {
+                    es: "Decidir X".into(),
+                    en: None,
+                },
+            }],
+            blockers: vec![Blocker {
+                id: 1,
+                text: Bilingual {
+                    es: "Falta acceso".into(),
+                    en: None,
+                },
+            }],
             transcript: vec![TranscriptLine {
                 id: 1,
                 t: "00:00".into(),
