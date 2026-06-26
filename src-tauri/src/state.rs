@@ -35,6 +35,8 @@ pub struct AppState {
     pub summary: Arc<Mutex<Option<SummaryHandle>>>,
     /// Active LLM model download (one at a time, shares the same DownloadHandle type).
     pub llm_download: Arc<Mutex<Option<DownloadHandle>>>,
+    /// Active RAG chat job (one at a time). Mirrors the summary handle pattern.
+    pub chat: Arc<Mutex<Option<ChatHandle>>>,
 }
 
 /// Live transcription job (one at a time). `pct` is updated by the progress
@@ -58,6 +60,14 @@ pub struct DownloadHandle {
 /// generate loop (via the AtomicBool passed to LocalLlm::generate).
 #[derive(Clone)]
 pub struct SummaryHandle {
+    pub meeting_id: String,
+    pub abort: Arc<AtomicBool>,
+}
+
+/// Live RAG chat job (one at a time). Abort is polled cooperatively by the LLM
+/// generate loop (via the AtomicBool passed to LocalLlm::generate).
+#[derive(Clone)]
+pub struct ChatHandle {
     pub meeting_id: String,
     pub abort: Arc<AtomicBool>,
 }

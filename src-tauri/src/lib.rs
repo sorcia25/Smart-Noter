@@ -79,6 +79,9 @@ pub fn specta_builder() -> Builder {
         commands::ai::download_llm_model,
         commands::ai::cancel_llm_download,
         commands::ai::delete_llm_model,
+        commands::ai::ask_meeting,
+        commands::ai::cancel_chat,
+        commands::ai::list_chat,
     ])
 }
 
@@ -152,6 +155,7 @@ pub fn run() {
                     llm: std::sync::Arc::new(parking_lot::Mutex::new(None)),
                     summary: std::sync::Arc::new(parking_lot::Mutex::new(None)),
                     llm_download: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+                    chat: std::sync::Arc::new(parking_lot::Mutex::new(None)),
                 });
             });
             Ok(())

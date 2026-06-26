@@ -13,15 +13,20 @@
 //! Sync` (declared in engine.rs), this is safe.
 
 use crate::error::from_db;
-use crate::state::{AppState, DownloadHandle, SummaryHandle};
+use crate::state::{AppState, ChatHandle, DownloadHandle, SummaryHandle};
 use serde::Serialize;
+use smart_noter_core::models::ai::ChatMessage;
 use smart_noter_core::traits::{AnalysisInput, Summarizer};
 use smart_noter_core::{AppError, Bilingual};
 use smart_noter_db::repos::{
-    actions_repo, blockers_repo, decisions_repo, embeddings_repo, meetings_repo, templates_repo,
+    actions_repo, blockers_repo, chat_repo, decisions_repo, embeddings_repo, meetings_repo,
+    templates_repo,
 };
 use smart_noter_llm::{
-    chat::chunk_transcript, engine::LocalLlm, models as llm_models, summarize::LocalSummarizer,
+    chat::{chunk_transcript, top_k, LocalChat},
+    engine::LocalLlm,
+    models as llm_models,
+    summarize::LocalSummarizer,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -586,4 +591,362 @@ pub fn cancel_llm_download(state: tauri::State<'_, AppState>, id: String) -> Res
 pub fn delete_llm_model(app: tauri::AppHandle, id: String) -> Result<(), AppError> {
     let dir = app_data(&app)?;
     llm_models::delete(&dir, &id).map_err(|e| AppError::Internal(e.to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// RAG chat event payloads
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ChatTokenEvent {
+    meeting_id: String,
+    token: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ChatDoneEvent {
+    meeting_id: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ChatErrorEvent {
+    meeting_id: String,
+    message: String,
+}
+
+// ---------------------------------------------------------------------------
+// ask_meeting — RAG chat with streamed tokens + persisted history
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+#[specta::specta]
+pub fn ask_meeting(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    meeting_id: String,
+    question: String,
+) -> Result<(), AppError> {
+    // Reserve the single chat slot (one chat at a time).
+    let handle = ChatHandle {
+        meeting_id: meeting_id.clone(),
+        abort: Arc::new(AtomicBool::new(false)),
+    };
+    {
+        let mut slot = state.chat.lock();
+        if slot.is_some() {
+            return Err(AppError::Validation(
+                "a chat is already running".to_string(),
+            ));
+        }
+        *slot = Some(handle.clone());
+    }
+
+    // Helper to clear the slot on early return (before thread spawn).
+    let clear_chat = || {
+        *state.chat.lock() = None;
+    };
+
+    let n_gpu_layers: u32 = 0;
+
+    let app_dir = match app_data(&app) {
+        Ok(d) => d,
+        Err(e) => {
+            clear_chat();
+            return Err(e);
+        }
+    };
+
+    // Lazy-load the LLM (may already be loaded from a previous call).
+    let llm_arc = state.llm.clone();
+    if let Err(e) = ensure_llm_loaded(&llm_arc, &app_dir, n_gpu_layers) {
+        clear_chat();
+        return Err(e);
+    }
+
+    // Clone everything needed by the thread.
+    let pool = state.pool.clone();
+    let chat_slot = state.chat.clone();
+    let abort = handle.abort.clone();
+    let mid = meeting_id.clone();
+    let app2 = app.clone();
+
+    std::thread::spawn(move || {
+        let finish = || {
+            *chat_slot.lock() = None;
+        };
+
+        let emit_token = |token: &str| {
+            let _ = app2.emit(
+                "chat:token",
+                ChatTokenEvent {
+                    meeting_id: mid.clone(),
+                    token: token.to_string(),
+                },
+            );
+        };
+        let emit_done = || {
+            let _ = app2.emit(
+                "chat:done",
+                ChatDoneEvent {
+                    meeting_id: mid.clone(),
+                },
+            );
+        };
+        let emit_error = |message: &str| {
+            let _ = app2.emit(
+                "chat:error",
+                ChatErrorEvent {
+                    meeting_id: mid.clone(),
+                    message: message.to_string(),
+                },
+            );
+        };
+
+        // 1. Persist the user message first (history is correct even if answer fails).
+        let persist_user =
+            tauri::async_runtime::block_on(chat_repo::insert(&pool, &mid, "user", &question));
+        if let Err(e) = persist_user {
+            emit_error(&format!("persist user message: {e}"));
+            finish();
+            return;
+        }
+
+        if abort.load(Ordering::Relaxed) {
+            emit_error("cancelled before inference");
+            finish();
+            return;
+        }
+
+        // 2. Load stored embeddings.
+        let mut chunks = match tauri::async_runtime::block_on(embeddings_repo::load(&pool, &mid)) {
+            Ok(c) => c,
+            Err(e) => {
+                emit_error(&format!("load embeddings: {e}"));
+                finish();
+                return;
+            }
+        };
+
+        // 3. Embed-on-demand: if no embeddings exist (summary never ran), chunk + embed
+        //    the transcript now so the chat has context.
+        if chunks.is_empty() {
+            let detail =
+                match tauri::async_runtime::block_on(meetings_repo::get_detail(&pool, &mid)) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        emit_error(&format!("load meeting for embed-on-demand: {e}"));
+                        finish();
+                        return;
+                    }
+                };
+
+            // Build (speaker_label, text) pairs for chunk_transcript.
+            let label_map: std::collections::HashMap<String, String> = detail
+                .participants
+                .iter()
+                .map(|p| {
+                    let display = p
+                        .name
+                        .clone()
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or_else(|| p.label.clone());
+                    (p.id.clone(), display)
+                })
+                .collect();
+
+            let transcript_pairs: Vec<(String, String)> = detail
+                .transcript
+                .iter()
+                .map(|line| {
+                    let label = label_map
+                        .get(&line.speaker_id)
+                        .cloned()
+                        .unwrap_or_else(|| line.speaker_id.clone());
+                    (label, line.text.es.clone())
+                })
+                .collect();
+
+            if !transcript_pairs.is_empty() {
+                const LINES_PER_CHUNK: usize = 6;
+                let text_chunks = chunk_transcript(&transcript_pairs, LINES_PER_CHUNK);
+
+                let llm_guard = llm_arc.lock();
+                let llm = match llm_guard.as_ref() {
+                    Some(l) => l,
+                    None => {
+                        emit_error("LLM slot empty during embed-on-demand");
+                        finish();
+                        return;
+                    }
+                };
+                match llm.embed(&text_chunks) {
+                    Ok(vectors) => {
+                        let chunks_with_vectors: Vec<(i64, String, Vec<f32>)> = text_chunks
+                            .into_iter()
+                            .zip(vectors)
+                            .enumerate()
+                            .map(|(i, (text, vec))| (i as i64, text, vec))
+                            .collect();
+                        let upsert_result = tauri::async_runtime::block_on(
+                            embeddings_repo::upsert(&pool, &mid, &chunks_with_vectors),
+                        );
+                        match upsert_result {
+                            Ok(()) => {
+                                // Reload the fresh chunks.
+                                match tauri::async_runtime::block_on(embeddings_repo::load(
+                                    &pool, &mid,
+                                )) {
+                                    Ok(c) => chunks = c,
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            meeting_id = %mid,
+                                            error = %e,
+                                            "reload embed chunks failed (non-fatal, continuing with empty context)"
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    meeting_id = %mid,
+                                    error = %e,
+                                    "embed-on-demand persist failed (non-fatal, continuing with empty context)"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            meeting_id = %mid,
+                            error = %e,
+                            "embed-on-demand inference failed (non-fatal, continuing with empty context)"
+                        );
+                    }
+                }
+                // llm_guard dropped here — LLM lock released before answer step.
+            }
+        }
+
+        if abort.load(Ordering::Relaxed) {
+            emit_error("cancelled after embed");
+            finish();
+            return;
+        }
+
+        // 4. Embed the question and retrieve top-k context chunks.
+        //    We lock the LLM for the entire embed + answer (one inference at a time).
+        let answer_result = {
+            let llm_guard = llm_arc.lock();
+            let llm = match llm_guard.as_ref() {
+                Some(l) => l,
+                None => {
+                    emit_error("LLM slot empty at inference time");
+                    finish();
+                    return;
+                }
+            };
+
+            // Embed the question (wrap in "query: " prefix — same convention as
+            // run_summary's embed step which calls llm.embed() directly without prefix).
+            let question_vec = match llm.embed(std::slice::from_ref(&question)) {
+                Ok(mut vecs) if !vecs.is_empty() => vecs.remove(0),
+                Ok(_) => {
+                    emit_error("embed returned empty result for question");
+                    finish();
+                    return;
+                }
+                Err(e) => {
+                    emit_error(&format!("embed question: {e}"));
+                    finish();
+                    return;
+                }
+            };
+
+            // Retrieve top-4 context chunks.
+            let context_refs = top_k(&question_vec, &chunks, 4);
+            let context: Vec<smart_noter_core::models::ai::Chunk> =
+                context_refs.into_iter().cloned().collect();
+
+            // Stream tokens via LocalChat::answer.
+            let chat_engine = LocalChat { llm };
+            let mut full_answer = String::new();
+            let abort_ref: &AtomicBool = &abort;
+
+            // We use "es" as default lang (same as run_summary); the FE can
+            // pass a lang param once settings expose it.
+            let result = {
+                use smart_noter_core::traits::ChatEngine;
+                chat_engine.answer(
+                    &question,
+                    &context,
+                    "es",
+                    &mut |token| {
+                        full_answer.push_str(token);
+                        emit_token(token);
+                    },
+                    abort_ref,
+                )
+            };
+
+            result.map(|()| full_answer)
+        }; // llm_guard + LocalChat dropped here — LLM lock released
+
+        if abort.load(Ordering::Relaxed) {
+            emit_error("cancelled during inference");
+            finish();
+            return;
+        }
+
+        match answer_result {
+            Ok(full_answer) => {
+                // 5. Persist the assistant message.
+                let persist_result = tauri::async_runtime::block_on(chat_repo::insert(
+                    &pool,
+                    &mid,
+                    "assistant",
+                    &full_answer,
+                ));
+                if let Err(e) = persist_result {
+                    tracing::warn!(
+                        meeting_id = %mid,
+                        error = %e,
+                        "persist assistant message failed (answer was already streamed)"
+                    );
+                }
+                emit_done();
+            }
+            Err(e) => {
+                emit_error(&format!("inference: {e}"));
+            }
+        }
+
+        finish();
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_chat(state: tauri::State<'_, AppState>, meeting_id: String) -> Result<(), AppError> {
+    if let Some(h) = state.chat.lock().as_ref() {
+        if h.meeting_id == meeting_id {
+            h.abort.store(true, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_chat(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<Vec<ChatMessage>, AppError> {
+    chat_repo::list(&state.pool, &meeting_id)
+        .await
+        .map_err(from_db)
 }
