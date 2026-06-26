@@ -20,9 +20,14 @@ fn speaker_name(participants: &[Participant], speaker_id: &str) -> String {
 }
 
 fn fmt_duration(sec: i64) -> String {
-    let m = sec / 60;
+    let h = sec / 3600;
+    let m = (sec % 3600) / 60;
     let s = sec % 60;
-    format!("{m:02}:{s:02}")
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m:02}:{s:02}")
+    }
 }
 
 pub fn to_markdown(m: &MeetingDetail, opts: &ExportOpts) -> String {
@@ -82,7 +87,7 @@ pub fn to_markdown(m: &MeetingDetail, opts: &ExportOpts) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use smart_noter_core::models::{Decision, MeetingDetail, Participant, TranscriptLine};
+    use smart_noter_core::models::{Action, Decision, MeetingDetail, Participant, TranscriptLine};
     use smart_noter_core::Bilingual;
 
     fn fixture() -> MeetingDetail {
@@ -199,5 +204,56 @@ mod tests {
             !md.contains("## Decisiones"),
             "no Decisiones heading when none"
         );
+    }
+
+    #[test]
+    fn action_renders_checkbox_and_due() {
+        let mut m = fixture();
+        m.actions.push(Action {
+            id: "a1".into(),
+            meeting_id: "m1".into(),
+            text: Bilingual {
+                es: "Enviar reporte".into(),
+                en: None,
+            },
+            owner_participant_id: Some("p1".into()),
+            due: Some("2026-07-01".into()),
+            done: true,
+        });
+        let md = to_markdown(
+            &m,
+            &ExportOpts {
+                timestamps: false,
+                bilingual: false,
+            },
+        );
+        assert!(md.contains("## Acciones"), "Acciones heading when present");
+        assert!(md.contains("[x]"), "checked checkbox when done");
+        assert!(md.contains("Enviar reporte"), "action text");
+        assert!(md.contains("vence: 2026-07-01"), "due date suffix");
+    }
+
+    #[test]
+    fn duration_over_an_hour_uses_hms() {
+        let mut m = fixture();
+        m.duration_sec = 3661;
+        let long = to_markdown(
+            &m,
+            &ExportOpts {
+                timestamps: false,
+                bilingual: false,
+            },
+        );
+        assert!(long.contains("1:01:01"), "H:MM:SS for durations >= 1h");
+
+        // Short meetings keep the MM:SS form (fixture is 95s = 01:35).
+        let short = to_markdown(
+            &fixture(),
+            &ExportOpts {
+                timestamps: false,
+                bilingual: false,
+            },
+        );
+        assert!(short.contains("01:35"), "MM:SS for durations < 1h");
     }
 }
