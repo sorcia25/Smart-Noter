@@ -59,9 +59,32 @@ fn read_flac_i16(path: &Path) -> Result<(Vec<i16>, u32, u16), ExportError> {
 pub fn wav_or_flac_to_mp3(path: &Path) -> Result<Vec<u8>, ExportError> {
     let (pcm, rate, channels) = decode_interleaved_i16(path)?;
 
+    // MP3 can physically hold at most 2 channels, so the encoder input must be
+    // mono or stereo. Resolve the source layout to one of those, matched
+    // correct-by-construction to the PCM we feed LAME:
+    //   1ch  → mono, MonoPcm
+    //   2ch  → stereo, InterleavedPcm (it divides len/2 for the per-channel frame
+    //          count, so it is ONLY valid for exactly 2 channels)
+    //   >2ch → downmix to mono (average the N samples per frame). This is the one
+    //          place a downmix is justified: the format cannot represent >2
+    //          channels, and feeding InterleavedPcm here would silently garble.
+    let ch = channels as usize;
+    let mono_downmix: Vec<i16> = if channels > 2 {
+        pcm.chunks_exact(ch)
+            .map(|frame| {
+                let sum: i32 = frame.iter().map(|&s| s as i32).sum();
+                (sum / ch as i32) as i16
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    // Channels actually handed to LAME: 2 only for true stereo, else 1.
+    let out_channels: u8 = if channels == 2 { 2 } else { 1 };
+
     let mut encoder = Builder::new().ok_or_else(|| ExportError::Mp3("builder init".into()))?;
     encoder
-        .set_num_channels(channels.clamp(1, 2) as u8)
+        .set_num_channels(out_channels)
         .map_err(|e| ExportError::Mp3(format!("channels: {e:?}")))?;
     encoder
         .set_sample_rate(rate)
@@ -76,24 +99,31 @@ pub fn wav_or_flac_to_mp3(path: &Path) -> Result<Vec<u8>, ExportError> {
         .build()
         .map_err(|e| ExportError::Mp3(format!("build: {e:?}")))?;
 
-    // InterleavedPcm<i16> only works for 2-channel (stereo) data — it divides
-    // len/2 to get per-channel frame count. For mono we use MonoPcm<i16>.
     let mut out: Vec<u8> = Vec::new();
-    if channels >= 2 {
-        out.reserve(mp3lame_encoder::max_required_buffer_size(pcm.len()));
-        let n = encoder
-            .encode(InterleavedPcm(&pcm), out.spare_capacity_mut())
-            .map_err(|e| ExportError::Mp3(format!("encode: {e:?}")))?;
-        // SAFETY: `encode` wrote exactly `n` bytes into spare capacity.
-        unsafe { out.set_len(out.len() + n) };
-    } else {
-        out.reserve(mp3lame_encoder::max_required_buffer_size(pcm.len()));
-        let n = encoder
-            .encode(MonoPcm(&pcm), out.spare_capacity_mut())
-            .map_err(|e| ExportError::Mp3(format!("encode: {e:?}")))?;
-        // SAFETY: `encode` wrote exactly `n` bytes into spare capacity.
-        unsafe { out.set_len(out.len() + n) };
-    }
+    let n = match channels {
+        2 => {
+            out.reserve(mp3lame_encoder::max_required_buffer_size(pcm.len()));
+            encoder
+                .encode(InterleavedPcm(&pcm), out.spare_capacity_mut())
+                .map_err(|e| ExportError::Mp3(format!("encode: {e:?}")))?
+        }
+        1 => {
+            out.reserve(mp3lame_encoder::max_required_buffer_size(pcm.len()));
+            encoder
+                .encode(MonoPcm(&pcm), out.spare_capacity_mut())
+                .map_err(|e| ExportError::Mp3(format!("encode: {e:?}")))?
+        }
+        _ => {
+            out.reserve(mp3lame_encoder::max_required_buffer_size(
+                mono_downmix.len(),
+            ));
+            encoder
+                .encode(MonoPcm(&mono_downmix), out.spare_capacity_mut())
+                .map_err(|e| ExportError::Mp3(format!("encode: {e:?}")))?
+        }
+    };
+    // SAFETY: `encode` wrote exactly `n` bytes into spare capacity.
+    unsafe { out.set_len(out.len() + n) };
 
     // Flush needs at least 7200 bytes spare.
     out.reserve(mp3lame_encoder::max_required_buffer_size(0).max(7200));
@@ -126,16 +156,80 @@ mod tests {
         w.finalize().unwrap();
     }
 
+    /// Build a small 16-bit FLAC file via flacenc's batch encoder (the same
+    /// path the audio crate's writer is validated against), so the claxon
+    /// decode half of `wav_or_flac_to_mp3` gets real production-shaped input.
+    fn write_flac(path: &std::path::Path, rate: u32, channels: u16, frames: usize) {
+        use flacenc::bitsink::ByteSink;
+        use flacenc::component::BitRepr;
+        use flacenc::error::Verify;
+        use flacenc::source::MemSource;
+
+        let ch = channels as usize;
+        let interleaved: Vec<i32> = (0..frames)
+            .flat_map(|i| std::iter::repeat_n(((i % 200) as i32 - 100) * 50, ch))
+            .collect();
+
+        let config = flacenc::config::Encoder::default().into_verified().unwrap();
+        let source = MemSource::from_samples(&interleaved, ch, 16, rate as usize);
+        let stream =
+            flacenc::encode_with_fixed_block_size(&config, source, config.block_size).unwrap();
+        let mut sink = ByteSink::new();
+        stream.write(&mut sink).unwrap();
+        std::fs::write(path, sink.as_slice()).unwrap();
+    }
+
+    /// Asserts `bytes` begins like a real MP3 stream: an ID3 tag or an MPEG
+    /// frame sync (0xFF 0xEx/0xFx).
+    fn looks_like_mp3(bytes: &[u8]) {
+        assert!(
+            bytes.len() > 200,
+            "mp3 should have frames, got {}",
+            bytes.len()
+        );
+        let ok = &bytes[0..3] == b"ID3" || (bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0);
+        assert!(ok, "looks like MP3: first bytes {:02X?}", &bytes[0..4]);
+    }
+
     #[test]
     fn wav_transcodes_to_nonempty_mp3() {
         let dir = tempfile::tempdir().unwrap();
         let wav = dir.path().join("a.wav");
         write_wav(&wav, 44_100, 2, 44_100); // 1s stereo
         let mp3 = wav_or_flac_to_mp3(&wav).unwrap();
-        assert!(mp3.len() > 200, "mp3 should have frames, got {}", mp3.len());
-        // MP3 starts with an ID3 tag or an MPEG frame sync (0xFF 0xEx/0xFx).
-        let ok = &mp3[0..3] == b"ID3" || (mp3[0] == 0xFF && (mp3[1] & 0xE0) == 0xE0);
-        assert!(ok, "looks like MP3: first bytes {:02X?}", &mp3[0..4]);
+        looks_like_mp3(&mp3);
+    }
+
+    #[test]
+    fn mono_wav_transcodes_to_nonempty_mp3() {
+        // Mix-mode records mono (capture/stream.rs: "mixed output is mono") —
+        // exercises the MonoPcm branch + its buffer reservation.
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("m.wav");
+        write_wav(&wav, 48_000, 1, 48_000); // 1s mono
+        let mp3 = wav_or_flac_to_mp3(&wav).unwrap();
+        looks_like_mp3(&mp3);
+    }
+
+    #[test]
+    fn flac_transcodes_to_nonempty_mp3() {
+        // Recordings can be FLAC — exercises the claxon decode path.
+        let dir = tempfile::tempdir().unwrap();
+        let flac = dir.path().join("f.flac");
+        write_flac(&flac, 48_000, 1, 48_000); // 1s mono FLAC
+        let mp3 = wav_or_flac_to_mp3(&flac).unwrap();
+        looks_like_mp3(&mp3);
+    }
+
+    #[test]
+    fn multichannel_wav_downmixes_to_nonempty_mp3() {
+        // A >2-channel source (e.g. a multi-channel interface) must downmix to
+        // mono rather than garble through InterleavedPcm.
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("multi.wav");
+        write_wav(&wav, 48_000, 3, 48_000); // 1s 3-channel
+        let mp3 = wav_or_flac_to_mp3(&wav).unwrap();
+        looks_like_mp3(&mp3);
     }
 
     #[test]
