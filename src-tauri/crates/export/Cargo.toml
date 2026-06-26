@@ -1,0 +1,15 @@
+[package]
+name = "smart-noter-export"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+smart-noter-core = { path = "../core" }
+thiserror.workspace = true
+hound = "3.5"
+claxon = "0.4"
+genpdf = "0.2"
+mp3lame-encoder = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
