@@ -9,6 +9,17 @@ pub mod pdf;
 
 use thiserror::Error;
 
+use smart_noter_core::Bilingual;
+
+/// One text line for a bilingual value: `es` always; ` / en` appended when
+/// `bilingual` is on and an `en` exists.
+pub(crate) fn bi(text: &Bilingual, opts: &ExportOpts) -> String {
+    match (&text.en, opts.bilingual) {
+        (Some(en), true) if !en.is_empty() => format!("{} / {}", text.es, en),
+        _ => text.es.clone(),
+    }
+}
+
 /// Per-export options from the modal. `timestamps`/`bilingual` apply to text
 /// formats only (ignored by MP3).
 #[derive(Debug, Clone, Copy)]

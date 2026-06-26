@@ -1,15 +1,5 @@
-use crate::ExportOpts;
+use crate::{bi, ExportOpts};
 use smart_noter_core::models::{MeetingDetail, Participant};
-use smart_noter_core::Bilingual;
-
-/// One Markdown line for a bilingual value: `es` always; ` / en` appended when
-/// `bilingual` is on and an `en` exists.
-fn bi(text: &Bilingual, opts: &ExportOpts) -> String {
-    match (&text.en, opts.bilingual) {
-        (Some(en), true) if !en.is_empty() => format!("{} / {}", text.es, en),
-        _ => text.es.clone(),
-    }
-}
 
 fn speaker_name(participants: &[Participant], speaker_id: &str) -> String {
     participants
