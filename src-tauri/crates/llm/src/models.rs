@@ -33,22 +33,23 @@ impl ModelSpec {
 ///   rodion-m/multilingual-e5-small-gguf – fp32, 476 MB.  Used for RAG
 ///   similarity search.  A smaller, quantised variant can replace this later.
 ///
-/// SHA-256 fields are intentionally empty: the files are too large to hash
-/// without downloading, and the HF repository pages do not publish them.
-/// `download()` skips verification when `sha256` is empty (logs a warning).
+/// The Qwen SHA-256 is pinned (hashed locally after the Sub-5 smoke download).
+/// The e5 hash stays empty — that model is not downloaded or used yet (RAG embeds
+/// via the Qwen LLM); `download()` skips verification when `sha256` is empty.
 pub const CATALOG: &[ModelSpec] = &[
     ModelSpec {
         id: "qwen2.5-3b-instruct-q4",
         display_name: "Qwen2.5-3B Instruct (Q4_K_M)",
         size_mb: 1979, // ~1.93 GB
-        sha256: "",    // pinned during Task-17 smoke
+        // pinned 2026-06-26 after the Sub-5 smoke download (hashed locally)
+        sha256: "9c9f56a391a3abbd5b89d0245bf6106081bcc3173119d4229235dd9d23253f94",
         url: "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf",
     },
     ModelSpec {
         id: "e5-small-embed",
         display_name: "Multilingual E5 Small (FP32 embeddings)",
         size_mb: 476,
-        sha256: "", // pinned during Task-17 smoke
+        sha256: "", // not pinned: e5 is unused yet (RAG embeds via Qwen) — see Sub-5 debt
         url: "https://huggingface.co/rodion-m/multilingual-e5-small-gguf/resolve/main/multilingual-e5-small-fp32.gguf",
     },
 ];
