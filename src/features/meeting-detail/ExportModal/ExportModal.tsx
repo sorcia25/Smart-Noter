@@ -2,8 +2,10 @@ import { Button } from '@/components/primitives/Button/Button';
 import { Icon } from '@/components/primitives/Icon/Icon';
 import { Input } from '@/components/primitives/Input/Input';
 import { Modal } from '@/components/primitives/Modal/Modal';
+import { toast } from '@/components/primitives/Toast/Toast';
 import { Toggle } from '@/components/primitives/Toggle/Toggle';
 import { useT } from '@/i18n/useT';
+import { useExportMeetingMutation } from '@/store/api/meetings.api';
 import { useState } from 'react';
 import styles from './ExportModal.module.css';
 
@@ -13,14 +15,16 @@ export interface ExportModalProps {
   open: boolean;
   onClose: () => void;
   meetingTitle: string;
+  meetingId: string;
 }
 
-export function ExportModal({ open, onClose, meetingTitle }: ExportModalProps) {
+export function ExportModal({ open, onClose, meetingTitle, meetingId }: ExportModalProps) {
   const { t, lang } = useT();
   const [selected, setSelected] = useState<Set<Fmt>>(new Set(['md']));
   const [fileName, setFileName] = useState(meetingTitle.toLowerCase().replace(/\s+/g, '-'));
   const [timestamps, setTimestamps] = useState(true);
   const [bilingual, setBilingual] = useState(false);
+  const [exportMeeting, { isLoading: busy }] = useExportMeetingMutation();
 
   function toggleFmt(f: Fmt) {
     setSelected((prev) => {
@@ -69,11 +73,28 @@ export function ExportModal({ open, onClose, meetingTitle }: ExportModalProps) {
           <Button
             variant="primary"
             icon={<Icon name="download" size={14} />}
-            disabled={selected.size === 0}
-            onClick={onClose}
-            title={lang === 'es' ? 'Próximamente' : 'Coming soon'}
+            disabled={selected.size === 0 || busy}
+            onClick={async () => {
+              try {
+                const written = await exportMeeting({
+                  meetingId,
+                  formats: [...selected],
+                  fileName,
+                  timestamps,
+                  bilingual,
+                }).unwrap();
+                if (written.length === 0) {
+                  toast.info(t('exportCancelled'));
+                  return;
+                }
+                toast.success(t('exportDone'));
+                onClose();
+              } catch {
+                toast.error(t('exportFailed'));
+              }
+            }}
           >
-            {t('exportNow')}
+            {busy ? t('exporting') : t('exportNow')}
           </Button>
         </>
       }

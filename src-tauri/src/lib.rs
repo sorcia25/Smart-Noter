@@ -70,6 +70,7 @@ pub fn specta_builder() -> Builder {
         commands::transcription::list_diarization_models,
         commands::transcription::download_diarization_model,
         commands::transcription::delete_diarization_model,
+        commands::export::export_meeting,
     ])
 }
 
@@ -79,6 +80,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);

@@ -105,6 +105,18 @@ export const meetingsApi = baseApi.injectEndpoints({
       // results) so stale rows don't linger in the cached result set.
       providesTags: ['Meeting'],
     }),
+    exportMeeting: b.mutation<
+      string[],
+      {
+        meetingId: string;
+        formats: string[];
+        fileName: string;
+        timestamps: boolean;
+        bilingual: boolean;
+      }
+    >({
+      query: (args) => ({ cmd: 'export_meeting', args }),
+    }),
   }),
 });
 
@@ -131,4 +143,5 @@ export const {
   useUpdateBlockerMutation,
   useDeleteBlockerMutation,
   useSearchMeetingsQuery,
+  useExportMeetingMutation,
 } = meetingsApi;

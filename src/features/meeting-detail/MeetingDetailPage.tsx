@@ -115,9 +115,11 @@ export default function MeetingDetailPage() {
         <SidePanel participants={meeting.participants} />
       </div>
       <ExportModal
+        key={id}
         open={exportOpen}
         onClose={() => setExportOpen(false)}
         meetingTitle={pickL(meeting.title, lang)}
+        meetingId={id ?? ''}
       />
     </div>
   );
