@@ -1,6 +1,10 @@
+import { Button } from '@/components/primitives/Button/Button';
 import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
+import { Modal } from '@/components/primitives/Modal/Modal';
+import { toast } from '@/components/primitives/Toast/Toast';
 import { useT } from '@/i18n/useT';
-import type { MeetingDetail, Template } from '@/ipc/bindings';
+import type { Bilingual, MeetingDetail, Template } from '@/ipc/bindings';
+import { useGenerateSummaryMutation, useUpdateSummaryTextMutation } from '@/store/api/ai.api';
 import {
   useCreateBlockerMutation,
   useCreateDecisionMutation,
@@ -10,6 +14,8 @@ import {
   useUpdateDecisionMutation,
 } from '@/store/api/meetings.api';
 import { pickL } from '@/utils/format';
+import { useState } from 'react';
+import { useAiSummary } from '../useAiSummary';
 import { EditableItems } from './EditableItems';
 import styles from './SummaryTab.module.css';
 
@@ -32,42 +38,144 @@ export interface SummaryTabProps {
   template: Template | undefined;
 }
 
-const FAKE_METRICS = (lang: 'es' | 'en') => [
-  { l: lang === 'es' ? 'Avance Sprint' : 'Sprint progress', v: '86%', d: '18/21' },
-  { l: lang === 'es' ? 'Velocidad' : 'Velocity', v: '+12%', d: 'vs Sprint 3' },
-  { l: lang === 'es' ? 'Cobertura tests' : 'Test coverage', v: '74%', d: 'target 80%' },
-];
+// ---------------------------------------------------------------------------
+// Summary section — editable + Regenerar + empty/loading states
+// ---------------------------------------------------------------------------
 
-const FAKE_ARCH = {
-  es: 'Arquitectura por capas con frontend React + Tailwind, backend NestJS, base de datos PostgreSQL y cola de mensajería con RabbitMQ. Integración con SAP vía API REST con reintento exponencial.',
-  en: 'Layered architecture: React + Tailwind frontend, NestJS backend, PostgreSQL database, RabbitMQ messaging queue. SAP integration via REST API with exponential backoff.',
-};
+interface SummaryBodyProps {
+  meeting: MeetingDetail;
+}
 
-const FAKE_TECH = {
-  es: [
-    'Migrar de WebSockets a SSE para notificaciones (menor overhead).',
-    'Adoptar Drizzle ORM en lugar de TypeORM para nuevos módulos.',
-    'Mover jobs largos a worker pool con Redis.',
-  ],
-  en: [
-    'Migrate WebSockets → SSE for notifications (lower overhead).',
-    'Adopt Drizzle ORM instead of TypeORM for new modules.',
-    'Move long jobs to worker pool backed by Redis.',
-  ],
-};
+function SummaryBody({ meeting }: SummaryBodyProps) {
+  const { t, lang } = useT();
+  const { status, pct } = useAiSummary(meeting.id);
+  const [generateSummary] = useGenerateSummaryMutation();
+  const [updateSummaryText] = useUpdateSummaryTextMutation();
 
-const FAKE_DELIVERABLES = {
-  es: [
-    'Módulo de pipeline desplegado en staging (RC1).',
-    'Documento de arquitectura del módulo de reportería.',
-    'Plan de rollback para Go-Live.',
-  ],
-  en: [
-    'Pipeline module deployed to staging (RC1).',
-    'Reporting module architecture document.',
-    'Rollback plan for Go-Live.',
-  ],
-};
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const [confirmRegen, setConfirmRegen] = useState(false);
+
+  const currentText = pickL(meeting.summary, lang) ?? '';
+
+  function handleEditStart() {
+    setEditValue(currentText);
+    setEditing(true);
+  }
+
+  async function handleSave() {
+    const updated: Bilingual = {
+      es: lang === 'es' ? editValue : (meeting.summary?.es ?? editValue),
+      en: lang === 'en' ? editValue : (meeting.summary?.en ?? null),
+    };
+    try {
+      await updateSummaryText({ meetingId: meeting.id, summary: updated }).unwrap();
+    } catch {
+      toast.error(t('errorTitle'));
+    }
+    setEditing(false);
+  }
+
+  async function handleGenerate() {
+    try {
+      await generateSummary({ meetingId: meeting.id }).unwrap();
+    } catch {
+      toast.error(t('summaryFailed'));
+    }
+  }
+
+  // ---- loading state ----
+  if (status === 'running') {
+    return (
+      <div className={styles.summaryState}>
+        <Icon name="refresh" size={16} className={styles.spin} />
+        <span>
+          {t('summarizing')} {pct > 0 ? `${pct}%` : ''}
+        </span>
+      </div>
+    );
+  }
+
+  // ---- empty state ----
+  if (!meeting.summary) {
+    return (
+      <div className={styles.summaryState}>
+        <p className={styles.emptyHint}>{t('summaryEmpty')}</p>
+        <Button variant="primary" size="sm" onClick={() => void handleGenerate()}>
+          {t('generateSummary')}
+        </Button>
+      </div>
+    );
+  }
+
+  // ---- editing state ----
+  if (editing) {
+    return (
+      <div className={styles.summaryEdit}>
+        <textarea
+          className={styles.summaryTextarea}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          rows={8}
+          // biome-ignore lint/a11y/noAutofocus: intentional — user clicked Edit
+          autoFocus
+        />
+        <div className={styles.summaryActions}>
+          <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+            {t('cancel')}
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => void handleSave()}>
+            {t('save')}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- read state (has summary) ----
+  return (
+    <>
+      <p>{currentText}</p>
+      <div className={styles.summaryActions}>
+        <Button variant="ghost" size="sm" onClick={handleEditStart}>
+          <Icon name="edit" size={13} />
+          {t('editSummary')}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setConfirmRegen(true)}>
+          <Icon name="refresh" size={13} />
+          {t('regenerate')}
+        </Button>
+      </div>
+
+      <Modal
+        open={confirmRegen}
+        onClose={() => setConfirmRegen(false)}
+        title={t('confirmRegenerateTitle')}
+        subtitle={t('confirmRegenerateBody')}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmRegen(false)}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                setConfirmRegen(false);
+                await handleGenerate();
+              }}
+            >
+              {t('regenerate')}
+            </Button>
+          </>
+        }
+      />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main tab
+// ---------------------------------------------------------------------------
 
 export function SummaryTab({ meeting, template }: SummaryTabProps) {
   const { t, lang } = useT();
@@ -91,7 +199,7 @@ export function SummaryTab({ meeting, template }: SummaryTabProps) {
     summary: {
       titleKey: 'secSummary',
       icon: 'sparkles',
-      render: () => <p>{pickL(meeting.summary, lang)}</p>,
+      render: () => <SummaryBody meeting={meeting} />,
     },
     decisions: {
       titleKey: 'secDecisions',
@@ -107,33 +215,6 @@ export function SummaryTab({ meeting, template }: SummaryTabProps) {
         />
       ),
     },
-    metrics: {
-      titleKey: 'secMetrics',
-      icon: 'zap',
-      render: () => (
-        <div className={styles.metrics}>
-          {FAKE_METRICS(lang).map((m) => (
-            <div key={m.l} className={styles.metric}>
-              <div className={styles.metricLabel}>{m.l}</div>
-              <div className={styles.metricValue}>{m.v}</div>
-              <div className={styles.metricSub}>{m.d}</div>
-            </div>
-          ))}
-        </div>
-      ),
-    },
-    risks: {
-      titleKey: 'secRisks',
-      icon: 'flag',
-      render: () =>
-        meeting.blockers.length === 0 ? null : (
-          <ul>
-            {meeting.blockers.map((b) => (
-              <li key={b.id}>{pickL(b.text, lang)}</li>
-            ))}
-          </ul>
-        ),
-    },
     blockers: {
       titleKey: 'secBlockers',
       icon: 'flag',
@@ -148,32 +229,17 @@ export function SummaryTab({ meeting, template }: SummaryTabProps) {
         />
       ),
     },
-    architecture: {
-      titleKey: 'secArchitecture',
-      icon: 'cpu',
-      render: () => <p>{FAKE_ARCH[lang]}</p>,
-    },
-    'tech-decisions': {
-      titleKey: 'secTechDecisions',
-      icon: 'check',
-      render: () => (
-        <ul>
-          {FAKE_TECH[lang].map((x) => (
-            <li key={x}>{x}</li>
-          ))}
-        </ul>
-      ),
-    },
-    deliverables: {
-      titleKey: 'secDeliverables',
-      icon: 'bookmark',
-      render: () => (
-        <ul>
-          {FAKE_DELIVERABLES[lang].map((x) => (
-            <li key={x}>{x}</li>
-          ))}
-        </ul>
-      ),
+    risks: {
+      titleKey: 'secRisks',
+      icon: 'flag',
+      render: () =>
+        meeting.blockers.length === 0 ? null : (
+          <ul>
+            {meeting.blockers.map((b) => (
+              <li key={b.id}>{pickL(b.text, lang)}</li>
+            ))}
+          </ul>
+        ),
     },
   };
 

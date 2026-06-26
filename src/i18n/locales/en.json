@@ -237,5 +237,7 @@
   "autoSummary": "Auto summary",
   "chatPlaceholder": "Type your question about the meeting…",
   "chatThinking": "Thinking…",
-  "chatError": "Failed to answer. Please try again."
+  "chatError": "Failed to answer. Please try again.",
+  "confirmRegenerateTitle": "Regenerate summary?",
+  "confirmRegenerateBody": "This will replace the AI-generated summary and items. Your manual edits are kept."
 }
