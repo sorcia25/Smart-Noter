@@ -4,6 +4,7 @@ pub mod devices;
 pub mod export;
 pub mod log;
 pub mod meetings;
+pub mod provider_factory;
 pub mod providers;
 pub mod settings;
 pub mod templates;
