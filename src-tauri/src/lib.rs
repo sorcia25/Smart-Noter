@@ -84,6 +84,8 @@ pub fn specta_builder() -> Builder {
         commands::ai::cancel_chat,
         commands::ai::list_chat,
         commands::providers::get_provider_config,
+        commands::providers::update_provider_config,
+        commands::providers::test_api_key,
     ])
 }
 
