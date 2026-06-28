@@ -14,6 +14,7 @@ import { pickL } from '@/utils/format';
 import { useEffect, useState } from 'react';
 import { AiModelPanel } from './AiModelPanel';
 import { DiarizationPanel } from './DiarizationPanel';
+import { ProviderPanel } from './ProviderPanel';
 import styles from './SettingsPage.module.css';
 import { TranscriptionPanel } from './TranscriptionPanel';
 import { PROVIDERS, type ProviderId } from './providers';
@@ -430,6 +431,11 @@ export default function SettingsPage() {
         {/* AI model management + auto-summary toggle */}
         <div className={styles.group}>
           <AiModelPanel draft={draft} patch={patch} />
+        </div>
+
+        {/* AI Provider configuration */}
+        <div className={styles.group}>
+          <ProviderPanel />
         </div>
 
         {/* Privacy + storage */}

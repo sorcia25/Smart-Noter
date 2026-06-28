@@ -239,5 +239,15 @@
   "chatThinking": "Thinking…",
   "chatError": "Failed to answer. Please try again.",
   "confirmRegenerateTitle": "Regenerate summary?",
-  "confirmRegenerateBody": "This will replace the AI-generated summary and items. Your manual edits are kept."
+  "confirmRegenerateBody": "This will replace the AI-generated summary and items. Your manual edits are kept.",
+  "providersTitle": "AI Providers",
+  "providerLocal": "Local",
+  "apiKey": "API key",
+  "testConnection": "Test connection",
+  "connectionOk": "Connection OK",
+  "aiModelLabel": "Model",
+  "cloudPrivacyDisclaimer": "In cloud mode, your audio or transcript leaves your device for the provider.",
+  "providerOpenAi": "OpenAI",
+  "providerAnthropic": "Anthropic",
+  "providerAzure": "Azure OpenAI"
 }
