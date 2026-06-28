@@ -6,7 +6,7 @@ use serde_json::Value;
 use smart_noter_core::models::ai::{Chunk, MeetingAnalysis};
 use smart_noter_core::traits::{AnalysisInput, ChatEngine, Summarizer};
 
-use crate::http_common::status_to_err;
+use crate::http_common::{build_chat_system_prompt, status_to_err};
 use crate::sse::read_sse;
 
 /// Sentinel returned by `embed()` so the factory (Task B5) knows to fall back
@@ -18,6 +18,10 @@ const PROVIDER: &str = "Anthropic";
 
 /// Required header value mandated by the Anthropic Messages API.
 const ANTHROPIC_VERSION: &str = "2023-06-01";
+
+/// Upper bound on tokens the model may generate per /messages request.
+/// Required by the Anthropic API (it has no implicit default).
+const MAX_TOKENS: u32 = 1024;
 
 // ---------------------------------------------------------------------------
 // Public struct
@@ -50,24 +54,19 @@ impl AnthropicProvider {
     /// Build the JSON body for a POST /messages request.
     ///
     /// Note: Anthropic requires `system` as a TOP-LEVEL field, not inside `messages`.
-    /// For streaming, `"stream": true` is added.
+    /// When `stream` is true, the `"stream": true` flag is added to the same base
+    /// object (one source of truth — the two modes can't silently diverge).
     fn build_messages_body(model: &str, system: &str, user: &str, stream: bool) -> Value {
+        let mut body = serde_json::json!({
+            "model":      model,
+            "max_tokens": MAX_TOKENS,
+            "system":     system,
+            "messages": [{"role": "user", "content": user}]
+        });
         if stream {
-            serde_json::json!({
-                "model":      model,
-                "max_tokens": 1024,
-                "system":     system,
-                "stream":     true,
-                "messages": [{"role": "user", "content": user}]
-            })
-        } else {
-            serde_json::json!({
-                "model":      model,
-                "max_tokens": 1024,
-                "system":     system,
-                "messages": [{"role": "user", "content": user}]
-            })
+            body["stream"] = serde_json::json!(true);
         }
+        body
     }
 }
 
@@ -87,6 +86,8 @@ fn extract_text_content(val: &Value) -> Option<String> {
 ///
 /// Anthropic SSE events:
 /// - `content_block_delta` with `delta.type == "text_delta"` → carry token text
+/// - `content_block_delta` with other delta types (e.g. `input_json_delta` for
+///   tool-use) → no token, return None
 /// - `message_start`, `content_block_start`, `message_delta`, `message_stop`,
 ///   `ping`, etc. → no token, return None
 ///
@@ -97,6 +98,10 @@ fn extract_text_content(val: &Value) -> Option<String> {
 fn extract_anthropic_delta(payload: &str) -> Option<String> {
     let val: Value = serde_json::from_str(payload).ok()?;
     if val["type"].as_str()? != "content_block_delta" {
+        return None;
+    }
+    // Only text_delta carries answer tokens; ignore input_json_delta (tool-use) etc.
+    if val["delta"]["type"].as_str()? != "text_delta" {
         return None;
     }
     val["delta"]["text"].as_str().map(str::to_owned)
@@ -211,16 +216,7 @@ impl ChatEngine for AnthropicProvider {
             return Ok(());
         }
 
-        let ctx = context
-            .iter()
-            .map(|c| c.text.as_str())
-            .collect::<Vec<_>>()
-            .join("\n---\n");
-
-        let system = format!(
-            "Responde en {lang} usando SOLO el contexto de la reunión. \
-             Si no está en el contexto, dilo.\n\nContexto:\n{ctx}"
-        );
+        let system = build_chat_system_prompt(context, lang);
         let body = Self::build_messages_body(&self.model, &system, question, true);
 
         let client = Self::client()?;
@@ -304,6 +300,14 @@ mod tests {
 
         let ping = r#"{"type":"ping"}"#;
         assert_eq!(extract_anthropic_delta(ping), None);
+    }
+
+    #[test]
+    fn delta_ignores_non_text_delta_types() {
+        // tool-use streams carry input_json_delta inside content_block_delta;
+        // these are NOT answer tokens and must be ignored.
+        let input_json_delta = r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"k\""}}"#;
+        assert_eq!(extract_anthropic_delta(input_json_delta), None);
     }
 
     // ------------------------------------------------------------------

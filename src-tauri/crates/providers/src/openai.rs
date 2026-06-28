@@ -7,8 +7,8 @@ use smart_noter_core::models::ai::{Chunk, MeetingAnalysis};
 use smart_noter_core::traits::{AnalysisInput, ChatEngine, Summarizer};
 
 use crate::http_common::{
-    build_chat_body, build_embed_body, extract_delta, extract_message_content,
-    parse_embed_response, status_to_err, EMBED_MODEL,
+    build_chat_body, build_chat_system_prompt, build_embed_body, extract_delta,
+    extract_message_content, parse_embed_response, status_to_err, EMBED_MODEL,
 };
 use crate::sse::read_sse;
 
@@ -169,16 +169,7 @@ impl ChatEngine for OpenAiProvider {
             return Ok(());
         }
 
-        let ctx = context
-            .iter()
-            .map(|c| c.text.as_str())
-            .collect::<Vec<_>>()
-            .join("\n---\n");
-
-        let system = format!(
-            "Responde en {lang} usando SOLO el contexto de la reunión. \
-             Si no está en el contexto, dilo.\n\nContexto:\n{ctx}"
-        );
+        let system = build_chat_system_prompt(context, lang);
         let body = build_chat_body(&self.model, &system, question, true);
 
         let client = Self::client()?;

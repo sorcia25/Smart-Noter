@@ -7,9 +7,24 @@
 //! that match (e.g. `status_to_err`).
 
 use serde_json::Value;
+use smart_noter_core::models::ai::Chunk;
 
 /// Default embeddings model used for cloud vector generation.
 pub const EMBED_MODEL: &str = "text-embedding-3-small";
+
+/// Build the chat system prompt shared by all cloud providers: joins the
+/// retrieved context chunks and instructs the model to answer only from them.
+pub(crate) fn build_chat_system_prompt(context: &[Chunk], lang: &str) -> String {
+    let ctx = context
+        .iter()
+        .map(|c| c.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n---\n");
+    format!(
+        "Responde en {lang} usando SOLO el contexto de la reunión. \
+         Si no está en el contexto, dilo.\n\nContexto:\n{ctx}"
+    )
+}
 
 /// Build the JSON body for a /chat/completions request.
 /// `stream: true` omits `response_format` (streaming chat doesn't support it).
@@ -114,6 +129,26 @@ pub(crate) fn status_to_err(status: reqwest::StatusCode, provider: &str) -> Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_chat_system_prompt_joins_context_and_lang() {
+        let chunks = vec![
+            Chunk {
+                idx: 0,
+                text: "primer chunk".to_string(),
+                vector: vec![],
+            },
+            Chunk {
+                idx: 1,
+                text: "segundo chunk".to_string(),
+                vector: vec![],
+            },
+        ];
+        let prompt = build_chat_system_prompt(&chunks, "es");
+        // Mentions the language and joins the chunks with the separator.
+        assert!(prompt.contains("Responde en es"));
+        assert!(prompt.contains("primer chunk\n---\nsegundo chunk"));
+    }
 
     #[test]
     fn extract_delta_returns_none_for_empty_content() {
