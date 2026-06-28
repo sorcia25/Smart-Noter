@@ -21,7 +21,7 @@ use smart_noter_core::traits::{AnalysisInput, Summarizer};
 use smart_noter_core::{AppError, Bilingual};
 use smart_noter_db::repos::{
     actions_repo, blockers_repo, chat_repo, decisions_repo, embeddings_repo, meetings_repo,
-    secrets_repo, settings_repo, templates_repo,
+    settings_repo, templates_repo,
 };
 use smart_noter_llm::{
     chat::{chunk_transcript, top_k, LocalChat},
@@ -145,12 +145,16 @@ const LINES_PER_CHUNK: usize = 6;
 /// 1. Loads the meeting detail (transcript + participants).
 /// 2. Resolves speaker labels (participant name or fallback to "S{n}").
 /// 3. Loads the template sections for the meeting's template_id.
-/// 4. Builds `AnalysisInput` and calls `LocalSummarizer::analyze`, emitting
+/// 4. Builds `AnalysisInput`, then resolves the active AI provider + (for cloud)
+///    its decrypted API key via `provider_factory::resolve_provider`.
+/// 5. Runs inference — `LocalSummarizer` (local, holds the LLM lock) or a cloud
+///    `Summarizer` from the factory (owned, off the LLM lock) — emitting
 ///    `summary:progress` events.
-/// 5. On success: persists the summary, deletes AI items, re-inserts them
-///    from `MeetingAnalysis`, emits `summary:completed`.
-/// 6. On failure / abort: emits `summary:failed`.
-/// 7. Clears the `SummaryHandle` slot when done.
+/// 6. On success: persists the summary, deletes AI items, re-inserts them
+///    from `MeetingAnalysis`, then best-effort embeds the transcript for RAG
+///    (cloud or local-fallback via `embed_texts`), and emits `summary:completed`.
+/// 7. On failure / abort: emits `summary:failed`. Clears the `SummaryHandle`
+///    slot when done.
 pub fn run_summary(
     pool: sqlx::SqlitePool,
     app: tauri::AppHandle,
@@ -267,42 +271,16 @@ pub fn run_summary(
     };
 
     // 4b. Resolve the active AI provider + (for cloud) its decrypted API key.
-    let settings = match tauri::async_runtime::block_on(settings_repo::get(&pool)) {
-        Ok(s) => s,
-        Err(e) => {
-            emit_failed("DatabaseError", &format!("settings: {e}"));
-            finish(&summary_slot);
-            return;
-        }
-    };
-    let provider = settings.ai_provider.clone();
-    let key = if provider == "local" {
-        String::new()
-    } else {
-        match tauri::async_runtime::block_on(secrets_repo::get(&pool, &provider)) {
-            Ok(Some(ct)) => match crate::secrets::decrypt(&ct) {
-                Ok(k) => k,
-                Err(e) => {
-                    emit_failed("ConfigError", &format!("no se pudo leer la API key: {e}"));
-                    finish(&summary_slot);
-                    return;
-                }
-            },
-            Ok(None) => {
-                emit_failed(
-                    "ConfigError",
-                    "configura la API key del proveedor en Configuración",
-                );
-                finish(&summary_slot);
-                return;
-            }
+    //     `resolve_provider` is the single source for provider/key resolution.
+    let (provider, settings, key) =
+        match tauri::async_runtime::block_on(provider_factory::resolve_provider(&pool)) {
+            Ok(t) => t,
             Err(e) => {
-                emit_failed("DatabaseError", &format!("secrets: {e}"));
+                emit_failed("ConfigError", &e);
                 finish(&summary_slot);
                 return;
             }
-        }
-    };
+        };
 
     emit_progress(5);
 
@@ -801,39 +779,16 @@ pub fn ask_meeting(
         };
 
         // 0. Resolve the active AI provider + (for cloud) its decrypted API key.
-        let settings = match tauri::async_runtime::block_on(settings_repo::get(&pool)) {
-            Ok(s) => s,
-            Err(e) => {
-                emit_error(&format!("settings: {e}"));
-                finish();
-                return;
-            }
-        };
-        let provider = settings.ai_provider.clone();
-        let key = if provider == "local" {
-            String::new()
-        } else {
-            match tauri::async_runtime::block_on(secrets_repo::get(&pool, &provider)) {
-                Ok(Some(ct)) => match crate::secrets::decrypt(&ct) {
-                    Ok(k) => k,
-                    Err(e) => {
-                        emit_error(&format!("no se pudo leer la API key: {e}"));
-                        finish();
-                        return;
-                    }
-                },
-                Ok(None) => {
-                    emit_error("configura la API key del proveedor en Configuración");
-                    finish();
-                    return;
-                }
+        //    `resolve_provider` is the single source for provider/key resolution.
+        let (provider, settings, key) =
+            match tauri::async_runtime::block_on(provider_factory::resolve_provider(&pool)) {
+                Ok(t) => t,
                 Err(e) => {
-                    emit_error(&format!("secrets: {e}"));
+                    emit_error(&e);
                     finish();
                     return;
                 }
-            }
-        };
+            };
 
         // 1. Persist the user message first (history is correct even if answer fails).
         let persist_user =

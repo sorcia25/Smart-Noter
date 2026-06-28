@@ -15,9 +15,37 @@
 use parking_lot::Mutex;
 use smart_noter_core::models::AppSettings;
 use smart_noter_core::traits::{ChatEngine, Summarizer};
+use smart_noter_db::repos::{secrets_repo, settings_repo};
 use smart_noter_llm::engine::LocalLlm;
 use smart_noter_providers::{AnthropicProvider, AzureProvider, OpenAiProvider};
+use sqlx::SqlitePool;
 use std::sync::Arc;
+
+/// Resolve `(provider, settings, decrypted_key)` from persisted config.
+///
+/// `key` is `""` for the local provider. This is the SINGLE source of provider/key
+/// resolution shared by the AI commands (run_summary, ask_meeting) and any future
+/// cloud module (e.g. Module C cloud STT). Errors carry a user-facing Spanish
+/// message; the caller maps it onto its own event vocabulary.
+pub async fn resolve_provider(pool: &SqlitePool) -> Result<(String, AppSettings, String), String> {
+    let settings = settings_repo::get(pool)
+        .await
+        .map_err(|e| format!("settings: {e}"))?;
+    let provider = settings.ai_provider.clone();
+    let key = if provider == "local" {
+        String::new()
+    } else {
+        match secrets_repo::get(pool, &provider)
+            .await
+            .map_err(|e| format!("secrets: {e}"))?
+        {
+            Some(ct) => crate::secrets::decrypt(&ct)
+                .map_err(|e| format!("no se pudo leer la API key: {e}"))?,
+            None => return Err("configura la API key del proveedor en Configuración".to_string()),
+        }
+    };
+    Ok((provider, settings, key))
+}
 
 /// Build a cloud `Summarizer` for a non-"local" provider.
 ///
@@ -180,5 +208,34 @@ mod tests {
     fn cloud_chat_engine_unknown_provider_errors() {
         let s = AppSettings::default();
         assert!(cloud_chat_engine("zzz", &s, "k").is_err());
+    }
+
+    // ------------------------------------------------------------------
+    // embed_texts routing — anthropic/azure/local all route to local_embed,
+    // which errors with the "not loaded" message when the slot is None. This
+    // guards the local-fallback contract without needing a network or a model.
+    // ------------------------------------------------------------------
+    #[test]
+    fn embed_texts_anthropic_routes_local_and_errors_without_model() {
+        let s = AppSettings::default();
+        let llm: Arc<Mutex<Option<LocalLlm>>> = Arc::new(Mutex::new(None));
+        let err = embed_texts("anthropic", &s, "k", &["hi".into()], &llm).unwrap_err();
+        assert!(err.contains("no está cargado"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn embed_texts_azure_routes_local_and_errors_without_model() {
+        let s = AppSettings::default();
+        let llm: Arc<Mutex<Option<LocalLlm>>> = Arc::new(Mutex::new(None));
+        let err = embed_texts("azure", &s, "k", &["hi".into()], &llm).unwrap_err();
+        assert!(err.contains("no está cargado"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn embed_texts_local_routes_local_and_errors_without_model() {
+        let s = AppSettings::default();
+        let llm: Arc<Mutex<Option<LocalLlm>>> = Arc::new(Mutex::new(None));
+        let err = embed_texts("local", &s, "k", &["hi".into()], &llm).unwrap_err();
+        assert!(err.contains("no está cargado"), "unexpected error: {err}");
     }
 }
