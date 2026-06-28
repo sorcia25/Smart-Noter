@@ -28,6 +28,10 @@ pub struct AppSettings {
     pub diarization_model: String,
     #[serde(default = "default_true")]
     pub auto_generate_summary: bool,
+    #[serde(default = "default_ai_provider")]
+    pub ai_provider: String, // "local" | "openai" | "anthropic" | "azure"
+    #[serde(default = "default_ai_model")]
+    pub ai_model: String,
 }
 
 #[derive(Debug, Clone, Type, Serialize, Deserialize, PartialEq, Eq)]
@@ -72,6 +76,8 @@ impl Default for AppSettings {
             identify_speakers: true,
             diarization_model: "default".into(),
             auto_generate_summary: true,
+            ai_provider: "local".into(),
+            ai_model: "qwen2.5-3b-instruct-q4".into(),
         }
     }
 }
@@ -81,6 +87,12 @@ fn default_true() -> bool {
 }
 fn default_diar_model() -> String {
     "default".into()
+}
+fn default_ai_provider() -> String {
+    "local".into()
+}
+fn default_ai_model() -> String {
+    "qwen2.5-3b-instruct-q4".into()
 }
 
 #[cfg(test)]
@@ -133,5 +145,28 @@ mod tests {
         assert!(parsed.identify_speakers);
         assert_eq!(parsed.diarization_model, "default");
         assert!(parsed.auto_generate_summary);
+    }
+
+    #[test]
+    fn defaults_include_ai_provider_fields() {
+        let d = AppSettings::default();
+        assert_eq!(d.ai_provider, "local");
+        assert_eq!(d.ai_model, "qwen2.5-3b-instruct-q4");
+    }
+
+    #[test]
+    fn legacy_blob_without_ai_provider_uses_defaults() {
+        // A persisted blob from Sub-5 (no aiProvider/aiModel). Must deserialize + fill.
+        let json = r##"{
+            "theme":"light","accent":"#10b981","language":"es","avatarStyle":"circle",
+            "aiChatVisible":true,"captureMode":"system","defaultDevice":"system-loopback",
+            "recordingQuality":"WAV 48k","runLocal":true,"autoDeleteAudio":false,
+            "transcriptionProvider":"local","transcriptionModel":"large-v3",
+            "autoTranscribe":true,"nativeLanguage":"es","defaultTemplate":"tecnica",
+            "identifySpeakers":true,"diarizationModel":"default","autoGenerateSummary":true
+        }"##;
+        let parsed: AppSettings = serde_json::from_str(json).expect("legacy blob must deserialize");
+        assert_eq!(parsed.ai_provider, "local");
+        assert_eq!(parsed.ai_model, "qwen2.5-3b-instruct-q4");
     }
 }
