@@ -32,6 +32,8 @@ pub struct AppSettings {
     pub ai_provider: String, // "local" | "openai" | "anthropic" | "azure"
     #[serde(default = "default_ai_model")]
     pub ai_model: String,
+    #[serde(default)]
+    pub azure_endpoint: String,
 }
 
 #[derive(Debug, Clone, Type, Serialize, Deserialize, PartialEq, Eq)]
@@ -78,6 +80,7 @@ impl Default for AppSettings {
             auto_generate_summary: true,
             ai_provider: "local".into(),
             ai_model: "qwen2.5-3b-instruct-q4".into(),
+            azure_endpoint: String::new(),
         }
     }
 }
@@ -168,5 +171,29 @@ mod tests {
         let parsed: AppSettings = serde_json::from_str(json).expect("legacy blob must deserialize");
         assert_eq!(parsed.ai_provider, "local");
         assert_eq!(parsed.ai_model, "qwen2.5-3b-instruct-q4");
+    }
+
+    #[test]
+    fn default_azure_endpoint_is_empty() {
+        let d = AppSettings::default();
+        assert_eq!(d.azure_endpoint, "");
+    }
+
+    #[test]
+    fn legacy_blob_without_azure_endpoint_uses_empty_default() {
+        // A persisted blob from Sub-6a (no azureEndpoint). Must deserialize + fill "".
+        let json = r##"{
+            "theme":"light","accent":"#10b981","language":"es","avatarStyle":"circle",
+            "aiChatVisible":true,"captureMode":"system","defaultDevice":"system-loopback",
+            "recordingQuality":"WAV 48k","runLocal":true,"autoDeleteAudio":false,
+            "transcriptionProvider":"local","transcriptionModel":"large-v3",
+            "autoTranscribe":true,"nativeLanguage":"es","defaultTemplate":"tecnica",
+            "identifySpeakers":true,"diarizationModel":"default","autoGenerateSummary":true,
+            "aiProvider":"azure","aiModel":"gpt-4o"
+        }"##;
+        let parsed: AppSettings =
+            serde_json::from_str(json).expect("legacy blob without azureEndpoint must deserialize");
+        assert_eq!(parsed.azure_endpoint, "");
+        assert_eq!(parsed.ai_provider, "azure");
     }
 }
