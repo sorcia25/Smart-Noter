@@ -7,6 +7,7 @@ pub mod meeting_assets_repo;
 pub mod meetings_repo;
 pub mod participants_repo;
 pub mod search_repo;
+pub mod secrets_repo;
 pub mod settings_repo;
 pub mod templates_repo;
 pub mod transcript_repo;

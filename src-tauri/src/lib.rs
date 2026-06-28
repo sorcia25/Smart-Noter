@@ -4,6 +4,7 @@ use tauri_specta::{collect_commands, Builder};
 pub mod commands;
 pub mod error;
 pub mod events;
+pub mod secrets;
 pub mod state;
 
 use crate::state::AppState;
@@ -82,6 +83,9 @@ pub fn specta_builder() -> Builder {
         commands::ai::ask_meeting,
         commands::ai::cancel_chat,
         commands::ai::list_chat,
+        commands::providers::get_provider_config,
+        commands::providers::update_provider_config,
+        commands::providers::test_api_key,
     ])
 }
 

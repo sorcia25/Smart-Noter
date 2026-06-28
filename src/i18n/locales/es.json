@@ -239,5 +239,15 @@
   "chatThinking": "Pensando…",
   "chatError": "Error al responder. Inténtalo de nuevo.",
   "confirmRegenerateTitle": "¿Regenerar el resumen?",
-  "confirmRegenerateBody": "Se reemplazará el resumen y los elementos generados por IA. Tus ediciones manuales se conservan."
+  "confirmRegenerateBody": "Se reemplazará el resumen y los elementos generados por IA. Tus ediciones manuales se conservan.",
+  "providersTitle": "Proveedores de IA",
+  "providerLocal": "Local",
+  "apiKey": "API key",
+  "testConnection": "Probar conexión",
+  "connectionOk": "Conexión correcta",
+  "aiModelLabel": "Modelo",
+  "cloudPrivacyDisclaimer": "En modo nube, el audio o la transcripción salen de tu dispositivo hacia el proveedor.",
+  "providerOpenAi": "OpenAI",
+  "providerAnthropic": "Anthropic",
+  "providerAzure": "Azure OpenAI"
 }

@@ -2,6 +2,17 @@ use crate::Bilingual;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+/// One provider's config as the UI sees it. NEVER contains the full key.
+#[derive(Debug, Clone, Type, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderConfig {
+    pub domain: String,   // "ai" | "transcription"
+    pub provider: String, // "local" | "openai" | "anthropic" | "azure"
+    pub configured: bool, // a key is stored for this provider
+    pub key_last4: Option<String>,
+    pub model: String, // selected model id for this domain
+}
+
 /// An action item extracted from the meeting transcript (IPC type).
 #[derive(Debug, Clone, Type, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
