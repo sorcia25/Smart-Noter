@@ -7,16 +7,17 @@ import {
   useUpdateProviderConfigMutation,
 } from '@/store/api/providers.api';
 import { useGetSettingsQuery, useUpdateSettingsMutation } from '@/store/api/settings.api';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import styles from './SettingsPage.module.css';
 
 const AI_PROVIDERS = ['local', 'openai', 'anthropic', 'azure'] as const;
 type AiProvider = (typeof AI_PROVIDERS)[number];
 
-const DEFAULT_MODELS: Record<Exclude<AiProvider, 'local'>, string> = {
+// Azure is omitted: it uses the deployment name (no fixed default). The azure
+// branch falls back to the t('azureDeploymentHint') label instead.
+const DEFAULT_MODELS: Record<'openai' | 'anthropic', string> = {
   openai: 'gpt-4o-mini',
   anthropic: 'claude-3-5-sonnet-latest',
-  azure: '', // Azure uses the deployment name; no fixed default
 };
 
 export function ProviderPanel() {
@@ -44,6 +45,16 @@ export function ProviderPanel() {
   const currentConfig = aiConfigs.find((c) => c.provider === selectedProvider);
   const isCloud = selectedProvider !== 'local';
 
+  // Open the panel on the ACTIVE provider: sync the selection from settings.aiProvider
+  // ONCE when settings first load, then respect the user's manual changes.
+  const initializedFromSettings = useRef(false);
+  useEffect(() => {
+    if (!initializedFromSettings.current && settings?.aiProvider) {
+      setSelectedProvider(settings.aiProvider as AiProvider);
+      initializedFromSettings.current = true;
+    }
+  }, [settings?.aiProvider]);
+
   // Sync the Azure endpoint field from settings whenever settings load or provider changes to azure
   useEffect(() => {
     if (selectedProvider === 'azure') {
@@ -54,11 +65,11 @@ export function ProviderPanel() {
   // Compute model input placeholder: configured model > provider default > deployment hint for azure
   const modelPlaceholder =
     currentConfig?.model ||
-    (selectedProvider !== 'local'
-      ? selectedProvider === 'azure'
-        ? DEFAULT_MODELS.azure || t('azureDeploymentHint')
-        : (DEFAULT_MODELS[selectedProvider as Exclude<AiProvider, 'local'>] ?? '')
-      : '');
+    (selectedProvider === 'azure'
+      ? t('azureDeploymentHint')
+      : selectedProvider === 'openai' || selectedProvider === 'anthropic'
+        ? DEFAULT_MODELS[selectedProvider]
+        : '');
 
   async function handleTest() {
     setTestStatus('idle');
@@ -74,11 +85,17 @@ export function ProviderPanel() {
   }
 
   async function handleSave() {
-    if (selectedProvider === 'azure' && settings) {
+    // Persist aiProvider for ALL cloud providers (not just azure): the backend
+    // factory reads settings.ai_provider to pick local-vs-cloud, and
+    // update_provider_config only writes ai_provider when a model is passed —
+    // which the user usually leaves blank (placeholder default). Write settings
+    // first (spread preserves the existing aiModel), then update_provider_config
+    // may overwrite aiModel if the user typed one.
+    if (settings) {
       await updateSettings({
         ...settings,
-        aiProvider: 'azure',
-        azureEndpoint: azureEndpoint.trim(),
+        aiProvider: selectedProvider,
+        ...(selectedProvider === 'azure' ? { azureEndpoint: azureEndpoint.trim() } : {}),
       });
     }
     await updateProviderConfig({
@@ -101,11 +118,16 @@ export function ProviderPanel() {
         <select
           value={selectedProvider}
           onChange={(e) => {
-            setSelectedProvider(e.target.value as AiProvider);
+            const p = e.target.value as AiProvider;
+            setSelectedProvider(p);
             setApiKey('');
             setModelId('');
             setTestStatus('idle');
             setTestError('');
+            // Local has no Save button, so persist the switch back to local immediately.
+            if (p === 'local' && settings) {
+              void updateSettings({ ...settings, aiProvider: 'local' });
+            }
           }}
           style={{
             padding: '7px 12px',
