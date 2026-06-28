@@ -23,6 +23,7 @@ async fn migration_creates_expected_tables() {
             "meeting_search",
             "meetings",
             "participants",
+            "provider_secrets",
             "settings",
             "templates",
             "transcript_embeddings",
