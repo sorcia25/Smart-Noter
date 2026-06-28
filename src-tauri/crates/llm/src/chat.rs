@@ -66,6 +66,13 @@ pub fn chunk_transcript(lines: &[(String, String)], per_chunk: usize) -> Vec<Str
 }
 
 fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    // Guard: mismatched dimensions mean the vectors were produced by different
+    // embedders (e.g. text-embedding-3-small at 1536-dim vs. local Qwen2.5-3B at
+    // 2048-dim). Truncating to the shorter length returns a plausible-but-meaningless
+    // score, so we return 0.0 instead — those chunks rank at the bottom of retrieval.
+    if a.len() != b.len() {
+        return 0.0;
+    }
     let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
     let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -117,6 +124,15 @@ mod tests {
         ];
         let top = top_k(&q, &chunks, 1);
         assert_eq!(top[0].idx, 1);
+    }
+
+    #[test]
+    fn cosine_dimension_mismatch_returns_zero() {
+        // Mismatched lengths must return 0.0, not a truncated similarity score.
+        // Reachable now that Module B lets different embedders (e.g. text-embedding-3-small
+        // at 1536-dim vs. local Qwen2.5-3B at 2048-dim) produce stored/query vectors.
+        assert_eq!(cosine(&[1.0, 0.0], &[1.0, 0.0, 0.0]), 0.0);
+        assert_eq!(cosine(&[1.0, 0.0, 0.0], &[1.0, 0.0]), 0.0);
     }
 
     #[test]

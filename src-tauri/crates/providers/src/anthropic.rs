@@ -196,10 +196,9 @@ impl Summarizer for AnthropicProvider {
 // ---------------------------------------------------------------------------
 
 impl ChatEngine for AnthropicProvider {
-    /// Anthropic does not provide an embeddings API.
-    ///
-    /// Returns the `ANTHROPIC_NO_EMBEDDINGS` sentinel so the factory (Task B5)
-    /// can detect this and fall back to local embeddings.
+    /// Anthropic has no embeddings API. Returns an error; note the provider factory
+    /// routes Anthropic to the local embedder by provider name (it does not inspect
+    /// this returned value), so this Err is only hit if `embed` is ever called directly.
     fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
         Err(ANTHROPIC_NO_EMBEDDINGS.to_string())
     }

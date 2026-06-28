@@ -150,10 +150,10 @@ impl Summarizer for AzureProvider {
 
 impl ChatEngine for AzureProvider {
     /// Azure embeddings are not wired in this MVP — each deployment in Azure handles
-    /// a specific model, and we would need a separate embeddings-deployment setting
-    /// (distinct from the chat deployment) to call the embeddings API. To keep the
-    /// configuration surface minimal, the factory (Task B5) detects this Err return
-    /// and falls back to the local embedder when the active provider is Azure.
+    /// a specific model, and a separate embeddings-deployment setting would be needed
+    /// to call the embeddings API. The provider factory routes Azure to the local
+    /// embedder by provider name (it does not inspect this returned Err), so this
+    /// error is only hit if `embed` is ever called directly.
     fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
         Err("Azure embeddings no configurados en esta versión (se usa el modelo local)".to_string())
     }
