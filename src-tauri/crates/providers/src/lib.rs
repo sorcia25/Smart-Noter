@@ -1,3 +1,3 @@
-pub fn version() -> &'static str {
-    "0.1.0"
-}
+pub mod sse;
+
+pub use sse::read_sse;

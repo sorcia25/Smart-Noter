@@ -1,3 +1,4 @@
+pub mod ai_prompt;
 pub mod error;
 pub mod lang;
 pub mod models;
