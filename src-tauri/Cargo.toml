@@ -95,3 +95,4 @@ smart-noter-providers = { path = "crates/providers" }
 smart-noter-export = { path = "crates/export" }
 smart-noter-llm = { path = "crates/llm" }
 tauri-plugin-dialog = "2"
+windows = { version = "0.59", features = ["Win32_Security_Cryptography", "Win32_Foundation"] }

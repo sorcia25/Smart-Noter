@@ -4,6 +4,7 @@ use tauri_specta::{collect_commands, Builder};
 pub mod commands;
 pub mod error;
 pub mod events;
+pub mod secrets;
 pub mod state;
 
 use crate::state::AppState;
