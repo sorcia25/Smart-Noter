@@ -33,7 +33,10 @@ pub struct AzureProvider {
 impl AzureProvider {
     pub fn new(endpoint: String, deployment: String, api_key: String) -> Self {
         Self {
-            endpoint,
+            // Normalize once: the Azure portal displays the endpoint WITH a trailing
+            // slash, but `chat_url()` already inserts `/openai/...`. Stripping it here
+            // prevents a `...azure.com//openai/...` double slash (which Azure 404s).
+            endpoint: endpoint.trim_end_matches('/').to_string(),
             deployment,
             api_key,
         }
@@ -414,6 +417,26 @@ mod tests {
         assert!(
             msg.contains("Azure embeddings"),
             "Error message should mention Azure embeddings, got: {msg}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // new() — trailing slash on the endpoint is normalized away
+    // ------------------------------------------------------------------
+    #[test]
+    fn new_normalizes_trailing_slash_in_url() {
+        // The Azure portal shows the endpoint with a trailing slash. `chat_url()`
+        // inserts its own `/openai/...`, so the slash must be stripped at construction
+        // to avoid a `//openai` double slash (which Azure 404s).
+        let prov = AzureProvider::new("http://x/".into(), "dep".into(), "k".into());
+        let url = prov.chat_url();
+        assert!(
+            url.contains("x/openai/deployments/dep/chat/completions"),
+            "URL should have a single slash before /openai, got: {url}"
+        );
+        assert!(
+            !url.contains("x//openai"),
+            "URL must not contain a double slash, got: {url}"
         );
     }
 }
