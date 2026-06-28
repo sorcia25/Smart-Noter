@@ -6,10 +6,14 @@ use serde_json::Value;
 use smart_noter_core::models::ai::{Chunk, MeetingAnalysis};
 use smart_noter_core::traits::{AnalysisInput, ChatEngine, Summarizer};
 
+use crate::http_common::{
+    build_chat_body, build_embed_body, extract_delta, extract_message_content,
+    parse_embed_response, status_to_err, EMBED_MODEL,
+};
 use crate::sse::read_sse;
 
-/// Default embeddings model used for cloud vector generation.
-pub const EMBED_MODEL: &str = "text-embedding-3-small";
+/// Human-facing provider name used in error messages.
+const PROVIDER: &str = "OpenAI";
 
 // ---------------------------------------------------------------------------
 // Public struct
@@ -37,87 +41,6 @@ impl OpenAiProvider {
             .timeout(Duration::from_secs(60))
             .build()
             .map_err(|e| format!("error construyendo cliente HTTP: {e}"))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// DRY helpers (pub(crate) so azure.rs can reuse them)
-// ---------------------------------------------------------------------------
-
-/// Build the JSON body for a /chat/completions request.
-/// `stream: true` omits `response_format` (streaming chat doesn't support it).
-pub(crate) fn build_chat_body(model: &str, system: &str, user: &str, stream: bool) -> Value {
-    let messages = serde_json::json!([
-        {"role": "system", "content": system},
-        {"role": "user",   "content": user}
-    ]);
-    if stream {
-        serde_json::json!({
-            "model":       model,
-            "messages":    messages,
-            "temperature": 0.3,
-            "stream":      true
-        })
-    } else {
-        serde_json::json!({
-            "model":       model,
-            "messages":    messages,
-            "temperature": 0.3,
-            "response_format": {"type": "json_object"}
-        })
-    }
-}
-
-/// Extract `choices[0].message.content` from a non-streamed completion response.
-pub(crate) fn extract_message_content(val: &Value) -> Option<String> {
-    val["choices"][0]["message"]["content"]
-        .as_str()
-        .map(str::to_owned)
-}
-
-/// Extract `choices[0].delta.content` from one SSE payload string.
-pub(crate) fn extract_delta(payload: &str) -> Option<String> {
-    let val: Value = serde_json::from_str(payload).ok()?;
-    val["choices"][0]["delta"]["content"]
-        .as_str()
-        .map(str::to_owned)
-}
-
-/// Build the JSON body for an /embeddings request.
-pub(crate) fn build_embed_body(model: &str, texts: &[String]) -> Value {
-    serde_json::json!({
-        "model": model,
-        "input": texts
-    })
-}
-
-/// Parse the `data[].embedding` arrays from an /embeddings response.
-pub(crate) fn parse_embed_response(val: &Value) -> Result<Vec<Vec<f32>>, String> {
-    let data = val["data"]
-        .as_array()
-        .ok_or_else(|| "respuesta de embeddings inválida: falta 'data'".to_string())?;
-    data.iter()
-        .map(|entry| {
-            let arr = entry["embedding"]
-                .as_array()
-                .ok_or_else(|| "embedding ausente en la respuesta".to_string())?;
-            arr.iter()
-                .map(|v| {
-                    v.as_f64()
-                        .map(|f| f as f32)
-                        .ok_or_else(|| "valor de embedding no numérico".to_string())
-                })
-                .collect::<Result<Vec<f32>, String>>()
-        })
-        .collect()
-}
-
-/// Map an HTTP status code to a user-friendly Spanish error string.
-pub(crate) fn status_to_err(status: reqwest::StatusCode) -> String {
-    match status.as_u16() {
-        401 => "API key inválida".to_string(),
-        429 => "límite de uso alcanzado".to_string(),
-        s => format!("OpenAI respondió {s}"),
     }
 }
 
@@ -152,7 +75,7 @@ impl Summarizer for OpenAiProvider {
             .map_err(|e| format!("sin conexión con OpenAI: {e}"))?;
 
         if !resp.status().is_success() {
-            return Err(status_to_err(resp.status()));
+            return Err(status_to_err(resp.status(), PROVIDER));
         }
 
         let val: Value = resp
@@ -167,7 +90,12 @@ impl Summarizer for OpenAiProvider {
                 progress(100);
                 Ok(analysis)
             }
-            Err(_first_err) => {
+            Err(_parse_err) => {
+                // Honor a cancel requested during the gap between the two calls.
+                if abort.load(Ordering::Relaxed) {
+                    return Err("cancelado".to_string());
+                }
+
                 // --- attempt 2 (strict prompt) ---
                 let (system2, user2) = smart_noter_core::ai_prompt::build_messages(input, true);
                 let body2 = build_chat_body(&self.model, &system2, &user2, false);
@@ -180,7 +108,7 @@ impl Summarizer for OpenAiProvider {
                     .map_err(|e| format!("sin conexión con OpenAI: {e}"))?;
 
                 if !resp2.status().is_success() {
-                    return Err(status_to_err(resp2.status()));
+                    return Err(status_to_err(resp2.status(), PROVIDER));
                 }
 
                 let val2: Value = resp2
@@ -219,7 +147,7 @@ impl ChatEngine for OpenAiProvider {
             .map_err(|e| format!("sin conexión con OpenAI: {e}"))?;
 
         if !resp.status().is_success() {
-            return Err(status_to_err(resp.status()));
+            return Err(status_to_err(resp.status(), PROVIDER));
         }
 
         let val: Value = resp
@@ -262,7 +190,7 @@ impl ChatEngine for OpenAiProvider {
             .map_err(|e| format!("sin conexión con OpenAI: {e}"))?;
 
         if !resp.status().is_success() {
-            return Err(status_to_err(resp.status()));
+            return Err(status_to_err(resp.status(), PROVIDER));
         }
 
         // Stream SSE tokens. Abort mid-stream is a clean stop (not an error).
@@ -287,7 +215,7 @@ impl ChatEngine for OpenAiProvider {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use super::*;
 
@@ -463,8 +391,8 @@ mod tests {
     fn embed_returns_vectors_in_order() {
         let resp_body = serde_json::json!({
             "data": [
-                {"embedding": [0.1_f64, 0.2_f64]},
-                {"embedding": [0.3_f64, 0.4_f64]}
+                {"index": 0, "embedding": [0.1_f64, 0.2_f64]},
+                {"index": 1, "embedding": [0.3_f64, 0.4_f64]}
             ]
         })
         .to_string();
@@ -508,41 +436,51 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // analyze — abort flag pre-set
+    // answer — abort honored mid-stream (proves answer→read_sse→abort wiring)
     // ------------------------------------------------------------------
     #[test]
-    fn analyze_returns_cancelado_when_aborted() {
-        let prov = OpenAiProvider {
-            api_key: "key".to_string(),
-            model: "gpt-4o".to_string(),
-            base: "http://127.0.0.1:19999/v1".to_string(),
-        };
-        let abort = AtomicBool::new(true);
-        let err = prov
-            .analyze(&dummy_input(), &mut |_| {}, &abort)
-            .unwrap_err();
-        assert_eq!(err, "cancelado");
-    }
+    fn answer_stops_when_aborted_mid_stream() {
+        // Mock serves a multi-token SSE body. The user's on_token callback flips
+        // the abort flag after the FIRST token, so read_sse's callback returns
+        // Break before emitting the second. This deterministically exercises the
+        // answer→read_sse→abort path (no sleeps/races). Only "uno" lands.
+        let sse_body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"uno\"}}]}\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"dos\"}}]}\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"tres\"}}]}\n",
+            "data: [DONE]\n",
+        );
 
-    // ------------------------------------------------------------------
-    // Helper unit tests
-    // ------------------------------------------------------------------
-    #[test]
-    fn extract_delta_returns_none_for_empty_content() {
-        let payload = r#"{"choices":[{"delta":{}}]}"#;
-        assert_eq!(extract_delta(payload), None);
-    }
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let prov = provider_for(port);
 
-    #[test]
-    fn extract_delta_extracts_content() {
-        let payload = r#"{"choices":[{"delta":{"content":"tok"}}]}"#;
-        assert_eq!(extract_delta(payload), Some("tok".to_string()));
-    }
+        let sse = sse_body.to_string();
+        std::thread::spawn(move || {
+            let req = server.recv().unwrap();
+            let resp = tiny_http::Response::from_string(sse).with_header(
+                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/event-stream"[..])
+                    .unwrap(),
+            );
+            req.respond(resp).ok();
+        });
 
-    #[test]
-    fn parse_embed_response_handles_valid_data() {
-        let val = serde_json::json!({"data": [{"embedding": [1.0, 2.0]}]});
-        let result = parse_embed_response(&val).unwrap();
-        assert_eq!(result, vec![vec![1.0_f32, 2.0_f32]]);
+        let abort = AtomicBool::new(false);
+        let mut tokens = String::new();
+        let result = prov.answer(
+            "pregunta",
+            &[],
+            "es",
+            &mut |tok| {
+                tokens.push_str(tok);
+                // Request cancel right after the first token arrives.
+                abort.store(true, Ordering::Relaxed);
+            },
+            &abort,
+        );
+
+        assert!(result.is_ok());
+        // Only the first token is emitted; the abort breaks before "dos"/"tres".
+        assert_eq!(tokens, "uno");
     }
 }
