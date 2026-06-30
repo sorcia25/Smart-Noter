@@ -72,6 +72,7 @@ pub fn specta_builder() -> Builder {
         commands::transcription::download_diarization_model,
         commands::transcription::delete_diarization_model,
         commands::export::export_meeting,
+        commands::export::get_meeting_audio,
         commands::ai::generate_summary,
         commands::ai::cancel_summary,
         commands::ai::update_summary_text,

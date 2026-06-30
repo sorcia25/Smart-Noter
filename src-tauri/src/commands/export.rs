@@ -141,6 +141,33 @@ pub async fn export_meeting(
     Ok(written)
 }
 
+/// On-disk audio info for a meeting: absolute `path` + `size_bytes`. `None` when
+/// no audio was saved. The frontend turns `path` into an asset URL via
+/// `convertFileSrc` to stream it into the Audio tab's <audio> element.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingAudioInfo {
+    pub path: String,
+    pub size_bytes: i64,
+    pub mime_type: Option<String>,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_meeting_audio(
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> Result<Option<MeetingAudioInfo>, AppError> {
+    let asset = MeetingAssetsRepo(&state.pool)
+        .get_audio(&meeting_id)
+        .await?;
+    Ok(asset.map(|a| MeetingAudioInfo {
+        path: a.path,
+        size_bytes: a.bytes,
+        mime_type: a.mime_type,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::sanitize_filename;
