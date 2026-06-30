@@ -59,11 +59,11 @@ pub fn cloud_summarizer(
     match provider {
         "openai" => Ok(Box::new(OpenAiProvider::new(
             key.to_string(),
-            settings.ai_model.clone(),
+            settings.model_for(provider),
         ))),
         "anthropic" => Ok(Box::new(AnthropicProvider::new(
             key.to_string(),
-            settings.ai_model.clone(),
+            settings.model_for(provider),
         ))),
         "azure" => {
             if settings.azure_endpoint.trim().is_empty() {
@@ -71,7 +71,7 @@ pub fn cloud_summarizer(
             }
             Ok(Box::new(AzureProvider::new(
                 settings.azure_endpoint.clone(),
-                settings.ai_model.clone(),
+                settings.model_for(provider),
                 key.to_string(),
             )))
         }
@@ -89,11 +89,11 @@ pub fn cloud_chat_engine(
     match provider {
         "openai" => Ok(Box::new(OpenAiProvider::new(
             key.to_string(),
-            settings.ai_model.clone(),
+            settings.model_for(provider),
         ))),
         "anthropic" => Ok(Box::new(AnthropicProvider::new(
             key.to_string(),
-            settings.ai_model.clone(),
+            settings.model_for(provider),
         ))),
         "azure" => {
             if settings.azure_endpoint.trim().is_empty() {
@@ -101,7 +101,7 @@ pub fn cloud_chat_engine(
             }
             Ok(Box::new(AzureProvider::new(
                 settings.azure_endpoint.clone(),
-                settings.ai_model.clone(),
+                settings.model_for(provider),
                 key.to_string(),
             )))
         }
@@ -126,7 +126,7 @@ pub fn embed_texts(
 ) -> Result<Vec<Vec<f32>>, String> {
     match provider {
         "openai" => {
-            let engine = OpenAiProvider::new(key.to_string(), settings.ai_model.clone());
+            let engine = OpenAiProvider::new(key.to_string(), settings.model_for(provider));
             match engine.embed(texts) {
                 Ok(v) => Ok(v),
                 Err(e) => {

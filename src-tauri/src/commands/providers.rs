@@ -36,7 +36,7 @@ pub async fn get_provider_config(
             provider: p.into(),
             configured: key_last4.is_some(),
             key_last4,
-            model: settings.ai_model.clone(),
+            model: settings.model_for(p),
         });
     }
     Ok(out)
@@ -87,7 +87,7 @@ pub async fn update_provider_config(
     if let Some(m) = model {
         let mut s = settings_repo::get(&state.pool).await.map_err(from_db)?;
         s.ai_provider = provider.clone();
-        s.ai_model = m;
+        s.provider_models.insert(provider.clone(), m);
         settings_repo::upsert(&state.pool, &s)
             .await
             .map_err(from_db)?;

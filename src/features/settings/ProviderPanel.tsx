@@ -89,8 +89,9 @@ export function ProviderPanel() {
     // factory reads settings.ai_provider to pick local-vs-cloud, and
     // update_provider_config only writes ai_provider when a model is passed —
     // which the user usually leaves blank (placeholder default). Write settings
-    // first (spread preserves the existing aiModel), then update_provider_config
-    // may overwrite aiModel if the user typed one.
+    // first (spread preserves the existing providerModels map), then
+    // update_provider_config writes the per-provider model into provider_models[provider]
+    // if the user typed one.
     if (settings) {
       await updateSettings({
         ...settings,
