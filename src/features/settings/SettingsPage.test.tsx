@@ -30,6 +30,8 @@ vi.mock('@tauri-apps/api/core', () => ({
         autoDeleteAudio: false,
         transcriptionProvider: 'local',
         transcriptionModel: 'Whisper Large v3',
+        autoTranscribe: false,
+        nativeLanguage: 'es',
         defaultTemplate: 'tecnica',
       };
     }
@@ -60,10 +62,12 @@ describe('SettingsPage', () => {
     expect(container.querySelector('[data-screen-label="08 Settings"]')).toBeTruthy();
   });
 
-  it('selects the local provider by default and shows its data-provider attribute', async () => {
-    const { container } = setup();
+  it('shows the TranscriptionPanel provider selector defaulting to local', async () => {
+    setup();
     await waitFor(() => {
-      expect(container.querySelector('[data-provider="local"]')).toBeTruthy();
+      const sel = screen.getByRole('combobox', { name: /proveedor de transcripción/i });
+      expect(sel).toBeInTheDocument();
+      expect((sel as HTMLSelectElement).value).toBe('local');
     });
   });
 

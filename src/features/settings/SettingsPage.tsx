@@ -1,6 +1,5 @@
 import { Button } from '@/components/primitives/Button/Button';
 import { Icon } from '@/components/primitives/Icon/Icon';
-import { Input } from '@/components/primitives/Input/Input';
 import { SegmentedControl } from '@/components/primitives/SegmentedControl/SegmentedControl';
 import { Toggle } from '@/components/primitives/Toggle/Toggle';
 import { useT } from '@/i18n/useT';
@@ -17,7 +16,6 @@ import { DiarizationPanel } from './DiarizationPanel';
 import { ProviderPanel } from './ProviderPanel';
 import styles from './SettingsPage.module.css';
 import { TranscriptionPanel } from './TranscriptionPanel';
-import { PROVIDERS, type ProviderId } from './providers';
 
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light',
@@ -38,39 +36,6 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 const ACCENT_SWATCHES = ['#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b'] as const;
-
-const PROVIDER_METRICS: Record<
-  ProviderId,
-  { label: { es: string; en: string }; value: string | { es: string; en: string } }[]
-> = {
-  local: [
-    { label: { es: 'Fidelidad', en: 'Fidelity' }, value: '99.2%' },
-    { label: { es: 'Latencia', en: 'Latency' }, value: '1.8s' },
-    { label: { es: 'Costo', en: 'Cost' }, value: { es: 'Gratis', en: 'Free' } },
-    { label: { es: 'Privacidad', en: 'Privacy' }, value: { es: 'Máxima', en: 'Maximum' } },
-  ],
-  openai: [
-    { label: { es: 'Fidelidad', en: 'Fidelity' }, value: '99.5%' },
-    { label: { es: 'Latencia', en: 'Latency' }, value: '0.6s' },
-    { label: { es: 'Costo', en: 'Cost' }, value: '~$0.006/min' },
-    { label: { es: 'Privacidad', en: 'Privacy' }, value: { es: 'Estándar', en: 'Standard' } },
-  ],
-  azure: [
-    { label: { es: 'Fidelidad', en: 'Fidelity' }, value: '99.4%' },
-    { label: { es: 'Latencia', en: 'Latency' }, value: '0.8s' },
-    { label: { es: 'Costo', en: 'Cost' }, value: { es: 'Consumo Azure', en: 'Azure consumption' } },
-    { label: { es: 'Privacidad', en: 'Privacy' }, value: { es: 'Tu tenant', en: 'Your tenant' } },
-  ],
-  custom: [
-    { label: { es: 'Fidelidad', en: 'Fidelity' }, value: '—' },
-    { label: { es: 'Latencia', en: 'Latency' }, value: '—' },
-    { label: { es: 'Costo', en: 'Cost' }, value: { es: 'Variable', en: 'Variable' } },
-    {
-      label: { es: 'Privacidad', en: 'Privacy' },
-      value: { es: 'Tu endpoint', en: 'Your endpoint' },
-    },
-  ],
-};
 
 export default function SettingsPage() {
   const { t, lang, setLang } = useT();
@@ -126,10 +91,6 @@ export default function SettingsPage() {
     { value: 'circle', label: lang === 'es' ? 'Círculo' : 'Circle' },
     { value: 'square', label: lang === 'es' ? 'Cuadrado' : 'Square' },
   ];
-
-  const currentProvider =
-    PROVIDERS.find((p) => p.id === (draft.transcriptionProvider as ProviderId)) ?? PROVIDERS[0];
-  if (!currentProvider) throw new Error('PROVIDERS is empty');
 
   return (
     <div className={styles.page} data-screen-label="08 Settings">
@@ -272,149 +233,6 @@ export default function SettingsPage() {
               options={qualityOptions}
               onChange={(v) => patch({ recordingQuality: v })}
             />
-          </div>
-        </div>
-
-        {/* Transcription engine */}
-        <div className={styles.group}>
-          <div className={styles.groupHead}>
-            <span>{t('transcriptionEngineLabel')}</span>
-            <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
-              {currentProvider.short}
-            </span>
-          </div>
-          <div className={styles.engineGrid}>
-            {PROVIDERS.map((p) => {
-              const selected = draft.transcriptionProvider === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`${styles.engineCard} ${selected ? styles.engineCardSelected : ''}`}
-                  onClick={() =>
-                    patch({
-                      transcriptionProvider: p.id,
-                      transcriptionModel: p.models[0] ?? draft.transcriptionModel,
-                    })
-                  }
-                >
-                  <div className={styles.engineCardHead}>
-                    <div
-                      className={styles.engineIcon}
-                      style={{ background: `${p.color}22`, color: p.color }}
-                    >
-                      <Icon name={p.icon} size={16} stroke={p.color} />
-                    </div>
-                    <div className={styles.engineRadio}>
-                      {selected && <div className={styles.engineRadioDot} />}
-                    </div>
-                  </div>
-                  <div className={styles.engineName}>{pickL(p.name, lang)}</div>
-                  <div className={styles.engineDesc}>{pickL(p.desc, lang)}</div>
-                  <div
-                    className={`${styles.engineBadge} ${p.badgeAccent ? styles.engineBadgeAccent : ''}`}
-                  >
-                    {pickL(p.badge, lang)}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className={styles.providerConfig} data-provider={currentProvider.id}>
-            <div className={styles.row} style={{ borderBottom: 'none', padding: 0 }}>
-              <div className={styles.rowLeft}>
-                <div className={styles.rowLabel}>{lang === 'es' ? 'Modelo' : 'Model'}</div>
-                <div className={styles.rowDesc}>
-                  {lang === 'es'
-                    ? 'Modelo activo para este proveedor.'
-                    : 'Active model for this provider.'}
-                </div>
-              </div>
-              <div className={styles.selectTrigger}>
-                <span>{draft.transcriptionModel}</span>
-                <Icon name="chevDown" size={14} />
-              </div>
-            </div>
-
-            {currentProvider.id === 'openai' && (
-              <>
-                <Input
-                  label={lang === 'es' ? 'API key de OpenAI' : 'OpenAI API key'}
-                  type="password"
-                  placeholder="sk-proj-..."
-                  value=""
-                  onChange={() => {}}
-                />
-                <Button size="sm" disabled title={lang === 'es' ? 'Próximamente' : 'Coming soon'}>
-                  {lang === 'es' ? 'Probar conexión' : 'Test connection'}
-                </Button>
-              </>
-            )}
-
-            {currentProvider.id === 'azure' && (
-              <>
-                <Input
-                  label="Endpoint"
-                  placeholder="https://acme-noter.openai.azure.com"
-                  value=""
-                  onChange={() => {}}
-                />
-                <Input
-                  label={lang === 'es' ? 'Despliegue' : 'Deployment'}
-                  placeholder="whisper-prod"
-                  value=""
-                  onChange={() => {}}
-                />
-                <Input
-                  label="API key"
-                  type="password"
-                  placeholder="..."
-                  value=""
-                  onChange={() => {}}
-                />
-                <Button size="sm" disabled title={lang === 'es' ? 'Próximamente' : 'Coming soon'}>
-                  {lang === 'es' ? 'Probar conexión' : 'Test connection'}
-                </Button>
-              </>
-            )}
-
-            {currentProvider.id === 'custom' && (
-              <>
-                <Input
-                  label={lang === 'es' ? 'URL base' : 'Base URL'}
-                  placeholder="https://api.groq.com/openai/v1"
-                  value=""
-                  onChange={() => {}}
-                />
-                <Input
-                  label="API key"
-                  type="password"
-                  placeholder="..."
-                  value=""
-                  onChange={() => {}}
-                />
-              </>
-            )}
-
-            {currentProvider.id === 'local' && (
-              <div className={styles.rowDesc}>
-                {lang === 'es'
-                  ? 'Procesamiento en este equipo. Whisper Large v3 instalado (2.9 GB).'
-                  : 'Processed on this device. Whisper Large v3 installed (2.9 GB).'}
-              </div>
-            )}
-          </div>
-
-          <div className={styles.metrics}>
-            {PROVIDER_METRICS[currentProvider.id]?.map((m) => (
-              <div key={m.label.es} className={styles.metricCard}>
-                <div className={styles.metricLabel}>{pickL(m.label, lang)}</div>
-                <div className={styles.metricValue}>
-                  {typeof m.value === 'string' ? m.value : pickL(m.value, lang)}
-                </div>
-              </div>
-            ))}
           </div>
         </div>
 
