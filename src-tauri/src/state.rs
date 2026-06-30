@@ -2,6 +2,7 @@ use parking_lot::Mutex;
 use smart_noter_audio::capture::recorder::Recorder;
 use smart_noter_audio::capture::session::CaptureSession;
 use sqlx::SqlitePool;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::Arc;
 
@@ -37,6 +38,10 @@ pub struct AppState {
     pub llm_download: Arc<Mutex<Option<DownloadHandle>>>,
     /// Active RAG chat job (one at a time). Mirrors the summary handle pattern.
     pub chat: Arc<Mutex<Option<ChatHandle>>>,
+    /// Effective audio storage directory, resolved once at startup from
+    /// `settings.storage_dir` (or the `app_data/audio` default) and updated by
+    /// `set_storage_dir`. `audio_dir()` reads this instead of recomputing.
+    pub audio_dir: Arc<Mutex<PathBuf>>,
 }
 
 /// Live transcription job (one at a time). `pct` is updated by the progress

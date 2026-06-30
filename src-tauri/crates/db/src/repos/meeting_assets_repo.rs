@@ -56,6 +56,43 @@ impl MeetingAssetsRepo<'_> {
             .find(|a| a.kind == "audio"))
     }
 
+    /// Every audio asset across all meetings — used to relocate the storage dir.
+    pub async fn list_all_audio(&self) -> Result<Vec<MeetingAsset>, AppError> {
+        let rows =
+            sqlx::query_as::<_, (String, String, String, String, i64, Option<String>, String)>(
+                r#"SELECT id, meeting_id, kind, path, bytes, mime_type, created_at
+               FROM meeting_assets WHERE kind = 'audio'"#,
+            )
+            .fetch_all(self.0)
+            .await
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, meeting_id, kind, path, bytes, mime_type, created_at)| MeetingAsset {
+                    id,
+                    meeting_id,
+                    kind,
+                    path,
+                    bytes,
+                    mime_type,
+                    created_at,
+                },
+            )
+            .collect())
+    }
+
+    /// Repoint one asset's stored path (used when relocating the storage dir).
+    pub async fn update_path(&self, asset_id: &str, new_path: &str) -> Result<(), AppError> {
+        sqlx::query("UPDATE meeting_assets SET path = ? WHERE id = ?")
+            .bind(new_path)
+            .bind(asset_id)
+            .execute(self.0)
+            .await
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
     pub async fn delete(&self, asset_id: &str) -> Result<Option<String>, AppError> {
         let row: Option<(String,)> = sqlx::query_as("SELECT path FROM meeting_assets WHERE id = ?")
             .bind(asset_id)
