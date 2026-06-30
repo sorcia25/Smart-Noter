@@ -48,6 +48,9 @@ jobs:
           # but only when it runs (cache miss). On a cache hit it's skipped, so the exe
           # dies with STATUS_DLL_NOT_FOUND. Copy them from the cached download dir.
           find ~/AppData/Local/sherpa-rs -name '*.dll' -exec cp -f {} target/debug/ \;
+          # Same story for llama-cpp-sys-2's ggml/llama DLLs: build.rs stages them next to
+          # the exe on a cache miss; on a cache hit copy them from the cached out/bin dir.
+          find target/debug/build -path '*llama-cpp-sys-2-*/out/bin/*.dll' -exec cp -f {} target/debug/ \; 2>/dev/null || true
           ./target/debug/specta-export.exe
       - run: pnpm generate:i18n-keys
       - run: pnpm lint
@@ -89,7 +92,14 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: cargo test
         working-directory: src-tauri
-        run: cargo test --workspace
+        shell: bash
+        run: |
+          # On a rust-cache hit, llama-cpp-sys-2's build.rs is skipped, so the ggml/llama
+          # DLLs it normally stages next to the test binaries are missing and the test exe
+          # dies with STATUS_DLL_NOT_FOUND before any test runs. Copy them from the cached
+          # out/bin dir (on a cache miss out/bin doesn't exist yet and build.rs handles it).
+          find target/debug/build -path '*llama-cpp-sys-2-*/out/bin/*.dll' -exec cp -f {} target/debug/ \; -exec cp -f {} target/debug/deps/ \; 2>/dev/null || true
+          cargo test --workspace
       - name: cargo check audio integration (compile gate)
         working-directory: src-tauri
         run: cargo check -p smart-noter-audio --features audio-integration --all-targets
@@ -140,6 +150,8 @@ jobs:
           # See the frontend job: copy the cached sherpa/onnx DLLs next to the exe so
           # it doesn't die with STATUS_DLL_NOT_FOUND on a rust-cache hit.
           find ~/AppData/Local/sherpa-rs -name '*.dll' -exec cp -f {} target/debug/ \;
+          # Same for llama-cpp-sys-2's ggml/llama DLLs (see frontend job).
+          find target/debug/build -path '*llama-cpp-sys-2-*/out/bin/*.dll' -exec cp -f {} target/debug/ \; 2>/dev/null || true
           ./target/debug/specta-export.exe
       - run: pnpm generate:i18n-keys
       - run: pnpm exec playwright install --with-deps chromium
