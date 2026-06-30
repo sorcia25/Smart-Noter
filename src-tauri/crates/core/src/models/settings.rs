@@ -19,6 +19,8 @@ pub struct AppSettings {
     pub auto_delete_audio: bool,
     pub transcription_provider: String,
     pub transcription_model: String,
+    #[serde(default)]
+    pub transcription_models: std::collections::BTreeMap<String, String>,
     pub auto_transcribe: bool,
     pub native_language: String,
     pub default_template: String,
@@ -72,6 +74,7 @@ impl Default for AppSettings {
             auto_delete_audio: false,
             transcription_provider: "local".into(),
             transcription_model: "large-v3".into(),
+            transcription_models: std::collections::BTreeMap::new(),
             auto_transcribe: true,
             native_language: "es".into(),
             default_template: "tecnica".into(),
@@ -105,6 +108,21 @@ impl AppSettings {
             .filter(|m| !m.is_empty())
             .cloned()
             .unwrap_or_else(|| default_model_for(provider))
+    }
+
+    /// STT model/deployment per transcription provider. OpenAI is always `whisper-1`;
+    /// Azure uses its configured whisper deployment; local uses the GGUF id.
+    pub fn transcription_model_for(&self, provider: &str) -> String {
+        match provider {
+            "openai" => "whisper-1".to_string(),
+            "azure" => self
+                .transcription_models
+                .get("azure")
+                .filter(|m| !m.is_empty())
+                .cloned()
+                .unwrap_or_default(),
+            _ => self.transcription_model.clone(),
+        }
     }
 }
 
@@ -208,6 +226,17 @@ mod tests {
         assert_eq!(s.model_for("azure"), "my-deploy");
         s.provider_models.insert("openai".into(), "".into()); // empty stored → default wins
         assert_eq!(s.model_for("openai"), "gpt-4o-mini");
+    }
+
+    #[test]
+    fn transcription_model_for_per_provider() {
+        let mut s = AppSettings::default();
+        assert_eq!(s.transcription_model_for("openai"), "whisper-1");
+        assert_eq!(s.transcription_model_for("azure"), "");
+        assert_eq!(s.transcription_model_for("local"), s.transcription_model);
+        s.transcription_models
+            .insert("azure".into(), "my-whisper".into());
+        assert_eq!(s.transcription_model_for("azure"), "my-whisper");
     }
 
     #[test]

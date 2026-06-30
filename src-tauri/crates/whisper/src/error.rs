@@ -10,6 +10,9 @@ pub enum TranscriptionErrorCode {
     DownloadBusy,
     DownloadFailed,
     Cancelled,
+    /// Provider/key misconfiguration (e.g. a cloud STT provider is selected but
+    /// no API key / Azure endpoint / deployment is configured).
+    ConfigError,
 }
 
 #[derive(Debug, thiserror::Error)]
