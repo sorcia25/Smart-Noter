@@ -1,4 +1,5 @@
 use crate::models::ai::{Chunk, MeetingAnalysis};
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
 /// Input fed to the Summarizer for a single meeting.
@@ -42,4 +43,31 @@ pub trait ChatEngine: Send + Sync {
         on_token: &mut dyn FnMut(&str),
         abort: &AtomicBool,
     ) -> Result<(), String>;
+}
+
+/// Input for a single transcription request.
+pub struct TranscribeInput {
+    pub wav_path: PathBuf,
+    pub lang: Option<String>, // hint; None = auto-detect
+}
+
+/// One transcribed line with millisecond timestamps. Mirrors the local whisper
+/// `Segment` and the diarization aligner's `TextSegment` so any transcriber's
+/// output feeds `align()` unchanged.
+pub struct TranscribedLine {
+    pub start_ms: u32,
+    pub end_ms: u32,
+    pub text: String,
+}
+
+/// Produces timestamped lines from a meeting's audio. Execution is synchronous
+/// (spawned in a worker thread); `progress` is 0–100, `abort` is checked
+/// cooperatively. Error type is `String` so `core` stays dependency-free.
+pub trait Transcriber: Send + Sync {
+    fn transcribe(
+        &self,
+        input: &TranscribeInput,
+        progress: &mut dyn FnMut(u32),
+        abort: &AtomicBool,
+    ) -> Result<Vec<TranscribedLine>, String>;
 }

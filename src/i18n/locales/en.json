@@ -252,5 +252,9 @@
   "providerAzure": "Azure OpenAI",
   "azureEndpoint": "Azure endpoint",
   "azureEndpointPlaceholder": "https://your-resource.openai.azure.com",
-  "azureDeploymentHint": "deployment name"
+  "azureDeploymentHint": "deployment name",
+  "transcriptionProviderLabel": "Transcription provider",
+  "azureWhisperDeployment": "Azure Whisper deployment",
+  "sttKeyHint": "The API key and endpoint are set under AI Providers.",
+  "transcriptionError.ConfigError": "Provider configuration error"
 }

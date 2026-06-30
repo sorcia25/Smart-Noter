@@ -14,10 +14,12 @@
 
 use parking_lot::Mutex;
 use smart_noter_core::models::AppSettings;
-use smart_noter_core::traits::{ChatEngine, Summarizer};
+use smart_noter_core::traits::{ChatEngine, Summarizer, Transcriber};
 use smart_noter_db::repos::{secrets_repo, settings_repo};
 use smart_noter_llm::engine::LocalLlm;
-use smart_noter_providers::{AnthropicProvider, AzureProvider, OpenAiProvider};
+use smart_noter_providers::{
+    AnthropicProvider, AzureProvider, AzureStt, OpenAiProvider, OpenAiStt,
+};
 use sqlx::SqlitePool;
 use std::sync::Arc;
 
@@ -32,6 +34,33 @@ pub async fn resolve_provider(pool: &SqlitePool) -> Result<(String, AppSettings,
         .await
         .map_err(|e| format!("settings: {e}"))?;
     let provider = settings.ai_provider.clone();
+    let key = if provider == "local" {
+        String::new()
+    } else {
+        match secrets_repo::get(pool, &provider)
+            .await
+            .map_err(|e| format!("secrets: {e}"))?
+        {
+            Some(ct) => crate::secrets::decrypt(&ct)
+                .map_err(|e| format!("no se pudo leer la API key: {e}"))?,
+            None => return Err("configura la API key del proveedor en Configuración".to_string()),
+        }
+    };
+    Ok((provider, settings, key))
+}
+
+/// Resolve `(provider, settings, decrypted_key)` for the TRANSCRIPTION domain.
+///
+/// Mirrors [`resolve_provider`] but reads `transcription_provider` (the STT domain
+/// is configured independently of the LLM domain). The decrypted key is the SAME
+/// per-provider DPAPI secret; `key` is `""` for the local provider.
+pub async fn resolve_transcription_provider(
+    pool: &SqlitePool,
+) -> Result<(String, AppSettings, String), String> {
+    let settings = settings_repo::get(pool)
+        .await
+        .map_err(|e| format!("settings: {e}"))?;
+    let provider = settings.transcription_provider.clone();
     let key = if provider == "local" {
         String::new()
     } else {
@@ -120,6 +149,38 @@ pub fn cloud_chat_engine(
             )))
         }
         other => Err(format!("proveedor de IA desconocido: {other}")),
+    }
+}
+
+/// Build a CLOUD transcriber for a non-"local" transcription provider.
+///
+/// The STT API key is the SAME per-provider DPAPI secret the LLM uses (keyed by
+/// provider name). Errors if the provider is unknown or required Azure config
+/// (endpoint / whisper deployment) is missing.
+pub fn cloud_transcriber(
+    provider: &str,
+    settings: &AppSettings,
+    key: &str,
+) -> Result<Box<dyn Transcriber>, String> {
+    match provider {
+        "openai" => Ok(Box::new(OpenAiStt::new(key.to_string()))),
+        "azure" => {
+            if settings.azure_endpoint.trim().is_empty() {
+                return Err("configura el endpoint de Azure en Configuración".to_string());
+            }
+            let deployment = settings.transcription_model_for("azure");
+            if deployment.is_empty() {
+                return Err(
+                    "configura el deployment de Whisper de Azure en Configuración".to_string(),
+                );
+            }
+            Ok(Box::new(AzureStt::new(
+                settings.azure_endpoint.clone(),
+                deployment,
+                key.to_string(),
+            )))
+        }
+        other => Err(format!("proveedor de transcripción desconocido: {other}")),
     }
 }
 
@@ -250,6 +311,51 @@ mod tests {
     fn cloud_chat_engine_unknown_provider_errors() {
         let s = AppSettings::default();
         assert!(cloud_chat_engine("zzz", &s, "k").is_err());
+    }
+
+    // ------------------------------------------------------------------
+    // cloud_transcriber — mirrors the cloud_summarizer guards. `Box<dyn
+    // Transcriber>` isn't Debug, so match to extract the error string.
+    // ------------------------------------------------------------------
+    #[test]
+    fn cloud_transcriber_ok_for_openai() {
+        let s = AppSettings::default();
+        assert!(cloud_transcriber("openai", &s, "k").is_ok());
+    }
+
+    #[test]
+    fn cloud_transcriber_azure_requires_endpoint() {
+        let s = AppSettings::default(); // empty azure_endpoint
+        match cloud_transcriber("azure", &s, "k") {
+            Ok(_) => panic!("expected Err for azure with empty endpoint"),
+            Err(err) => assert!(err.contains("endpoint"), "unexpected error: {err}"),
+        }
+    }
+
+    #[test]
+    fn cloud_transcriber_azure_requires_deployment() {
+        // Endpoint set but NO whisper deployment → Err mentioning "deployment".
+        let mut s = AppSettings {
+            azure_endpoint: "https://my-res.openai.azure.com".to_string(),
+            ..Default::default()
+        };
+        match cloud_transcriber("azure", &s, "k") {
+            Ok(_) => panic!("expected Err for azure with empty deployment"),
+            Err(err) => assert!(err.contains("deployment"), "unexpected error: {err}"),
+        }
+        // Endpoint + whisper deployment → Ok.
+        s.transcription_models
+            .insert("azure".into(), "my-whisper".into());
+        assert!(cloud_transcriber("azure", &s, "k").is_ok());
+    }
+
+    #[test]
+    fn cloud_transcriber_unknown_provider_errors() {
+        let s = AppSettings::default();
+        match cloud_transcriber("nope", &s, "k") {
+            Ok(_) => panic!("expected Err for unknown provider"),
+            Err(err) => assert!(err.contains("desconocido"), "unexpected error: {err}"),
+        }
     }
 
     // ------------------------------------------------------------------

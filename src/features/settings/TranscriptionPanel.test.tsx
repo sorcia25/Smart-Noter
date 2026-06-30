@@ -63,4 +63,29 @@ describe('TranscriptionPanel', () => {
     await userEvent.click(toggle);
     expect(patchMock).toHaveBeenCalledWith({ autoTranscribe: true });
   });
+
+  it('renders the provider selector with local selected by default', async () => {
+    render(<TranscriptionPanel draft={baseDraft} patch={vi.fn()} />);
+    const select = await screen.findByRole('combobox', { name: /proveedor/i });
+    expect((select as HTMLSelectElement).value).toBe('local');
+  });
+
+  it('switching provider to openai calls patch with transcriptionProvider openai', async () => {
+    const patchMock = vi.fn();
+    render(<TranscriptionPanel draft={baseDraft} patch={patchMock} />);
+    const select = await screen.findByRole('combobox', { name: /proveedor/i });
+    await userEvent.selectOptions(select, 'openai');
+    expect(patchMock).toHaveBeenCalledWith({ transcriptionProvider: 'openai' });
+  });
+
+  it('selecting azure shows the Whisper deployment input', async () => {
+    const azureDraft: AppSettings = {
+      ...baseDraft,
+      transcriptionProvider: 'azure',
+      transcriptionModels: { azure: 'my-whisper-deployment' },
+    };
+    render(<TranscriptionPanel draft={azureDraft} patch={vi.fn()} />);
+    const input = await screen.findByPlaceholderText(/deployment/i);
+    expect(input).toBeInTheDocument();
+  });
 });

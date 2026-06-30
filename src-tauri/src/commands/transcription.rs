@@ -1,4 +1,5 @@
 use crate::commands::ai::run_summary;
+use crate::commands::provider_factory;
 use crate::state::{AppState, DownloadHandle, SummaryHandle, TranscriptionHandle};
 use serde::Serialize;
 use smart_noter_core::AppError;
@@ -117,17 +118,20 @@ pub async fn transcribe_meeting(
             return Err(e);
         }
     };
-    let settings = smart_noter_db::repos::settings_repo::get(&state.pool)
-        .await
-        .map_err(|e| AppError::Database(e.to_string()));
-    let settings = match settings {
-        Ok(s) => s,
-        Err(e) => {
-            clear();
-            return Err(e);
-        }
-    };
-    let model_id = settings.transcription_model.clone();
+    // Resolve the transcription provider + decrypted key (cloud) up front. This
+    // also yields the `AppSettings`, so we don't fetch them twice. For local it
+    // returns an empty key. Errors (missing API key, secrets failure) surface as
+    // a ConfigError before any work is spawned.
+    let (provider, settings, key) =
+        match provider_factory::resolve_transcription_provider(&state.pool).await {
+            Ok(t) => t,
+            Err(msg) => {
+                clear();
+                return Err(terr(TranscriptionErrorCode::ConfigError, msg));
+            }
+        };
+    let is_local = provider == "local";
+
     let app_dir = match app_data(&app) {
         Ok(d) => d,
         Err(e) => {
@@ -135,12 +139,20 @@ pub async fn transcribe_meeting(
             return Err(e);
         }
     };
-    let model_path = match models::model_path(&app_dir, &model_id) {
-        Some(p) if p.is_file() => p,
-        _ => {
-            clear();
-            return Err(terr(TranscriptionErrorCode::ModelNotDownloaded, model_id));
+    // The local whisper GGUF is only required when transcribing locally. Cloud
+    // providers upload the WAV and need no on-device STT model. (Diarization is
+    // always local when enabled and is checked separately below.)
+    let model_path: Option<std::path::PathBuf> = if is_local {
+        let model_id = settings.transcription_model.clone();
+        match models::model_path(&app_dir, &model_id) {
+            Some(p) if p.is_file() => Some(p),
+            _ => {
+                clear();
+                return Err(terr(TranscriptionErrorCode::ModelNotDownloaded, model_id));
+            }
         }
+    } else {
+        None
     };
 
     // Diarization is gated by the persisted toggle and needs BOTH ONNX models present.
@@ -158,6 +170,8 @@ pub async fn transcribe_meeting(
     let pct = handle.pct.clone();
     let app2 = app.clone();
     let mid = meeting_id.clone();
+    // `provider` / `settings` / `key` are captured by the `move` closure below and
+    // consumed only in its cloud branch (local needs none of them).
     // Clones for auto-summary chain (used after transcription:completed).
     let auto_summary_llm = state.llm.clone();
     let auto_summary_slot = state.summary.clone();
@@ -195,46 +209,126 @@ pub async fn transcribe_meeting(
             );
         }
 
-        let app3 = app2.clone();
-        let mid3 = mid.clone();
-        let pct2 = pct.clone();
-        let progress = move |p: u32| {
-            pct2.store(p, Ordering::Relaxed);
-            let _ = app3.emit(
-                "transcription:progress",
-                ProgressEvent {
-                    meeting_id: mid3.clone(),
-                    pct: p,
-                },
-            );
-        };
+        // Transcribe via the resolved provider. The LOCAL branch is byte-identical
+        // to before (direct engine call, same `'static + Send` move-closure progress
+        // and `Arc<AtomicBool>` abort). The CLOUD branch uploads the WAV through the
+        // `Transcriber` trait, whose progress is a `&mut dyn FnMut(u32)`. Both yield a
+        // `Vec<Segment>` so the diarize/align/persist tail below is UNCHANGED.
+        let segments: Vec<smart_noter_whisper::transcribe::Segment> =
+            if let Some(model_path) = model_path.as_ref() {
+                // ---- LOCAL: real on-device whisper engine ----
+                let app3 = app2.clone();
+                let mid3 = mid.clone();
+                let pct2 = pct.clone();
+                let progress = move |p: u32| {
+                    pct2.store(p, Ordering::Relaxed);
+                    let _ = app3.emit(
+                        "transcription:progress",
+                        ProgressEvent {
+                            meeting_id: mid3.clone(),
+                            pct: p,
+                        },
+                    );
+                };
 
-        let opts = TranscribeOpts::default();
-        let segments = match transcribe(&pcm, &model_path, &opts, progress, abort.clone()) {
-            Ok(s) => s,
-            Err(e) if e.code == TranscriptionErrorCode::Cancelled => {
-                let _ = app2.emit(
-                    "transcription:cancelled",
-                    CancelledEvent {
-                        meeting_id: mid.clone(),
-                    },
-                );
-                finish(&slot);
-                return;
-            }
-            Err(e) => {
-                let _ = app2.emit(
-                    "transcription:failed",
-                    FailedEvent {
-                        meeting_id: mid.clone(),
-                        code: format!("{:?}", e.code),
-                        message: e.message,
-                    },
-                );
-                finish(&slot);
-                return;
-            }
-        };
+                let opts = TranscribeOpts::default();
+                match transcribe(&pcm, model_path, &opts, progress, abort.clone()) {
+                    Ok(s) => s,
+                    Err(e) if e.code == TranscriptionErrorCode::Cancelled => {
+                        let _ = app2.emit(
+                            "transcription:cancelled",
+                            CancelledEvent {
+                                meeting_id: mid.clone(),
+                            },
+                        );
+                        finish(&slot);
+                        return;
+                    }
+                    Err(e) => {
+                        let _ = app2.emit(
+                            "transcription:failed",
+                            FailedEvent {
+                                meeting_id: mid.clone(),
+                                code: format!("{:?}", e.code),
+                                message: e.message,
+                            },
+                        );
+                        finish(&slot);
+                        return;
+                    }
+                }
+            } else {
+                // ---- CLOUD: build the transcriber + upload the WAV ----
+                let transcriber =
+                    match provider_factory::cloud_transcriber(&provider, &settings, &key) {
+                        Ok(t) => t,
+                        Err(msg) => {
+                            let _ = app2.emit(
+                                "transcription:failed",
+                                FailedEvent {
+                                    meeting_id: mid.clone(),
+                                    code: "ConfigError".into(),
+                                    message: msg,
+                                },
+                            );
+                            finish(&slot);
+                            return;
+                        }
+                    };
+
+                // Borrow-closure progress (runs inline; no `'static`/`Send` bound needed,
+                // unlike the engine's move-closure above). Mirrors the local pct.store + emit.
+                let mut progress_cb = |p: u32| {
+                    pct.store(p, Ordering::Relaxed);
+                    let _ = app2.emit(
+                        "transcription:progress",
+                        ProgressEvent {
+                            meeting_id: mid.clone(),
+                            pct: p,
+                        },
+                    );
+                };
+
+                let input = smart_noter_core::traits::TranscribeInput {
+                    wav_path: audio_path.clone(),
+                    lang: Some(settings.native_language.clone()),
+                };
+                match transcriber.transcribe(&input, &mut progress_cb, &abort) {
+                    // Field-identical map: TranscribedLine -> Segment.
+                    Ok(lines) => lines
+                        .into_iter()
+                        .map(|l| smart_noter_whisper::transcribe::Segment {
+                            start_ms: l.start_ms,
+                            end_ms: l.end_ms,
+                            text: l.text,
+                        })
+                        .collect(),
+                    // The cloud adapter returns Err("cancelado") on abort — treat it as a
+                    // cancel, matching the local cancel path (emit cancelled, not failed).
+                    Err(msg) if msg == "cancelado" => {
+                        let _ = app2.emit(
+                            "transcription:cancelled",
+                            CancelledEvent {
+                                meeting_id: mid.clone(),
+                            },
+                        );
+                        finish(&slot);
+                        return;
+                    }
+                    Err(msg) => {
+                        let _ = app2.emit(
+                            "transcription:failed",
+                            FailedEvent {
+                                meeting_id: mid.clone(),
+                                code: "TranscriptionError".into(),
+                                message: msg,
+                            },
+                        );
+                        finish(&slot);
+                        return;
+                    }
+                }
+            };
 
         // Decide speakers. With diarization requested AND models present, diarize
         // over the SAME pcm + align each text segment to the max-overlap speaker;

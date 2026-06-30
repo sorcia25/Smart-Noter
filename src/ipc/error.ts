@@ -14,6 +14,7 @@ const codeToKey: Record<string, TKey> = {
   InferenceFailed: 'transcriptionError.InferenceFailed',
   DownloadBusy: 'transcriptionError.DownloadBusy',
   DownloadFailed: 'transcriptionError.DownloadFailed',
+  ConfigError: 'transcriptionError.ConfigError',
 };
 
 export function errorMessage(err: AppError, t: (k: TKey) => string): string {
