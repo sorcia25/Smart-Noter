@@ -12,6 +12,7 @@
 //! the lock when inference finishes.  Because `LocalLlm` has `unsafe impl Send +
 //! Sync` (declared in engine.rs), this is safe.
 
+use crate::commands::provider_factory;
 use crate::error::from_db;
 use crate::state::{AppState, ChatHandle, DownloadHandle, SummaryHandle};
 use serde::Serialize;
@@ -20,7 +21,7 @@ use smart_noter_core::traits::{AnalysisInput, Summarizer};
 use smart_noter_core::{AppError, Bilingual};
 use smart_noter_db::repos::{
     actions_repo, blockers_repo, chat_repo, decisions_repo, embeddings_repo, meetings_repo,
-    templates_repo,
+    settings_repo, templates_repo,
 };
 use smart_noter_llm::{
     chat::{chunk_transcript, top_k, LocalChat},
@@ -144,12 +145,16 @@ const LINES_PER_CHUNK: usize = 6;
 /// 1. Loads the meeting detail (transcript + participants).
 /// 2. Resolves speaker labels (participant name or fallback to "S{n}").
 /// 3. Loads the template sections for the meeting's template_id.
-/// 4. Builds `AnalysisInput` and calls `LocalSummarizer::analyze`, emitting
+/// 4. Builds `AnalysisInput`, then resolves the active AI provider + (for cloud)
+///    its decrypted API key via `provider_factory::resolve_provider`.
+/// 5. Runs inference — `LocalSummarizer` (local, holds the LLM lock) or a cloud
+///    `Summarizer` from the factory (owned, off the LLM lock) — emitting
 ///    `summary:progress` events.
-/// 5. On success: persists the summary, deletes AI items, re-inserts them
-///    from `MeetingAnalysis`, emits `summary:completed`.
-/// 6. On failure / abort: emits `summary:failed`.
-/// 7. Clears the `SummaryHandle` slot when done.
+/// 6. On success: persists the summary, deletes AI items, re-inserts them
+///    from `MeetingAnalysis`, then best-effort embeds the transcript for RAG
+///    (cloud or local-fallback via `embed_texts`), and emits `summary:completed`.
+/// 7. On failure / abort: emits `summary:failed`. Clears the `SummaryHandle`
+///    slot when done.
 pub fn run_summary(
     pool: sqlx::SqlitePool,
     app: tauri::AppHandle,
@@ -265,11 +270,32 @@ pub fn run_summary(
         lang,
     };
 
+    // 4b. Resolve the active AI provider + (for cloud) its decrypted API key.
+    //     `resolve_provider` is the single source for provider/key resolution.
+    let (provider, settings, key) =
+        match tauri::async_runtime::block_on(provider_factory::resolve_provider(&pool)) {
+            Ok(t) => t,
+            Err(e) => {
+                emit_failed("ConfigError", &e);
+                finish(&summary_slot);
+                return;
+            }
+        };
+
     emit_progress(5);
 
-    // 5. Run inference.  We lock the LLM for the entire inference duration so
-    //    that no second summary can share the backend simultaneously.
-    let analysis = {
+    // 5. Run inference. For the LOCAL provider we lock the LLM for the entire
+    //    inference duration so that no second summary can share the backend
+    //    simultaneously. For CLOUD providers nothing touches the LLM lock — the
+    //    owned provider performs its own blocking HTTP off the mutex.
+    let abort_ref: &AtomicBool = &abort;
+    let mut progress_cb = |pct: u32| {
+        if abort_ref.load(Ordering::Relaxed) {
+            return;
+        }
+        emit_progress(pct);
+    };
+    let analysis = if provider == "local" {
         let llm_guard = llm_arc.lock();
         let llm = match llm_guard.as_ref() {
             Some(l) => l,
@@ -280,14 +306,12 @@ pub fn run_summary(
             }
         };
         let summarizer = LocalSummarizer { llm };
-        let abort_ref: &AtomicBool = &abort;
-        let mut progress_cb = |pct: u32| {
-            if abort_ref.load(Ordering::Relaxed) {
-                return;
-            }
-            emit_progress(pct);
-        };
         summarizer.analyze(&input, &mut progress_cb, abort_ref)
+    } else {
+        match crate::commands::provider_factory::cloud_summarizer(&provider, &settings, &key) {
+            Ok(summarizer) => summarizer.analyze(&input, &mut progress_cb, abort_ref),
+            Err(e) => Err(e),
+        }
     };
 
     if abort.load(Ordering::Relaxed) {
@@ -355,28 +379,27 @@ pub fn run_summary(
     //    so we don't serialize all inference behind the upsert round-trip.
     {
         let text_chunks = chunk_transcript(&input.transcript, LINES_PER_CHUNK);
-        let maybe_chunks_with_vectors: Option<Vec<(i64, String, Vec<f32>)>> = {
-            let llm_guard = llm_arc.lock();
-            if let Some(llm) = llm_guard.as_ref() {
-                match llm.embed(&text_chunks) {
-                    Ok(vectors) => Some(
-                        text_chunks
-                            .into_iter()
-                            .zip(vectors)
-                            .enumerate()
-                            .map(|(i, (text, vec))| (i as i64, text, vec))
-                            .collect(),
-                    ),
-                    Err(e) => {
-                        tracing::warn!(meeting_id = %meeting_id, error = %e, "transcript embed failed (non-fatal)");
-                        None
-                    }
+        let maybe_chunks_with_vectors: Option<Vec<(i64, String, Vec<f32>)>> =
+            match crate::commands::provider_factory::embed_texts(
+                &provider,
+                &settings,
+                &key,
+                &text_chunks,
+                &llm_arc,
+            ) {
+                Ok(vectors) => Some(
+                    text_chunks
+                        .into_iter()
+                        .zip(vectors)
+                        .enumerate()
+                        .map(|(i, (text, vec))| (i as i64, text, vec))
+                        .collect(),
+                ),
+                Err(e) => {
+                    tracing::warn!(meeting_id = %meeting_id, error = %e, "transcript embed failed (non-fatal)");
+                    None
                 }
-            } else {
-                None
-                // If LLM slot is gone (shouldn't happen here), silently skip embed.
-            }
-        }; // llm_guard dropped here — DB write happens outside the lock
+            };
         if let Some(chunks_with_vectors) = maybe_chunks_with_vectors {
             let embed_result = tauri::async_runtime::block_on(embeddings_repo::upsert(
                 &pool,
@@ -435,11 +458,23 @@ pub async fn generate_summary(
         }
     };
 
-    // Lazy-load the LLM (may already be loaded from a previous call).
+    // Resolve the active provider so we can decide whether the local LLM is required.
+    let provider = settings_repo::get(&state.pool)
+        .await
+        .map_err(from_db)?
+        .ai_provider;
+
+    // Lazy-load the LLM (may already be loaded from a previous call). For the local
+    // provider it's required; for cloud providers it's best-effort (used only as the
+    // embedding fallback — cloud users aren't forced to have the GGUF downloaded).
     let llm_arc = state.llm.clone();
-    if let Err(e) = ensure_llm_loaded(&llm_arc, &app_dir, n_gpu_layers) {
-        clear();
-        return Err(e);
+    if provider == "local" {
+        if let Err(e) = ensure_llm_loaded(&llm_arc, &app_dir, n_gpu_layers) {
+            clear();
+            return Err(e);
+        }
+    } else if let Err(e) = ensure_llm_loaded(&llm_arc, &app_dir, n_gpu_layers) {
+        tracing::warn!(error = %e, "local LLM unavailable; cloud path will run, embed fallback degrades to empty context");
     }
 
     // Clone everything needed by the thread.
@@ -681,11 +716,27 @@ pub fn ask_meeting(
         }
     };
 
-    // Lazy-load the LLM (may already be loaded from a previous call).
+    // Resolve the active provider so we can decide whether the local LLM is required.
+    // ask_meeting is a SYNC command, so use block_on (not .await) for the DB read.
+    let provider = match tauri::async_runtime::block_on(settings_repo::get(&state.pool)) {
+        Ok(s) => s.ai_provider,
+        Err(e) => {
+            clear_chat();
+            return Err(from_db(e));
+        }
+    };
+
+    // Lazy-load the LLM (may already be loaded from a previous call). For the local
+    // provider it's required; for cloud providers it's best-effort (used only as the
+    // embedding fallback — cloud users aren't forced to have the GGUF downloaded).
     let llm_arc = state.llm.clone();
-    if let Err(e) = ensure_llm_loaded(&llm_arc, &app_dir, n_gpu_layers) {
-        clear_chat();
-        return Err(e);
+    if provider == "local" {
+        if let Err(e) = ensure_llm_loaded(&llm_arc, &app_dir, n_gpu_layers) {
+            clear_chat();
+            return Err(e);
+        }
+    } else if let Err(e) = ensure_llm_loaded(&llm_arc, &app_dir, n_gpu_layers) {
+        tracing::warn!(error = %e, "local LLM unavailable; cloud path will run, embed fallback degrades to empty context");
     }
 
     // Clone everything needed by the thread.
@@ -726,6 +777,18 @@ pub fn ask_meeting(
                 },
             );
         };
+
+        // 0. Resolve the active AI provider + (for cloud) its decrypted API key.
+        //    `resolve_provider` is the single source for provider/key resolution.
+        let (provider, settings, key) =
+            match tauri::async_runtime::block_on(provider_factory::resolve_provider(&pool)) {
+                Ok(t) => t,
+                Err(e) => {
+                    emit_error(&e);
+                    finish();
+                    return;
+                }
+            };
 
         // 1. Persist the user message first (history is correct even if answer fails).
         let persist_user =
@@ -794,37 +857,34 @@ pub fn ask_meeting(
             if !transcript_pairs.is_empty() {
                 let text_chunks = chunk_transcript(&transcript_pairs, LINES_PER_CHUNK);
 
-                // Hold the lock only during inference; drop it before any DB IO.
-                let maybe_chunks_with_vectors: Option<Vec<(i64, String, Vec<f32>)>> = {
-                    let llm_guard = llm_arc.lock();
-                    match llm_guard.as_ref() {
-                        Some(llm) => match llm.embed(&text_chunks) {
-                            Ok(vectors) => Some(
-                                text_chunks
-                                    .into_iter()
-                                    .zip(vectors)
-                                    .enumerate()
-                                    .map(|(i, (text, vec))| (i as i64, text, vec))
-                                    .collect(),
-                            ),
-                            Err(e) => {
-                                tracing::warn!(
-                                    meeting_id = %mid,
-                                    error = %e,
-                                    "embed-on-demand inference failed (non-fatal, continuing with empty context)"
-                                );
-                                None
-                            }
-                        },
-                        None => {
+                // Embed via the active provider (cloud or local-fallback). The cloud
+                // path performs its own HTTP off the LLM lock; the local branch locks
+                // internally and drops the guard before any DB IO below.
+                let maybe_chunks_with_vectors: Option<Vec<(i64, String, Vec<f32>)>> =
+                    match provider_factory::embed_texts(
+                        &provider,
+                        &settings,
+                        &key,
+                        &text_chunks,
+                        &llm_arc,
+                    ) {
+                        Ok(vectors) => Some(
+                            text_chunks
+                                .into_iter()
+                                .zip(vectors)
+                                .enumerate()
+                                .map(|(i, (text, vec))| (i as i64, text, vec))
+                                .collect(),
+                        ),
+                        Err(e) => {
                             tracing::warn!(
                                 meeting_id = %mid,
-                                "LLM slot empty during embed-on-demand (non-fatal, continuing with empty context)"
+                                error = %e,
+                                "embed-on-demand inference failed (non-fatal, continuing with empty context)"
                             );
                             None
                         }
-                    }
-                }; // llm_guard dropped here — DB IO happens outside the lock
+                    };
 
                 if let Some(chunks_with_vectors) = maybe_chunks_with_vectors {
                     let upsert_result = tauri::async_runtime::block_on(embeddings_repo::upsert(
@@ -865,9 +925,40 @@ pub fn ask_meeting(
             return;
         }
 
-        // 4. Embed the question and retrieve top-k context chunks.
-        //    We lock the LLM for the entire embed + answer (one inference at a time).
-        let answer_result = {
+        // 4. Embed the question (cloud or local-fallback), retrieve top-k context,
+        //    then answer. Embed and answer are split into separate scopes so the
+        //    cloud answer path never holds the LLM lock during HTTP (the local
+        //    embed branch locks internally and releases before we answer).
+        let abort_ref: &AtomicBool = &abort;
+
+        // Embed the question. We use "es" as default lang (same as run_summary).
+        let question_vec = match provider_factory::embed_texts(
+            &provider,
+            &settings,
+            &key,
+            std::slice::from_ref(&question),
+            &llm_arc,
+        ) {
+            Ok(mut v) if !v.is_empty() => v.remove(0),
+            Ok(_) => {
+                emit_error("el embedding de la pregunta vino vacío");
+                finish();
+                return;
+            }
+            Err(e) => {
+                emit_error(&format!("embed question: {e}"));
+                finish();
+                return;
+            }
+        };
+
+        // Retrieve top-4 context chunks.
+        let context_refs = top_k(&question_vec, &chunks, 4);
+        let context: Vec<smart_noter_core::models::ai::Chunk> =
+            context_refs.into_iter().cloned().collect();
+
+        let answer_result = if provider == "local" {
+            // LOCAL: lock the LLM for the answer only.
             let llm_guard = llm_arc.lock();
             let llm = match llm_guard.as_ref() {
                 Some(l) => l,
@@ -877,36 +968,9 @@ pub fn ask_meeting(
                     return;
                 }
             };
-
-            // Embed the question (wrap in "query: " prefix — same convention as
-            // run_summary's embed step which calls llm.embed() directly without prefix).
-            let question_vec = match llm.embed(std::slice::from_ref(&question)) {
-                Ok(mut vecs) if !vecs.is_empty() => vecs.remove(0),
-                Ok(_) => {
-                    emit_error("embed returned empty result for question");
-                    finish();
-                    return;
-                }
-                Err(e) => {
-                    emit_error(&format!("embed question: {e}"));
-                    finish();
-                    return;
-                }
-            };
-
-            // Retrieve top-4 context chunks.
-            let context_refs = top_k(&question_vec, &chunks, 4);
-            let context: Vec<smart_noter_core::models::ai::Chunk> =
-                context_refs.into_iter().cloned().collect();
-
-            // Stream tokens via LocalChat::answer.
             let chat_engine = LocalChat { llm };
             let mut full_answer = String::new();
-            let abort_ref: &AtomicBool = &abort;
-
-            // We use "es" as default lang (same as run_summary); the FE can
-            // pass a lang param once settings expose it.
-            let result = {
+            let r = {
                 use smart_noter_core::traits::ChatEngine;
                 chat_engine.answer(
                     &question,
@@ -919,9 +983,31 @@ pub fn ask_meeting(
                     abort_ref,
                 )
             };
-
-            result.map(|()| full_answer)
-        }; // llm_guard + LocalChat dropped here — LLM lock released
+            r.map(|()| full_answer)
+        } else {
+            // CLOUD: owned ChatEngine performs its own HTTP off the LLM lock.
+            let chat_engine = match provider_factory::cloud_chat_engine(&provider, &settings, &key)
+            {
+                Ok(e) => e,
+                Err(e) => {
+                    emit_error(&e);
+                    finish();
+                    return;
+                }
+            };
+            let mut full_answer = String::new();
+            let r = chat_engine.answer(
+                &question,
+                &context,
+                "es",
+                &mut |token| {
+                    full_answer.push_str(token);
+                    emit_token(token);
+                },
+                abort_ref,
+            );
+            r.map(|()| full_answer)
+        };
 
         if abort.load(Ordering::Relaxed) {
             emit_error("cancelled during inference");

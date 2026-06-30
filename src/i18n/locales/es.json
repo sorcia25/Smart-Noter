@@ -249,5 +249,8 @@
   "cloudPrivacyDisclaimer": "En modo nube, el audio o la transcripción salen de tu dispositivo hacia el proveedor.",
   "providerOpenAi": "OpenAI",
   "providerAnthropic": "Anthropic",
-  "providerAzure": "Azure OpenAI"
+  "providerAzure": "Azure OpenAI",
+  "azureEndpoint": "Endpoint de Azure",
+  "azureEndpointPlaceholder": "https://tu-recurso.openai.azure.com",
+  "azureDeploymentHint": "nombre del deployment"
 }

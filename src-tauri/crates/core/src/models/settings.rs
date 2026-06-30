@@ -30,8 +30,10 @@ pub struct AppSettings {
     pub auto_generate_summary: bool,
     #[serde(default = "default_ai_provider")]
     pub ai_provider: String, // "local" | "openai" | "anthropic" | "azure"
-    #[serde(default = "default_ai_model")]
-    pub ai_model: String,
+    #[serde(default)]
+    pub provider_models: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub azure_endpoint: String,
 }
 
 #[derive(Debug, Clone, Type, Serialize, Deserialize, PartialEq, Eq)]
@@ -77,7 +79,8 @@ impl Default for AppSettings {
             diarization_model: "default".into(),
             auto_generate_summary: true,
             ai_provider: "local".into(),
-            ai_model: "qwen2.5-3b-instruct-q4".into(),
+            provider_models: std::collections::BTreeMap::new(),
+            azure_endpoint: String::new(),
         }
     }
 }
@@ -91,8 +94,29 @@ fn default_diar_model() -> String {
 fn default_ai_provider() -> String {
     "local".into()
 }
-fn default_ai_model() -> String {
-    "qwen2.5-3b-instruct-q4".into()
+
+impl AppSettings {
+    /// The chat model to use for a given cloud provider. Per-provider models take
+    /// precedence; otherwise a sensible per-provider default (empty for Azure,
+    /// whose "model" is the user's deployment name, and for local).
+    pub fn model_for(&self, provider: &str) -> String {
+        self.provider_models
+            .get(provider)
+            .filter(|m| !m.is_empty())
+            .cloned()
+            .unwrap_or_else(|| default_model_for(provider))
+    }
+}
+
+/// Default chat model per cloud provider. Azure has no default (deployment name);
+/// local has no API model.
+pub fn default_model_for(provider: &str) -> String {
+    match provider {
+        "openai" => "gpt-4o-mini",
+        "anthropic" => "claude-3-5-sonnet-latest",
+        _ => "", // azure (deployment name) / local
+    }
+    .to_string()
 }
 
 #[cfg(test)]
@@ -151,12 +175,13 @@ mod tests {
     fn defaults_include_ai_provider_fields() {
         let d = AppSettings::default();
         assert_eq!(d.ai_provider, "local");
-        assert_eq!(d.ai_model, "qwen2.5-3b-instruct-q4");
+        assert!(d.provider_models.is_empty());
     }
 
     #[test]
     fn legacy_blob_without_ai_provider_uses_defaults() {
         // A persisted blob from Sub-5 (no aiProvider/aiModel). Must deserialize + fill.
+        // The old aiModel key is now unknown and serde ignores it; providerModels defaults empty.
         let json = r##"{
             "theme":"light","accent":"#10b981","language":"es","avatarStyle":"circle",
             "aiChatVisible":true,"captureMode":"system","defaultDevice":"system-loopback",
@@ -167,6 +192,47 @@ mod tests {
         }"##;
         let parsed: AppSettings = serde_json::from_str(json).expect("legacy blob must deserialize");
         assert_eq!(parsed.ai_provider, "local");
-        assert_eq!(parsed.ai_model, "qwen2.5-3b-instruct-q4");
+        assert!(parsed.provider_models.is_empty());
+    }
+
+    #[test]
+    fn model_for_uses_per_provider_then_defaults() {
+        let mut s = AppSettings::default();
+        assert_eq!(s.model_for("openai"), "gpt-4o-mini"); // default
+        assert_eq!(s.model_for("anthropic"), "claude-3-5-sonnet-latest");
+        assert_eq!(s.model_for("azure"), ""); // no default
+        s.provider_models
+            .insert("openai".into(), "gpt-5-mini".into());
+        s.provider_models.insert("azure".into(), "my-deploy".into());
+        assert_eq!(s.model_for("openai"), "gpt-5-mini"); // per-provider wins
+        assert_eq!(s.model_for("azure"), "my-deploy");
+        s.provider_models.insert("openai".into(), "".into()); // empty stored → default wins
+        assert_eq!(s.model_for("openai"), "gpt-4o-mini");
+    }
+
+    #[test]
+    fn default_azure_endpoint_is_empty() {
+        let d = AppSettings::default();
+        assert_eq!(d.azure_endpoint, "");
+    }
+
+    #[test]
+    fn legacy_blob_without_azure_endpoint_uses_empty_default() {
+        // A persisted blob from Sub-6a (no azureEndpoint). Must deserialize + fill "".
+        // The old aiModel key is now unknown and serde ignores it; providerModels defaults empty.
+        let json = r##"{
+            "theme":"light","accent":"#10b981","language":"es","avatarStyle":"circle",
+            "aiChatVisible":true,"captureMode":"system","defaultDevice":"system-loopback",
+            "recordingQuality":"WAV 48k","runLocal":true,"autoDeleteAudio":false,
+            "transcriptionProvider":"local","transcriptionModel":"large-v3",
+            "autoTranscribe":true,"nativeLanguage":"es","defaultTemplate":"tecnica",
+            "identifySpeakers":true,"diarizationModel":"default","autoGenerateSummary":true,
+            "aiProvider":"azure","aiModel":"gpt-4o"
+        }"##;
+        let parsed: AppSettings =
+            serde_json::from_str(json).expect("legacy blob without azureEndpoint must deserialize");
+        assert_eq!(parsed.azure_endpoint, "");
+        assert_eq!(parsed.ai_provider, "azure");
+        assert!(parsed.provider_models.is_empty());
     }
 }
