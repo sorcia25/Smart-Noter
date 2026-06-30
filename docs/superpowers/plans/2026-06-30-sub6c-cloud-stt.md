@@ -26,8 +26,6 @@ cd "C:/Users/erick/Projects/Smart Noter"
 | File | Responsibility |
 |------|----------------|
 | `crates/core/src/traits.rs` (modify) | add `Transcriber` trait + `TranscribeInput` + `TranscribedLine` |
-| `crates/whisper/src/local_transcriber.rs` (create) | `LocalTranscriber` impl `Transcriber` (decode + engine + map) |
-| `crates/whisper/src/lib.rs` (modify) | `pub mod local_transcriber;` + re-export |
 | `crates/providers/Cargo.toml` (modify) | reqwest `multipart` feature + `hound` dep |
 | `crates/providers/src/stt.rs` (create) | `OpenAiStt` + `AzureStt` + shared chunking + verbose_json parse |
 | `crates/providers/src/lib.rs` (modify) | export STT adapters |
@@ -38,11 +36,18 @@ cd "C:/Users/erick/Projects/Smart Noter"
 
 ---
 
-## Task C1: `Transcriber` trait + `LocalTranscriber`
+## Task C1: `Transcriber` trait (cloud seam)
 
-**Files:** `crates/core/src/traits.rs`, `crates/whisper/src/local_transcriber.rs` (create), `crates/whisper/src/lib.rs`.
+**Files:** `crates/core/src/traits.rs`.
 
-This adds the trait and wraps the local engine. The transcription job is NOT touched yet (that's C3) — local behavior is unchanged because nothing calls `LocalTranscriber` until C3.
+**Design note (decided during execution):** the `Transcriber` trait abstracts the
+**cloud** transcribers only. The local whisper engine is NOT wrapped in a trait impl,
+because its `transcribe` takes `progress: impl FnMut(u32) + Send + 'static` (whisper-rs
+`set_progress_callback_safe` requires `'static`) and an owned `Arc<AtomicBool>` abort —
+neither bridges cleanly from the trait's `&mut dyn FnMut` / `&AtomicBool`. So the job
+keeps calling the local engine directly (with its real progress + Arc) and branches
+local-vs-cloud, exactly like Module B's `cloud_summarizer` + inline local path. C1 only
+adds the trait + types; the cloud adapters (C2) implement it.
 
 - [ ] **Step 1 — Add the trait + types to `core/src/traits.rs`.** Append:
 ```rust
@@ -83,71 +88,13 @@ cargo build -p smart-noter-core --manifest-path src-tauri/Cargo.toml
 ```
 Expected: compiles.
 
-- [ ] **Step 3 — Create `crates/whisper/src/local_transcriber.rs`.**
-```rust
-use crate::decode::decode_to_pcm_16k_mono;
-use crate::transcribe::{transcribe, Segment, TranscribeOpts};
-use smart_noter_core::traits::{TranscribeInput, TranscribedLine, Transcriber};
-use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-
-/// Local whisper.cpp transcriber. Decodes the WAV to 16 kHz mono PCM and runs the
-/// engine; maps each `Segment` to a `TranscribedLine`.
-pub struct LocalTranscriber {
-    pub model_path: PathBuf,
-    pub n_threads: i32,
-}
-
-fn segment_to_line(s: Segment) -> TranscribedLine {
-    TranscribedLine { start_ms: s.start_ms, end_ms: s.end_ms, text: s.text }
-}
-
-impl Transcriber for LocalTranscriber {
-    fn transcribe(
-        &self,
-        input: &TranscribeInput,
-        progress: &mut dyn FnMut(u32),
-        abort: &AtomicBool,
-    ) -> Result<Vec<TranscribedLine>, String> {
-        let pcm = decode_to_pcm_16k_mono(&input.wav_path).map_err(|e| e.message)?;
-        let opts = TranscribeOpts { n_threads: self.n_threads, language: input.lang.clone() };
-        // The engine takes an owned Arc<AtomicBool>; bridge by polling the borrowed
-        // flag into a fresh Arc the engine can hold.
-        let engine_abort = Arc::new(AtomicBool::new(abort.load(std::sync::atomic::Ordering::Relaxed)));
-        let segments = transcribe(&pcm, &self.model_path, &opts, |p| progress(p), engine_abort)
-            .map_err(|e| e.message)?;
-        Ok(segments.into_iter().map(segment_to_line).collect())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn segment_maps_to_line_preserving_fields() {
-        let s = Segment { start_ms: 1500, end_ms: 3200, text: "hola".into() };
-        let l = segment_to_line(s);
-        assert_eq!(l.start_ms, 1500);
-        assert_eq!(l.end_ms, 3200);
-        assert_eq!(l.text, "hola");
-    }
-}
-```
-NOTE on `abort`: the engine's `transcribe` wants `Arc<AtomicBool>` but the trait gives `&AtomicBool`. The snapshot bridge above is a known limitation — abort set AFTER `transcribe` begins won't reach the engine through this Arc. For C1 this preserves behavior (the job's local path will pass the real Arc in C3). **In C3, when wiring the job, pass the job's actual `Arc<AtomicBool>` to a `LocalTranscriber` variant OR keep the local branch calling the engine directly with the real Arc.** Flag this in your report so C3 handles it. (Simplest C3 resolution: the local branch in `transcription.rs` keeps calling the engine `transcribe(&pcm, ..., abort.clone())` directly — `LocalTranscriber` is used only as the trait object for the *cloud-shaped* factory signature, and for local the job stays direct. Decide in C3.)
-
-- [ ] **Step 4 — Register + build + test whisper.** In `crates/whisper/src/lib.rs` add `pub mod local_transcriber;` and `pub use local_transcriber::LocalTranscriber;`.
-```bash
-cargo test -p smart-noter-whisper --manifest-path src-tauri/Cargo.toml
-```
-Expected: existing whisper tests + the new `segment_maps_to_line_preserving_fields` pass.
-
-- [ ] **Step 5 — fmt + commit.**
+- [ ] **Step 3 — fmt + commit.** No `LocalTranscriber`, no unit test in C1 — the trait
+has no logic (plain structs + one method signature); the cloud adapters in C2 exercise
+it. The local engine is invoked directly by the job (C3), not through this trait.
 ```bash
 (cd src-tauri && cargo fmt)
 git add src-tauri/
-git commit -m "feat(sub6c): Transcriber trait + LocalTranscriber wrapper"
+git commit -m "feat(sub6c): Transcriber trait + types (cloud STT seam)"
 ```
 
 ---
@@ -552,7 +499,7 @@ Add factory tests mirroring the LLM ones: `cloud_transcriber("openai", &s, "k")`
   1. **Conditional whisper-model check:** the up-front model-file validation (~lines 105-144) must only run when `settings.transcription_provider == "local"`. For cloud providers, skip it (no GGUF needed). Keep the sherpa diarization-model check as-is (diarization is always local when `identify_speakers`).
   2. **Resolve the transcription provider** inside the worker (or before spawn, async): `let (provider, settings, key) = block_on(provider_factory::resolve_transcription_provider(&pool))` — on `Err`, emit `transcription:failed` with code `"ConfigError"` and return.
   3. **Replace the direct whisper call** (~line 212 `transcribe(&pcm, &model_path, &opts, progress, abort)`) with a provider branch:
-     - **local:** keep the existing direct engine call `transcribe(&pcm, &model_path, &opts, progress, abort.clone())` (preserves the real-Arc abort; LocalTranscriber's Arc-snapshot limitation noted in C1 means the direct call is preferred for local).
+     - **local:** keep the existing direct engine call `transcribe(&pcm, &model_path, &opts, progress, abort.clone())` (preserves the engine's real `Arc<AtomicBool>` abort + `'static` progress; the trait abstracts cloud only).
      - **cloud:** `let t = provider_factory::cloud_transcriber(&provider, &settings, &key)?; let input = TranscribeInput { wav_path: audio_path.clone(), lang: Some("es".into()) }; t.transcribe(&input, &mut progress_cb, &abort)` → `Vec<TranscribedLine>`. Map `TranscribedLine{start_ms,end_ms,text}` → the existing `Segment{start_ms,end_ms,text}` (or adapt the downstream code to take `TranscribedLine` — they're structurally identical; simplest is to build the `Vec<Segment>` the rest of the job already uses, OR build `TextSegment` for `align` directly). Keep `progress`/`abort` semantics.
   4. **Diarization + alignment + persistence are UNCHANGED.** The cloud lines (start_ms/end_ms/text) feed the same `TextSegment`→`align()`→`speaker_idx`→`LineInput`→`replace_lines` path. For cloud, the job still decodes the PCM (for diarization) when `identify_speakers` is on.
   Verify the local path still produces identical output (run the existing transcription tests if any; otherwise build + the smoke in C5 covers it).
@@ -604,4 +551,4 @@ git commit -m "feat(sub6c): transcription provider selector + Azure Whisper depl
 
 **Type consistency:** `TranscribedLine{start_ms:u32,end_ms:u32,text:String}` matches whisper `Segment` + diarize `TextSegment` (all u32). `transcription_model_for` / `transcription_models` consistent across settings + factory. `cloud_transcriber`/`resolve_transcription_provider` mirror the Module-B `cloud_summarizer`/`resolve_provider` shapes.
 
-**Open items flagged for execution:** (1) C1's `LocalTranscriber` abort uses an Arc snapshot — C3's local branch should call the engine directly with the real `Arc<AtomicBool>` (documented in C1 Step 3 + C3 Step 3). (2) C2 `decode_wav_16k_mono` duplicates the whisper WAV decoder to keep `providers` off the whisper crate — reviewer may swap to a `smart-noter-whisper` dep (WAV-only is fine since capture writes WAV; FLAC meetings would need the dep or local STT). (3) Cloud STT maps `TranscribedLine` into the job's existing `Segment`/`TextSegment` flow — C3 picks the cleanest adaptation.
+**Open items flagged for execution:** (1) The local engine is invoked directly by the job (not via the trait), preserving its real progress + Arc abort; the `Transcriber` trait abstracts the cloud adapters only (whisper-rs's progress callback needs `'static`, which the trait can't provide). (2) C2 `decode_wav_16k_mono` duplicates the whisper WAV decoder to keep `providers` off the whisper crate — reviewer may swap to a `smart-noter-whisper` dep (WAV-only is fine since capture writes WAV; FLAC meetings would need the dep or local STT). (3) Cloud STT maps `TranscribedLine` into the job's existing `Segment`/`TextSegment` flow — C3 picks the cleanest adaptation.
