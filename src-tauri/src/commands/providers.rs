@@ -47,6 +47,7 @@ pub async fn get_provider_config(
 fn validation_request(
     provider: &str,
     key: &str,
+    azure_endpoint: &str,
 ) -> Result<(&'static str, String, String, String), AppError> {
     match provider {
         "openai" => Ok((
@@ -61,11 +62,41 @@ fn validation_request(
             "x-api-key".into(),
             key.to_string(),
         )),
-        "azure" => Err(AppError::Internal(
-            "Azure se valida al configurar su endpoint (Módulo B/C)".into(),
-        )),
+        "azure" => {
+            // Validate against the resource's data-plane "list models" endpoint:
+            // a lightweight GET authenticated with the `api-key` header. This
+            // confirms the endpoint URL is reachable and the key is valid
+            // (the deployment itself is exercised when a summary is generated).
+            let endpoint = azure_endpoint.trim().trim_end_matches('/');
+            if endpoint.is_empty() {
+                return Err(AppError::Internal(
+                    "Configura primero el endpoint de Azure".into(),
+                ));
+            }
+            Ok((
+                "GET",
+                format!("{endpoint}/openai/models?api-version=2024-06-01"),
+                "api-key".into(),
+                key.to_string(),
+            ))
+        }
         other => Err(AppError::Internal(format!(
             "proveedor desconocido: {other}"
+        ))),
+    }
+}
+
+/// Map an HTTP status from a key-validation request to a user-facing result.
+/// Pure — unit-testable without network.
+fn classify_validation_status(status: u16) -> Result<(), AppError> {
+    match status {
+        200..=299 => Ok(()),
+        401 | 403 => Err(AppError::Internal("API key inválida o sin permiso".into())),
+        404 => Err(AppError::Internal(
+            "endpoint no encontrado (revisa la URL del proveedor)".into(),
+        )),
+        other => Err(AppError::Internal(format!(
+            "el proveedor respondió {other}"
         ))),
     }
 }
@@ -105,7 +136,17 @@ pub async fn test_api_key(state: State<'_, AppState>, provider: String) -> Resul
         .map_err(from_db)?
         .ok_or_else(|| AppError::Internal("no hay API key configurada".into()))?;
     let key = secrets::decrypt(&ct).map_err(AppError::Internal)?;
-    let (_method, url, hname, hval) = validation_request(&provider, &key)?;
+    // Azure validation targets the customer's own resource endpoint; the other
+    // providers hit a fixed public URL and ignore it.
+    let azure_endpoint = if provider == "azure" {
+        settings_repo::get(&state.pool)
+            .await
+            .map_err(from_db)?
+            .azure_endpoint
+    } else {
+        String::new()
+    };
+    let (_method, url, hname, hval) = validation_request(&provider, &key, &azure_endpoint)?;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -116,16 +157,7 @@ pub async fn test_api_key(state: State<'_, AppState>, provider: String) -> Resul
         .await
         .map_err(|e| AppError::Internal(format!("sin conexión con el proveedor: {e}")))?;
 
-    if resp.status().is_success() {
-        Ok(())
-    } else if resp.status().as_u16() == 401 || resp.status().as_u16() == 403 {
-        Err(AppError::Internal("API key inválida o sin permiso".into()))
-    } else {
-        Err(AppError::Internal(format!(
-            "el proveedor respondió {}",
-            resp.status()
-        )))
-    }
+    classify_validation_status(resp.status().as_u16())
 }
 
 #[cfg(test)]
@@ -141,17 +173,65 @@ mod tests {
 
     #[test]
     fn validation_request_shapes() {
-        let (m, url, h, v) = validation_request("openai", "K").unwrap();
+        let (m, url, h, v) = validation_request("openai", "K", "").unwrap();
         assert_eq!(m, "GET");
         assert!(url.starts_with("https://api.openai.com"));
         assert_eq!(h, "Authorization");
         assert_eq!(v, "Bearer K");
 
-        let (_, _, h2, v2) = validation_request("anthropic", "K").unwrap();
+        let (_, _, h2, v2) = validation_request("anthropic", "K", "").unwrap();
         assert_eq!(h2, "x-api-key");
         assert_eq!(v2, "K");
 
-        assert!(validation_request("azure", "K").is_err());
-        assert!(validation_request("nope", "K").is_err());
+        assert!(validation_request("nope", "K", "").is_err());
+    }
+
+    #[test]
+    fn validation_request_azure_builds_models_url() {
+        let (m, url, h, v) =
+            validation_request("azure", "K", "https://my-res.openai.azure.com").unwrap();
+        assert_eq!(m, "GET");
+        assert_eq!(h, "api-key");
+        assert_eq!(v, "K");
+        assert!(url.starts_with("https://my-res.openai.azure.com/openai/models"));
+        assert!(url.contains("api-version="));
+    }
+
+    #[test]
+    fn validation_request_azure_trims_trailing_slash() {
+        let (_, url, _, _) =
+            validation_request("azure", "K", "https://my-res.openai.azure.com/").unwrap();
+        // host and /openai must not be separated by a double slash
+        assert!(url.contains(".azure.com/openai/models"));
+        assert!(!url.contains(".azure.com//openai"));
+    }
+
+    #[test]
+    fn validation_request_azure_requires_endpoint() {
+        assert!(validation_request("azure", "K", "").is_err());
+        assert!(validation_request("azure", "K", "   ").is_err());
+    }
+
+    #[test]
+    fn classify_validation_status_maps_codes() {
+        assert!(classify_validation_status(200).is_ok());
+        assert!(classify_validation_status(204).is_ok());
+
+        assert!(classify_validation_status(401)
+            .unwrap_err()
+            .to_string()
+            .contains("API key"));
+        assert!(classify_validation_status(403)
+            .unwrap_err()
+            .to_string()
+            .contains("API key"));
+        assert!(classify_validation_status(404)
+            .unwrap_err()
+            .to_string()
+            .contains("endpoint"));
+        assert!(classify_validation_status(500)
+            .unwrap_err()
+            .to_string()
+            .contains("500"));
     }
 }
