@@ -28,6 +28,11 @@ pub(crate) fn build_chat_system_prompt(context: &[Chunk], lang: &str) -> String 
 
 /// Build the JSON body for a /chat/completions request.
 /// `stream: true` omits `response_format` (streaming chat doesn't support it).
+///
+/// `temperature` is intentionally omitted: reasoning models (GPT-5 / o-series)
+/// reject any non-default temperature with HTTP 400 `unsupported_value`, and
+/// `json_object` mode already guarantees syntactically valid JSON, so relying on
+/// the model's default sampling keeps the adapter compatible across all models.
 pub(crate) fn build_chat_body(model: &str, system: &str, user: &str, stream: bool) -> Value {
     let messages = serde_json::json!([
         {"role": "system", "content": system},
@@ -35,16 +40,14 @@ pub(crate) fn build_chat_body(model: &str, system: &str, user: &str, stream: boo
     ]);
     if stream {
         serde_json::json!({
-            "model":       model,
-            "messages":    messages,
-            "temperature": 0.3,
-            "stream":      true
+            "model":    model,
+            "messages": messages,
+            "stream":   true
         })
     } else {
         serde_json::json!({
-            "model":       model,
-            "messages":    messages,
-            "temperature": 0.3,
+            "model":           model,
+            "messages":        messages,
             "response_format": {"type": "json_object"}
         })
     }
@@ -129,6 +132,27 @@ pub(crate) fn status_to_err(status: reqwest::StatusCode, provider: &str) -> Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_chat_body_omits_temperature_for_model_compat() {
+        // Reasoning models (GPT-5 / o-series) reject any temperature other than the
+        // default (1) with HTTP 400 "unsupported_value". json_object mode already
+        // guarantees valid JSON, so we omit temperature for cross-model compatibility.
+        let non_stream = build_chat_body("m", "sys", "usr", false);
+        assert!(
+            non_stream.get("temperature").is_none(),
+            "non-stream body must omit temperature; got {non_stream}"
+        );
+        assert_eq!(non_stream["response_format"]["type"], "json_object");
+        assert_eq!(non_stream["model"], "m");
+
+        let stream = build_chat_body("m", "sys", "usr", true);
+        assert!(
+            stream.get("temperature").is_none(),
+            "stream body must omit temperature; got {stream}"
+        );
+        assert_eq!(stream["stream"], true);
+    }
 
     #[test]
     fn build_chat_system_prompt_joins_context_and_lang() {
