@@ -291,7 +291,7 @@ pub async fn transcribe_meeting(
 
                 let input = smart_noter_core::traits::TranscribeInput {
                     wav_path: audio_path.clone(),
-                    lang: Some("es".to_string()),
+                    lang: Some(settings.native_language.clone()),
                 };
                 match transcriber.transcribe(&input, &mut progress_cb, &abort) {
                     // Field-identical map: TranscribedLine -> Segment.

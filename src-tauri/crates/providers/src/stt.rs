@@ -71,12 +71,42 @@ pub(crate) fn client() -> reqwest::blocking::Client {
 }
 
 // ---------------------------------------------------------------------------
-// WAV decoder (duplicated from whisper crate — providers must NOT depend on it)
+// Audio decoder (WAV + FLAC; providers must NOT depend on the whisper crate)
 // ---------------------------------------------------------------------------
 
-/// Decode a WAV file to 16 kHz mono f32 PCM. Providers can't depend on the whisper
-/// crate, so read WAV directly with hound. (Cloud STT requires WAV; capture writes WAV.)
-pub(crate) fn decode_wav_16k_mono(path: &std::path::Path) -> Result<Vec<f32>, String> {
+/// Decode a WAV or FLAC file to 16 kHz mono f32 PCM.
+/// Dispatches on file extension; resamples if needed.
+pub(crate) fn decode_audio_16k_mono(path: &std::path::Path) -> Result<Vec<f32>, String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let (raw, rate, channels) = match ext.as_str() {
+        "wav" => read_wav(path)?,
+        "flac" => read_flac(path)?,
+        other => {
+            return Err(format!(
+                "formato de audio no soportado para STT cloud: {other}"
+            ))
+        }
+    };
+    let ch = channels.max(1) as usize;
+    let mono: Vec<f32> = if ch == 1 {
+        raw
+    } else {
+        raw.chunks_exact(ch)
+            .map(|f| f.iter().sum::<f32>() / ch as f32)
+            .collect()
+    };
+    Ok(if rate == SAMPLE_RATE {
+        mono
+    } else {
+        resample_linear(&mono, rate, SAMPLE_RATE)
+    })
+}
+
+fn read_wav(path: &std::path::Path) -> Result<(Vec<f32>, u32, u16), String> {
     let mut reader = hound::WavReader::open(path).map_err(|e| format!("abrir WAV: {e}"))?;
     let spec = reader.spec();
     let raw: Vec<f32> = match spec.sample_format {
@@ -93,19 +123,18 @@ pub(crate) fn decode_wav_16k_mono(path: &std::path::Path) -> Result<Vec<f32>, St
                 .map_err(|e| e.to_string())?
         }
     };
-    let ch = spec.channels.max(1) as usize;
-    let mono: Vec<f32> = if ch == 1 {
-        raw
-    } else {
-        raw.chunks_exact(ch)
-            .map(|f| f.iter().sum::<f32>() / ch as f32)
-            .collect()
-    };
-    Ok(if spec.sample_rate == SAMPLE_RATE {
-        mono
-    } else {
-        resample_linear(&mono, spec.sample_rate, SAMPLE_RATE)
-    })
+    Ok((raw, spec.sample_rate, spec.channels))
+}
+
+fn read_flac(path: &std::path::Path) -> Result<(Vec<f32>, u32, u16), String> {
+    let mut reader = claxon::FlacReader::open(path).map_err(|e| format!("abrir FLAC: {e}"))?;
+    let info = reader.streaminfo();
+    let max = (1i64 << (info.bits_per_sample - 1)) as f32;
+    let mut samples = Vec::new();
+    for s in reader.samples() {
+        samples.push(s.map_err(|e| e.to_string())? as f32 / max);
+    }
+    Ok((samples, info.sample_rate, info.channels as u16))
 }
 
 fn resample_linear(input: &[f32], from: u32, to: u32) -> Vec<f32> {
@@ -137,7 +166,7 @@ fn transcribe_chunked(
     abort: &AtomicBool,
     post_chunk: impl Fn(Vec<u8>, Option<&str>) -> Result<serde_json::Value, String>,
 ) -> Result<Vec<TranscribedLine>, String> {
-    let pcm = decode_wav_16k_mono(&input.wav_path)?;
+    let pcm = decode_audio_16k_mono(&input.wav_path)?;
     let per = CHUNK_SECS * SAMPLE_RATE as usize;
     let total = chunk_count(pcm.len());
     let mut lines = Vec::new();
@@ -326,13 +355,23 @@ mod tests {
         assert_eq!(&bytes[8..12], b"WAVE");
     }
 
+    #[test]
+    fn decode_audio_rejects_unsupported_extension() {
+        let tmp = tempfile::NamedTempFile::with_suffix(".mp3").expect("tempfile");
+        let err = decode_audio_16k_mono(tmp.path()).unwrap_err();
+        assert!(
+            err.contains("no soportado"),
+            "expected 'no soportado' in error, got: {err}"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // Mock HTTP tests (tiny_http)
     // -----------------------------------------------------------------------
 
     /// Build a tiny WAV file (16 kHz mono, 100 ms silence) for mock tests.
     fn make_temp_wav() -> tempfile::NamedTempFile {
-        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let tmp = tempfile::NamedTempFile::with_suffix(".wav").expect("tempfile");
         let spec = hound::WavSpec {
             channels: 1,
             sample_rate: 16_000,
