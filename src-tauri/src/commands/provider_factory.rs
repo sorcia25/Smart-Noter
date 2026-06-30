@@ -69,9 +69,16 @@ pub fn cloud_summarizer(
             if settings.azure_endpoint.trim().is_empty() {
                 return Err("configura el endpoint de Azure en Configuración".to_string());
             }
+            let deployment = settings.model_for(provider);
+            if deployment.is_empty() {
+                return Err(
+                    "configura el nombre de deployment (modelo) de Azure en Configuración"
+                        .to_string(),
+                );
+            }
             Ok(Box::new(AzureProvider::new(
                 settings.azure_endpoint.clone(),
-                settings.model_for(provider),
+                deployment,
                 key.to_string(),
             )))
         }
@@ -99,9 +106,16 @@ pub fn cloud_chat_engine(
             if settings.azure_endpoint.trim().is_empty() {
                 return Err("configura el endpoint de Azure en Configuración".to_string());
             }
+            let deployment = settings.model_for(provider);
+            if deployment.is_empty() {
+                return Err(
+                    "configura el nombre de deployment (modelo) de Azure en Configuración"
+                        .to_string(),
+                );
+            }
             Ok(Box::new(AzureProvider::new(
                 settings.azure_endpoint.clone(),
-                settings.model_for(provider),
+                deployment,
                 key.to_string(),
             )))
         }
@@ -176,7 +190,31 @@ mod tests {
             Err(err) => assert!(err.contains("endpoint de Azure"), "unexpected error: {err}"),
         }
 
+        // Endpoint set + a deployment (model) configured → Ok.
         s.azure_endpoint = "https://my-res.openai.azure.com".to_string();
+        s.provider_models.insert("azure".into(), "gpt-4o".into());
+        assert!(cloud_summarizer("azure", &s, "k").is_ok());
+    }
+
+    #[test]
+    fn cloud_summarizer_azure_requires_deployment() {
+        // Endpoint set but NO deployment configured → Err mentioning "deployment".
+        // Guards against AzureProvider::new("", ...) building a malformed URL.
+        let mut s = AppSettings {
+            azure_endpoint: "https://my-res.openai.azure.com".to_string(),
+            ..Default::default()
+        };
+        match cloud_summarizer("azure", &s, "k") {
+            Ok(_) => panic!("expected Err for azure with empty deployment"),
+            Err(err) => assert!(err.contains("deployment"), "unexpected error: {err}"),
+        }
+
+        // An empty stored deployment also fails (treated as absent).
+        s.provider_models.insert("azure".into(), "".into());
+        assert!(cloud_summarizer("azure", &s, "k").is_err());
+
+        // Once a deployment is set → Ok.
+        s.provider_models.insert("azure".into(), "gpt-4o".into());
         assert!(cloud_summarizer("azure", &s, "k").is_ok());
     }
 
@@ -200,7 +238,11 @@ mod tests {
     fn cloud_chat_engine_azure_requires_endpoint() {
         let mut s = AppSettings::default();
         assert!(cloud_chat_engine("azure", &s, "k").is_err());
+        // Endpoint alone is not enough — a deployment is still required.
         s.azure_endpoint = "https://my-res.openai.azure.com".to_string();
+        assert!(cloud_chat_engine("azure", &s, "k").is_err());
+        // Endpoint + deployment → Ok.
+        s.provider_models.insert("azure".into(), "gpt-4o".into());
         assert!(cloud_chat_engine("azure", &s, "k").is_ok());
     }
 

@@ -206,6 +206,8 @@ mod tests {
         s.provider_models.insert("azure".into(), "my-deploy".into());
         assert_eq!(s.model_for("openai"), "gpt-5-mini"); // per-provider wins
         assert_eq!(s.model_for("azure"), "my-deploy");
+        s.provider_models.insert("openai".into(), "".into()); // empty stored → default wins
+        assert_eq!(s.model_for("openai"), "gpt-4o-mini");
     }
 
     #[test]

@@ -84,14 +84,16 @@ pub async fn update_provider_config(
             .await
             .map_err(from_db)?;
     }
+    // Always persist the active provider — even when only a key (no model) is saved.
+    // The backend is the source of truth for `ai_provider`, independent of FE call order.
+    let mut s = settings_repo::get(&state.pool).await.map_err(from_db)?;
+    s.ai_provider = provider.clone();
     if let Some(m) = model {
-        let mut s = settings_repo::get(&state.pool).await.map_err(from_db)?;
-        s.ai_provider = provider.clone();
         s.provider_models.insert(provider.clone(), m);
-        settings_repo::upsert(&state.pool, &s)
-            .await
-            .map_err(from_db)?;
     }
+    settings_repo::upsert(&state.pool, &s)
+        .await
+        .map_err(from_db)?;
     Ok(())
 }
 
