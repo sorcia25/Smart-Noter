@@ -304,21 +304,33 @@ export default function SettingsPage() {
                     : 'Used when starting a new recording.'}
                 </div>
               </div>
-              <div className={styles.selectTrigger}>
-                <span>
-                  {pickL(
-                    templates.find((tpl) => tpl.id === draft.defaultTemplate)?.name ?? null,
-                    lang
-                  ) || draft.defaultTemplate}
-                </span>
-                <Icon name="chevDown" size={14} />
-              </div>
+              <select
+                aria-label={lang === 'es' ? 'Plantilla por defecto' : 'Default template'}
+                value={draft.defaultTemplate}
+                onChange={(e) => patch({ defaultTemplate: e.target.value })}
+                style={{
+                  padding: '7px 12px',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--stroke-strong)',
+                  borderRadius: 'var(--radius)',
+                  fontSize: 13,
+                  color: 'inherit',
+                  fontFamily: 'inherit',
+                  minWidth: 200,
+                }}
+              >
+                {templates.map((tpl) => (
+                  <option key={tpl.id} value={tpl.id}>
+                    {pickL(tpl.name, lang) || tpl.id}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         )}
 
         <div className={styles.footer}>
-          Smart Noter v3.1.4 ·{' '}
+          Smart Noter v0.4.0 ·{' '}
           <a href="#updates">{lang === 'es' ? 'Buscar actualizaciones' : 'Check for updates'}</a>
         </div>
       </div>

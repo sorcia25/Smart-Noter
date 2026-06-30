@@ -5,11 +5,12 @@ import { useListMeetingsQuery } from '@/store/api/meetings.api';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import styles from './Sidebar.module.css';
 
-// Sub-project 2 swaps this in for the real user pulled from the auth/profile backend.
+// Placeholder user. This footer gets wired to a real profile when cloud sync
+// (audios/transcripts/summaries) lands — see the cloud-integration sub-project.
 const MOCK_USER = {
-  initials: 'CR',
-  name: 'Carlos Rivera',
-  role: 'Pro · v0.1.0',
+  initials: 'TM',
+  name: 'Toño Maldonado',
+  role: 'Pro · v0.4.0',
 } as const;
 
 interface NavEntry {

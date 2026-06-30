@@ -46,7 +46,7 @@ describe('DashboardPage', () => {
   it('renders welcome heading', async () => {
     setup();
     await waitFor(() => {
-      expect(screen.getByText(/Buenas tardes, Carlos/i)).toBeInTheDocument();
+      expect(screen.getByText(/Buenas tardes, Toño/i)).toBeInTheDocument();
     });
   });
 
