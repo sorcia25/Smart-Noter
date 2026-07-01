@@ -54,7 +54,15 @@ pub fn build_messages(input: &AnalysisInput, strict: bool) -> (String, String) {
     let body: String = input
         .transcript
         .iter()
-        .map(|(t, s, txt)| format!("[{:02}:{:02}] {s}: {txt}", t / 60, t % 60))
+        .map(|(t, s, txt)| {
+            // Hour-aware [hh:mm:ss] / [mm:ss] so meetings over an hour stay unambiguous.
+            let (h, m, sec) = (t / 3600, (t % 3600) / 60, t % 60);
+            if h > 0 {
+                format!("[{h:02}:{m:02}:{sec:02}] {s}: {txt}")
+            } else {
+                format!("[{m:02}:{sec:02}] {s}: {txt}")
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n");
     let sections = input.template_sections.join(", ");
