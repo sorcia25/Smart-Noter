@@ -9,6 +9,7 @@ import {
   useCreateMarkerMutation,
   useDeleteMarkerMutation,
   useListMarkersQuery,
+  useUpdateMarkerMutation,
 } from '@/store/api/markers.api';
 import { fmtDuration } from '@/utils/format';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
@@ -56,6 +57,81 @@ function fmtBytes(n: number): string {
 
 function formatLabel(path: string): string {
   return path.toLowerCase().endsWith('.flac') ? 'FLAC' : 'WAV';
+}
+
+interface MarkerRowProps {
+  marker: Marker;
+  lang: 'es' | 'en';
+  autoFocus: boolean;
+  onSeek: (tSeconds: number) => void;
+  onSaveLabel: (id: string, label: string) => void;
+  onDelete: (id: string) => void;
+}
+
+function MarkerRow({ marker, lang, autoFocus, onSeek, onSaveLabel, onDelete }: MarkerRowProps) {
+  const meta = kindMeta(marker.kind);
+  const editable = marker.source === 'manual';
+  const [label, setLabel] = useState(marker.label);
+  // Last value we know is persisted; guards against re-firing the mutation
+  // (Enter then blur, or a commit before the refetch updates marker.label).
+  const savedRef = useRef(marker.label);
+
+  // Keep the local field in sync if the marker's label changes upstream
+  // (e.g. after a refetch), but only while the user is not editing it.
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    savedRef.current = marker.label;
+    if (document.activeElement !== inputRef.current) setLabel(marker.label);
+  }, [marker.label]);
+
+  function commit() {
+    const next = label.trim();
+    if (next === savedRef.current) return;
+    savedRef.current = next;
+    onSaveLabel(marker.id, next);
+  }
+
+  return (
+    <div className={styles.markerRow}>
+      <span className={styles.markerChip} style={{ color: meta.color, borderColor: meta.color }}>
+        <Icon name={meta.icon} size={12} stroke={meta.color} />
+        {meta.label[lang]}
+      </span>
+      <button type="button" className={styles.markerTime} onClick={() => onSeek(marker.tSeconds)}>
+        {fmtDuration(marker.tSeconds)}
+      </button>
+      {editable ? (
+        <input
+          ref={inputRef}
+          className={styles.markerInput}
+          value={label}
+          placeholder={lang === 'es' ? 'Nota…' : 'Note…'}
+          aria-label={lang === 'es' ? 'Nota del marcador' : 'Marker note'}
+          // biome-ignore lint/a11y/noAutofocus: focus a freshly created marker so the user can type its note
+          autoFocus={autoFocus}
+          onChange={(e) => setLabel(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commit();
+              e.currentTarget.blur();
+            }
+          }}
+        />
+      ) : (
+        <span className={styles.markerLabel}>{marker.label}</span>
+      )}
+      <button
+        type="button"
+        className={styles.iconBtn}
+        aria-label={lang === 'es' ? 'Eliminar marcador' : 'Delete marker'}
+        onClick={() => onDelete(marker.id)}
+      >
+        <Icon name="trash" size={14} />
+      </button>
+    </div>
+  );
 }
 
 export interface AudioTabProps {
@@ -131,11 +207,24 @@ export function AudioTab({ meeting, onExport }: AudioTabProps) {
 
   const { data: markers } = useListMarkersQuery(meeting.id);
   const [createMarker] = useCreateMarkerMutation();
+  const [updateMarker] = useUpdateMarkerMutation();
   const [deleteMarker] = useDeleteMarkerMutation();
+  // id of the marker that was just created via "Marcar aquí", so its note
+  // input auto-focuses once it appears in the refetched list.
+  const [justCreatedId, setJustCreatedId] = useState<string | null>(null);
 
-  function markHere() {
+  async function markHere() {
     const tSeconds = Math.floor(audioRef.current?.currentTime ?? 0);
-    void createMarker({ meetingId: meeting.id, tSeconds, label: '' });
+    try {
+      const created = await createMarker({ meetingId: meeting.id, tSeconds, label: '' }).unwrap();
+      setJustCreatedId(created.id);
+    } catch {
+      // ignore — the list simply won't gain a marker
+    }
+  }
+
+  function saveLabel(id: string, label: string) {
+    void updateMarker({ id, label });
   }
 
   const playLabel = lang === 'es' ? 'Reproducir' : 'Play';
@@ -245,7 +334,7 @@ export function AudioTab({ meeting, onExport }: AudioTabProps) {
             <Icon name="pin" size={14} stroke="var(--accent)" />
             <span>{lang === 'es' ? 'Marcadores' : 'Markers'}</span>
           </div>
-          <button type="button" className={styles.markBtn} onClick={markHere}>
+          <button type="button" className={styles.markBtn} onClick={() => void markHere()}>
             <Icon name="plus" size={13} />
             <span>{lang === 'es' ? 'Marcar aquí' : 'Mark here'}</span>
           </button>
@@ -257,36 +346,17 @@ export function AudioTab({ meeting, onExport }: AudioTabProps) {
           </div>
         ) : (
           <div>
-            {markers.map((m: Marker) => {
-              const meta = kindMeta(m.kind);
-              return (
-                <div className={styles.markerRow} key={m.id}>
-                  <span
-                    className={styles.markerChip}
-                    style={{ color: meta.color, borderColor: meta.color }}
-                  >
-                    <Icon name={meta.icon} size={12} stroke={meta.color} />
-                    {meta.label[lang]}
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.markerTime}
-                    onClick={() => seekToSeconds(m.tSeconds)}
-                  >
-                    {fmtDuration(m.tSeconds)}
-                  </button>
-                  <span className={styles.markerLabel}>{m.label}</span>
-                  <button
-                    type="button"
-                    className={styles.iconBtn}
-                    aria-label={lang === 'es' ? 'Eliminar marcador' : 'Delete marker'}
-                    onClick={() => void deleteMarker(m.id)}
-                  >
-                    <Icon name="trash" size={14} />
-                  </button>
-                </div>
-              );
-            })}
+            {markers.map((m: Marker) => (
+              <MarkerRow
+                key={m.id}
+                marker={m}
+                lang={lang}
+                autoFocus={m.id === justCreatedId}
+                onSeek={seekToSeconds}
+                onSaveLabel={saveLabel}
+                onDelete={(id) => void deleteMarker(id)}
+              />
+            ))}
           </div>
         )}
       </div>

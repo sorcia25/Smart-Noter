@@ -157,6 +157,31 @@
   white-space: nowrap;
 }
 
+.markerInput {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.markerInput::placeholder {
+  color: var(--text-muted);
+}
+
+.markerInput:hover {
+  border-color: var(--stroke);
+}
+
+.markerInput:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg-surface);
+}
+
 .iconBtn {
   display: grid;
   place-items: center;
