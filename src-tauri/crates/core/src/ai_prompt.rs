@@ -1,4 +1,4 @@
-use crate::models::ai::{ExtractedAction, MeetingAnalysis};
+use crate::models::ai::{ExtractedAction, Highlight, MarkedItem, MeetingAnalysis};
 use crate::traits::AnalysisInput;
 use crate::Bilingual;
 use serde::Deserialize;
@@ -11,11 +11,20 @@ use serde::Deserialize;
 struct RawAnalysis {
     summary: String,
     #[serde(default)]
-    decisions: Vec<String>,
+    decisions: Vec<RawItem>,
     #[serde(default)]
-    blockers: Vec<String>,
+    blockers: Vec<RawItem>,
     #[serde(default)]
     actions: Vec<RawAction>,
+    #[serde(default)]
+    highlights: Vec<RawHighlight>,
+}
+
+#[derive(Deserialize)]
+struct RawItem {
+    text: String,
+    #[serde(default)]
+    t: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -25,6 +34,14 @@ struct RawAction {
     owner: Option<String>,
     #[serde(default)]
     due: Option<String>,
+    #[serde(default)]
+    t: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct RawHighlight {
+    label: String,
+    t: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -37,7 +54,7 @@ pub fn build_messages(input: &AnalysisInput, strict: bool) -> (String, String) {
     let body: String = input
         .transcript
         .iter()
-        .map(|(s, t)| format!("{s}: {t}"))
+        .map(|(t, s, txt)| format!("[{:02}:{:02}] {s}: {txt}", t / 60, t % 60))
         .collect::<Vec<_>>()
         .join("\n");
     let sections = input.template_sections.join(", ");
@@ -52,9 +69,14 @@ pub fn build_messages(input: &AnalysisInput, strict: bool) -> (String, String) {
     let system = format!(
         "{strict_prefix}\
          Eres un asistente que resume reuniones. Plantilla con secciones: [{sections}].\n\
+         Cada línea de la transcripción empieza con una marca [mm:ss] con el segundo de audio en que ocurre.\n\
          Devuelve SOLO un objeto JSON válido con las claves exactas: \"summary\" (string, en {lang}),\n\
-         \"decisions\" (array de strings), \"blockers\" (array de strings), \"actions\"\n\
-         (array de objetos {{\"text\":..,\"owner\":..|null,\"due\":..|null}}). No añadas texto fuera del JSON."
+         \"decisions\" (array de objetos {{\"text\":..,\"t\":<segundos>}}),\n\
+         \"blockers\" (array de objetos {{\"text\":..,\"t\":<segundos>}}), \"actions\"\n\
+         (array de objetos {{\"text\":..,\"owner\":..|null,\"due\":..|null,\"t\":<segundos>}}),\n\
+         \"highlights\" (array de 3 a 5 objetos {{\"label\":..,\"t\":<segundos>}} con momentos clave\n\
+         que NO estén ya cubiertos por una decisión/acción/bloqueo). En todos los casos \"t\" es el\n\
+         segundo de audio donde ocurre, tomado de las marcas [mm:ss] de la transcripción. No añadas texto fuera del JSON."
     );
     let user = format!("Transcripción:\n{body}");
     (system, user)
@@ -86,8 +108,22 @@ pub fn parse_analysis(raw: &str, lang: &str) -> Result<MeetingAnalysis, String> 
 
     Ok(MeetingAnalysis {
         summary,
-        decisions: r.decisions,
-        blockers: r.blockers,
+        decisions: r
+            .decisions
+            .into_iter()
+            .map(|i| MarkedItem {
+                text: i.text,
+                t_seconds: i.t,
+            })
+            .collect(),
+        blockers: r
+            .blockers
+            .into_iter()
+            .map(|i| MarkedItem {
+                text: i.text,
+                t_seconds: i.t,
+            })
+            .collect(),
         actions: r
             .actions
             .into_iter()
@@ -95,6 +131,15 @@ pub fn parse_analysis(raw: &str, lang: &str) -> Result<MeetingAnalysis, String> 
                 text: a.text,
                 owner_hint: a.owner,
                 due: a.due,
+                t_seconds: a.t,
+            })
+            .collect(),
+        highlights: r
+            .highlights
+            .into_iter()
+            .map(|h| Highlight {
+                label: h.label,
+                t_seconds: h.t,
             })
             .collect(),
     })
@@ -111,14 +156,36 @@ mod tests {
     #[test]
     fn parses_json_block_amid_prose() {
         let raw = r#"Claro, aquí está:
-    {"summary":"Resumen.","decisions":["D1"],"blockers":[],"actions":[{"text":"Hacer X","owner":"Ana","due":"2026-07-01"}]}
+    {"summary":"Resumen.","decisions":[{"text":"D1"}],"blockers":[],"actions":[{"text":"Hacer X","owner":"Ana","due":"2026-07-01"}]}
     Espero que ayude."#;
         let a = parse_analysis(raw, "es").unwrap();
         assert_eq!(a.summary.es, "Resumen.");
-        assert_eq!(a.decisions, vec!["D1"]);
+        assert_eq!(a.decisions[0].text, "D1");
         assert!(a.blockers.is_empty());
         assert_eq!(a.actions[0].text, "Hacer X");
         assert_eq!(a.actions[0].owner_hint.as_deref(), Some("Ana"));
+    }
+
+    #[test]
+    fn parses_items_with_timestamps_and_highlights() {
+        let raw = r#"{"summary":"S.","decisions":[{"text":"D1","t":84}],
+      "blockers":[],"actions":[{"text":"A1","owner":"Ana","due":null,"t":185}],
+      "highlights":[{"label":"Arranque","t":12}]}"#;
+        let a = parse_analysis(raw, "es").unwrap();
+        assert_eq!(a.decisions[0].text, "D1");
+        assert_eq!(a.decisions[0].t_seconds, Some(84));
+        assert_eq!(a.actions[0].t_seconds, Some(185));
+        assert_eq!(a.highlights[0].label, "Arranque");
+        assert_eq!(a.highlights[0].t_seconds, 12);
+    }
+
+    #[test]
+    fn tolerates_missing_t_and_highlights() {
+        let raw = r#"{"summary":"S.","decisions":[{"text":"D1"}],"actions":[{"text":"A1"}]}"#;
+        let a = parse_analysis(raw, "es").unwrap();
+        assert_eq!(a.decisions[0].t_seconds, None);
+        assert_eq!(a.actions[0].t_seconds, None);
+        assert!(a.highlights.is_empty());
     }
 
     #[test]
