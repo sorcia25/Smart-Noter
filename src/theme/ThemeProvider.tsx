@@ -18,14 +18,12 @@ export function ThemeProvider({ theme, accent, avatarStyle, children }: ThemePro
   }, [accent]);
 
   useEffect(() => {
-    const id = '__avatar-style';
-    let s = document.getElementById(id);
-    if (!s) {
-      s = document.createElement('style');
-      s.id = id;
-      document.head.appendChild(s);
-    }
-    s.textContent = avatarStyle === 'square' ? '.avatar { border-radius: 8px !important; }' : '';
+    // Avatars read `--avatar-radius` (Avatar.module.css / Sidebar.module.css). A global
+    // `.avatar` stylesheet wouldn't match — those are hashed CSS-module class names.
+    document.documentElement.style.setProperty(
+      '--avatar-radius',
+      avatarStyle === 'square' ? '8px' : '50%'
+    );
   }, [avatarStyle]);
 
   return <>{children}</>;

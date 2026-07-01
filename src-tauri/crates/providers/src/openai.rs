@@ -222,10 +222,11 @@ mod tests {
         AnalysisInput {
             transcript: vec![
                 (
+                    0,
                     "Alice".to_string(),
                     "We decided to launch next Monday.".to_string(),
                 ),
-                ("Bob".to_string(), "Blocker: CI is failing.".to_string()),
+                (30, "Bob".to_string(), "Blocker: CI is failing.".to_string()),
             ],
             template_sections: vec!["Resumen".to_string(), "Decisiones".to_string()],
             lang: "es".to_string(),
@@ -238,7 +239,7 @@ mod tests {
     #[test]
     fn analyze_parses_summary_and_decisions() {
         let content_json =
-            r#"{"summary":"Resumen.","decisions":["D1"],"blockers":[],"actions":[]}"#;
+            r#"{"summary":"Resumen.","decisions":[{"text":"D1"}],"blockers":[],"actions":[]}"#;
         let body = serde_json::json!({
             "choices": [{"message": {"content": content_json}}]
         })
@@ -265,7 +266,7 @@ mod tests {
             .expect("analyze should succeed");
 
         assert_eq!(analysis.summary.es, "Resumen.");
-        assert_eq!(analysis.decisions, vec!["D1"]);
+        assert_eq!(analysis.decisions[0].text, "D1");
     }
 
     // ------------------------------------------------------------------

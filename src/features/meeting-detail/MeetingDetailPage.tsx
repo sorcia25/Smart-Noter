@@ -81,13 +81,6 @@ export default function MeetingDetailPage() {
         </div>
         <div className={styles.actions}>
           <Button
-            icon={<Icon name="share" size={14} />}
-            disabled
-            title={lang === 'es' ? 'Próximamente' : 'Coming soon'}
-          >
-            {t('share')}
-          </Button>
-          <Button
             variant="primary"
             icon={<Icon name="download" size={14} />}
             onClick={() => setExportOpen(true)}
@@ -110,7 +103,7 @@ export default function MeetingDetailPage() {
               meetingId={meeting.id}
             />
           )}
-          {tab === 'audio' && <AudioTab meeting={meeting} />}
+          {tab === 'audio' && <AudioTab meeting={meeting} onExport={() => setExportOpen(true)} />}
         </div>
         <SidePanel participants={meeting.participants} meetingId={meeting.id} />
       </div>

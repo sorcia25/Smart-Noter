@@ -228,16 +228,32 @@ pub fn run_summary(
         })
         .collect();
 
-    // 3. Build the transcript pairs (speaker_label, text_es).
-    let transcript_pairs: Vec<(String, String)> = detail
-        .transcript
-        .iter()
-        .map(|line| {
-            let label = label_map
-                .get(&line.speaker_id)
-                .cloned()
-                .unwrap_or_else(|| line.speaker_id.clone());
-            (label, line.text.es.clone())
+    // 3. Build the timestamped transcript triples (t_seconds, speaker_label, text_es).
+    //    Sourced directly from `transcript_lines` (not `detail.transcript`, whose
+    //    `TranscriptLine` IPC type only exposes a display `t`, not raw seconds).
+    let rows: Vec<(i64, Option<String>, String)> = match tauri::async_runtime::block_on(
+        sqlx::query_as(
+            "SELECT t_seconds, speaker_id, text_es FROM transcript_lines WHERE meeting_id = ? ORDER BY t_seconds",
+        )
+        .bind(&meeting_id)
+        .fetch_all(&pool),
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            emit_failed("DatabaseError", &format!("transcript_lines: {e}"));
+            finish(&summary_slot);
+            return;
+        }
+    };
+    let transcript_pairs: Vec<(u32, String, String)> = rows
+        .into_iter()
+        .map(|(t, sid, text)| {
+            let label = sid
+                .as_ref()
+                .and_then(|s| label_map.get(s).cloned())
+                .or(sid)
+                .unwrap_or_default();
+            (t.max(0) as u32, label, text)
         })
         .collect();
 
@@ -331,21 +347,35 @@ pub fn run_summary(
 
     emit_progress(90);
 
-    // 6. Persist: update summary, replace AI decisions/blockers/actions.
+    // 6. Persist: update summary, replace AI decisions/blockers/actions/markers.
+    //    Error type is `String` (not `DbError`) because the markers step below
+    //    goes through `MarkersRepo`, whose methods return `AppError`.
     let persist_result = tauri::async_runtime::block_on(async {
-        meetings_repo::update_summary(&pool, &meeting_id, &analysis.summary).await?;
+        meetings_repo::update_summary(&pool, &meeting_id, &analysis.summary)
+            .await
+            .map_err(|e| e.to_string())?;
 
-        decisions_repo::delete_ai(&pool, &meeting_id).await?;
-        for text in &analysis.decisions {
-            decisions_repo::create_with_source(&pool, &meeting_id, text, "ai").await?;
+        decisions_repo::delete_ai(&pool, &meeting_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        for d in &analysis.decisions {
+            decisions_repo::create_with_source(&pool, &meeting_id, &d.text, "ai")
+                .await
+                .map_err(|e| e.to_string())?;
         }
 
-        blockers_repo::delete_ai(&pool, &meeting_id).await?;
-        for text in &analysis.blockers {
-            blockers_repo::create_with_source(&pool, &meeting_id, text, "ai").await?;
+        blockers_repo::delete_ai(&pool, &meeting_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        for b in &analysis.blockers {
+            blockers_repo::create_with_source(&pool, &meeting_id, &b.text, "ai")
+                .await
+                .map_err(|e| e.to_string())?;
         }
 
-        actions_repo::delete_ai(&pool, &meeting_id).await?;
+        actions_repo::delete_ai(&pool, &meeting_id)
+            .await
+            .map_err(|e| e.to_string())?;
         for action in &analysis.actions {
             actions_repo::create_with_source(
                 &pool,
@@ -355,10 +385,40 @@ pub fn run_summary(
                 action.due.as_deref(),
                 "ai",
             )
-            .await?;
+            .await
+            .map_err(|e| e.to_string())?;
         }
 
-        Ok::<(), smart_noter_db::DbError>(())
+        // Populate AI markers from the timestamped decisions/blockers/actions plus
+        // the highlights, clamped to the meeting's real duration.
+        use smart_noter_db::repos::markers_repo::MarkersRepo;
+        let dur = detail.duration_sec.max(0) as u32;
+        let clamp = |t: u32| t.min(dur) as i64;
+        let mut mk: Vec<(i64, String, String)> = Vec::new();
+        for d in &analysis.decisions {
+            if let Some(t) = d.t_seconds {
+                mk.push((clamp(t), "decision".into(), d.text.clone()));
+            }
+        }
+        for b in &analysis.blockers {
+            if let Some(t) = b.t_seconds {
+                mk.push((clamp(t), "blocker".into(), b.text.clone()));
+            }
+        }
+        for a in &analysis.actions {
+            if let Some(t) = a.t_seconds {
+                mk.push((clamp(t), "action".into(), a.text.clone()));
+            }
+        }
+        for h in &analysis.highlights {
+            mk.push((clamp(h.t_seconds), "highlight".into(), h.label.clone()));
+        }
+        MarkersRepo(&pool)
+            .replace_ai(&meeting_id, &mk)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok::<(), String>(())
     });
 
     match persist_result {
@@ -378,7 +438,14 @@ pub fn run_summary(
     //    The LLM lock is held only during inference; it is dropped before the DB write
     //    so we don't serialize all inference behind the upsert round-trip.
     {
-        let text_chunks = chunk_transcript(&input.transcript, LINES_PER_CHUNK);
+        // chunk_transcript works on (speaker_label, text) pairs; the timestamp
+        // carried in `input.transcript` isn't needed for RAG chunking, so drop it here.
+        let speaker_text_pairs: Vec<(String, String)> = input
+            .transcript
+            .iter()
+            .map(|(_, s, t)| (s.clone(), t.clone()))
+            .collect();
+        let text_chunks = chunk_transcript(&speaker_text_pairs, LINES_PER_CHUNK);
         let maybe_chunks_with_vectors: Option<Vec<(i64, String, Vec<f32>)>> =
             match crate::commands::provider_factory::embed_texts(
                 &provider,

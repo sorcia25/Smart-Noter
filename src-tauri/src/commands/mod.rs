@@ -3,6 +3,7 @@ pub mod audio;
 pub mod devices;
 pub mod export;
 pub mod log;
+pub mod markers;
 pub mod meetings;
 pub mod provider_factory;
 pub mod providers;

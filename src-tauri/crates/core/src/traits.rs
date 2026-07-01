@@ -4,8 +4,10 @@ use std::sync::atomic::AtomicBool;
 
 /// Input fed to the Summarizer for a single meeting.
 pub struct AnalysisInput {
-    /// Ordered pairs of (speaker_label, text) from the transcript.
-    pub transcript: Vec<(String, String)>,
+    /// Ordered (t_seconds, speaker_label, text) triples from the transcript.
+    /// `t_seconds` is rendered as a `[mm:ss]` marker so the LLM can anchor
+    /// decisions/blockers/actions/highlights to an audio timestamp.
+    pub transcript: Vec<(u32, String, String)>,
     /// The meeting's template section names.
     pub template_sections: Vec<String>,
     /// Output language: "es" | "en".

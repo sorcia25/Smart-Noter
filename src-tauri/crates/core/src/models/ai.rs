@@ -20,15 +20,33 @@ pub struct ExtractedAction {
     pub text: String,
     pub owner_hint: Option<String>,
     pub due: Option<String>,
+    /// Audio anchor in seconds, taken from the transcript's `[mm:ss]` markers.
+    /// `None` if the LLM didn't provide one.
+    pub t_seconds: Option<u32>,
+}
+
+/// A summary item (decision/blocker) with an optional audio anchor.
+#[derive(Debug, Clone)]
+pub struct MarkedItem {
+    pub text: String,
+    pub t_seconds: Option<u32>,
+}
+
+/// A key moment the LLM flagged that isn't already a decision/action/blocker.
+#[derive(Debug, Clone)]
+pub struct Highlight {
+    pub label: String,
+    pub t_seconds: u32,
 }
 
 /// The structured result of analyzing one meeting transcript (internal Rust type).
 #[derive(Debug, Clone)]
 pub struct MeetingAnalysis {
     pub summary: Bilingual,
-    pub decisions: Vec<String>,
-    pub blockers: Vec<String>,
+    pub decisions: Vec<MarkedItem>,
+    pub blockers: Vec<MarkedItem>,
     pub actions: Vec<ExtractedAction>,
+    pub highlights: Vec<Highlight>,
 }
 
 impl Default for MeetingAnalysis {
@@ -38,6 +56,7 @@ impl Default for MeetingAnalysis {
             decisions: Vec::new(),
             blockers: Vec::new(),
             actions: Vec::new(),
+            highlights: Vec::new(),
         }
     }
 }

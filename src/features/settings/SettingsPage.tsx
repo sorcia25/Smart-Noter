@@ -1,6 +1,7 @@
 import { Button } from '@/components/primitives/Button/Button';
 import { Icon } from '@/components/primitives/Icon/Icon';
 import { SegmentedControl } from '@/components/primitives/SegmentedControl/SegmentedControl';
+import { toast } from '@/components/primitives/Toast/Toast';
 import { Toggle } from '@/components/primitives/Toggle/Toggle';
 import { useT } from '@/i18n/useT';
 import type { AppSettings, AvatarStyle, CaptureMode, Language, Theme } from '@/ipc/bindings';
@@ -10,6 +11,7 @@ import { useListTemplatesQuery } from '@/store/api/templates.api';
 import { useAppDispatch } from '@/store/hooks';
 import { setAccent, setLanguage, setTheme } from '@/store/slices/ui.slice';
 import { pickL } from '@/utils/format';
+import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useState } from 'react';
 import { AiModelPanel } from './AiModelPanel';
 import { DiarizationPanel } from './DiarizationPanel';
@@ -62,6 +64,32 @@ export default function SettingsPage() {
 
   function patch(p: Partial<AppSettings>) {
     setDraft((prev: AppSettings) => ({ ...prev, ...p }));
+  }
+
+  // Audio storage location — managed by dedicated commands (the move + DB repoint
+  // happen in the backend), kept in sync with the draft so the debounce-save
+  // doesn't revert it.
+  const [storageDir, setStorageDir] = useState<string>('');
+  useEffect(() => {
+    void invoke<string>('get_storage_dir')
+      .then(setStorageDir)
+      .catch(() => {});
+  }, []);
+  async function changeStorageDir() {
+    try {
+      const next = await invoke<string | null>('set_storage_dir');
+      if (next) {
+        setStorageDir(next);
+        patch({ storageDir: next });
+        toast.success(lang === 'es' ? 'Ubicación actualizada' : 'Location updated', {
+          description: next,
+        });
+      }
+    } catch (e) {
+      toast.error(lang === 'es' ? 'No se pudo cambiar la ubicación' : 'Could not change location', {
+        description: String(e),
+      });
+    }
   }
 
   const captureModes: { value: CaptureMode; label: string }[] = [
@@ -278,10 +306,10 @@ export default function SettingsPage() {
                 {lang === 'es' ? 'Ubicación de archivos' : 'File location'}
               </div>
               <div className={styles.rowDesc} style={{ fontFamily: 'var(--font-mono)' }}>
-                C:\Users\carlos\Documents\SmartNoter
+                {storageDir || (lang === 'es' ? 'Cargando…' : 'Loading…')}
               </div>
             </div>
-            <Button disabled title={lang === 'es' ? 'Próximamente' : 'Coming soon'}>
+            <Button onClick={() => void changeStorageDir()}>
               {lang === 'es' ? 'Cambiar' : 'Change'}
             </Button>
           </div>
@@ -304,21 +332,33 @@ export default function SettingsPage() {
                     : 'Used when starting a new recording.'}
                 </div>
               </div>
-              <div className={styles.selectTrigger}>
-                <span>
-                  {pickL(
-                    templates.find((tpl) => tpl.id === draft.defaultTemplate)?.name ?? null,
-                    lang
-                  ) || draft.defaultTemplate}
-                </span>
-                <Icon name="chevDown" size={14} />
-              </div>
+              <select
+                aria-label={lang === 'es' ? 'Plantilla por defecto' : 'Default template'}
+                value={draft.defaultTemplate}
+                onChange={(e) => patch({ defaultTemplate: e.target.value })}
+                style={{
+                  padding: '7px 12px',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--stroke-strong)',
+                  borderRadius: 'var(--radius)',
+                  fontSize: 13,
+                  color: 'inherit',
+                  fontFamily: 'inherit',
+                  minWidth: 200,
+                }}
+              >
+                {templates.map((tpl) => (
+                  <option key={tpl.id} value={tpl.id}>
+                    {pickL(tpl.name, lang) || tpl.id}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         )}
 
         <div className={styles.footer}>
-          Smart Noter v3.1.4 ·{' '}
+          Smart Noter v0.4.0 ·{' '}
           <a href="#updates">{lang === 'es' ? 'Buscar actualizaciones' : 'Check for updates'}</a>
         </div>
       </div>

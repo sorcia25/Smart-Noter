@@ -36,6 +36,11 @@ pub struct AppSettings {
     pub provider_models: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub azure_endpoint: String,
+    /// Absolute path where recorded audio is stored. Empty = the default
+    /// `app_data_dir/audio`. Changed via `set_storage_dir` (which also relocates
+    /// existing files). `audio_dir()` resolves this at startup into AppState.
+    #[serde(default)]
+    pub storage_dir: String,
 }
 
 #[derive(Debug, Clone, Type, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,6 +89,7 @@ impl Default for AppSettings {
             ai_provider: "local".into(),
             provider_models: std::collections::BTreeMap::new(),
             azure_endpoint: String::new(),
+            storage_dir: String::new(),
         }
     }
 }

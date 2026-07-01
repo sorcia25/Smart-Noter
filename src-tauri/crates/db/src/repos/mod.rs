@@ -3,6 +3,7 @@ pub mod blockers_repo;
 pub mod chat_repo;
 pub mod decisions_repo;
 pub mod embeddings_repo;
+pub mod markers_repo;
 pub mod meeting_assets_repo;
 pub mod meetings_repo;
 pub mod participants_repo;

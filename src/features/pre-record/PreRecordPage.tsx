@@ -17,7 +17,7 @@ import { useListTemplatesQuery } from '@/store/api/templates.api';
 import { pickL } from '@/utils/format';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import styles from './PreRecordPage.module.css';
 
@@ -50,11 +50,25 @@ export default function PreRecordPage() {
   const recordMode: CaptureMode =
     settings?.captureMode === 'mix' && previewMode === 'system' ? 'mix' : previewMode;
 
-  const [templateId, setTemplateId] = useState<string>(searchParams.get('tpl') ?? 'tecnica');
+  const [templateId, setTemplateId] = useState<string>(searchParams.get('tpl') ?? '');
   const [name, setName] = useState('');
   const [speakerHint, setSpeakerHint] = useState<number | null>(null);
   const [detectLang, setDetectLang] = useState(true);
   const [saveAudio, setSaveAudio] = useState(true);
+
+  // Seed the template from Settings' default once, unless a ?tpl= param was passed.
+  const tplInitialized = useRef(false);
+  useEffect(() => {
+    if (tplInitialized.current) return;
+    if (searchParams.get('tpl')) {
+      tplInitialized.current = true;
+      return;
+    }
+    if (settings) {
+      setTemplateId(settings.defaultTemplate || 'tecnica');
+      tplInitialized.current = true;
+    }
+  }, [settings, searchParams]);
 
   useEffect(() => {
     if (!deviceId && devices.length > 0) {

@@ -61,6 +61,12 @@ pub fn specta_builder() -> Builder {
         commands::devices::list_audio_devices,
         commands::settings::get_settings,
         commands::settings::update_settings,
+        commands::settings::get_storage_dir,
+        commands::settings::set_storage_dir,
+        commands::markers::list_markers,
+        commands::markers::create_marker,
+        commands::markers::update_marker,
+        commands::markers::delete_marker,
         commands::log::log_frontend_error,
         commands::transcription::transcribe_meeting,
         commands::transcription::cancel_transcription,
@@ -72,6 +78,7 @@ pub fn specta_builder() -> Builder {
         commands::transcription::download_diarization_model,
         commands::transcription::delete_diarization_model,
         commands::export::export_meeting,
+        commands::export::get_meeting_audio,
         commands::ai::generate_summary,
         commands::ai::cancel_summary,
         commands::ai::update_summary_text,
@@ -99,11 +106,6 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
-
-            // Sweep orphaned tmp-* files before any DB or UI work.
-            if let Ok(app_data) = app.handle().path().app_data_dir() {
-                sweep_orphan_tmp_files(&app_data.join("audio"));
-            }
 
             let app_handle = app.handle().clone();
             tauri::async_runtime::block_on(async move {
@@ -148,6 +150,23 @@ pub fn run() {
                     tracing::warn!("fts backfill failed: {e}");
                 }
 
+                // Resolve the effective audio storage dir (a configured storage_dir or the
+                // app_data/audio default), then sweep tmp orphans there. Must run after the
+                // DB is up since the override lives in settings.
+                let resolved_audio_dir = match smart_noter_db::repos::settings_repo::get(&pool)
+                    .await
+                {
+                    Ok(s) if !s.storage_dir.is_empty() => std::path::PathBuf::from(s.storage_dir),
+                    _ => app_data.join("audio"),
+                };
+                std::fs::create_dir_all(&resolved_audio_dir).ok();
+                sweep_orphan_tmp_files(&resolved_audio_dir);
+                // Let the asset protocol serve audio from a custom storage dir — the
+                // static config scope only covers the default app_data/audio.
+                let _ = app_handle
+                    .asset_protocol_scope()
+                    .allow_directory(&resolved_audio_dir, false);
+
                 app_handle.manage(AppState {
                     pool,
                     capture_session: std::sync::Arc::new(parking_lot::Mutex::new(
@@ -160,6 +179,7 @@ pub fn run() {
                     summary: std::sync::Arc::new(parking_lot::Mutex::new(None)),
                     llm_download: std::sync::Arc::new(parking_lot::Mutex::new(None)),
                     chat: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+                    audio_dir: std::sync::Arc::new(parking_lot::Mutex::new(resolved_audio_dir)),
                 });
             });
             Ok(())

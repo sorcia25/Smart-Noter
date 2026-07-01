@@ -32,7 +32,7 @@ pub fn start_preview(
 
     // Lives in the audio dir with `tmp-preview-` prefix so the startup sweep
     // (Task 4.6) can reclaim it if the app crashed mid-preview.
-    let tmp = audio_dir(&app)?.join(format!("tmp-preview-{}.wav", std::process::id()));
+    let tmp = audio_dir(&state)?.join(format!("tmp-preview-{}.wav", std::process::id()));
     match Recorder::start(app, capture_mode, device_id, AudioFormat::Wav, tmp) {
         Ok(recorder) => {
             *state.recorder.lock() = Some(recorder);
@@ -117,7 +117,8 @@ pub fn start_recording(
         .begin_recording(session_id.clone())
         .map_err(AppError::from)?;
 
-    let tmp_path = audio_dir(&app)?.join(format!("tmp-{session_id}.{ext}", ext = ext_for(format)));
+    let tmp_path =
+        audio_dir(&state)?.join(format!("tmp-{session_id}.{ext}", ext = ext_for(format)));
     match Recorder::start(app, capture_mode, device_id, format, tmp_path) {
         Ok(recorder) => {
             let sample_rate = recorder.stream.sample_rate;
@@ -171,13 +172,12 @@ pub fn resume_recording(state: tauri::State<'_, crate::state::AppState>) -> Resu
     Ok(())
 }
 
-fn audio_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, AppError> {
-    use tauri::Manager;
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::Internal(format!("app_data_dir: {e}")))?
-        .join("audio");
+fn audio_dir(
+    state: &tauri::State<'_, crate::state::AppState>,
+) -> Result<std::path::PathBuf, AppError> {
+    // Resolved once at startup (settings.storage_dir or the default) and kept in
+    // AppState; set_storage_dir updates it. Create on demand in case it was removed.
+    let dir = state.audio_dir.lock().clone();
     std::fs::create_dir_all(&dir)
         .map_err(|e| AppError::Internal(format!("create audio dir: {e}")))?;
     Ok(dir)
@@ -265,7 +265,6 @@ pub fn stop_recording(
 #[specta::specta]
 pub async fn finalize_recording(
     state: tauri::State<'_, crate::state::AppState>,
-    app: tauri::AppHandle,
     session_id: String,
     title: String,
     template_id: String,
@@ -291,7 +290,7 @@ pub async fn finalize_recording(
         .extension()
         .and_then(|s| s.to_str())
         .ok_or_else(|| AppError::Internal(format!("tmp_path missing extension: {tmp_path:?}")))?;
-    let final_path = audio_dir(&app)?.join(format!("{meeting_id}.{ext}"));
+    let final_path = audio_dir(&state)?.join(format!("{meeting_id}.{ext}"));
     std::fs::rename(&tmp_path, &final_path)
         .map_err(|e| AppError::Internal(format!("rename {tmp_path:?}: {e}")))?;
 

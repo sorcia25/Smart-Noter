@@ -24,6 +24,6 @@ const tauriBaseQuery: BaseQueryFn<InvokeArgs, unknown, AppError> = async ({ cmd,
 
 export const baseApi = createApi({
   baseQuery: tauriBaseQuery,
-  tagTypes: ['Meeting', 'Template', 'AudioDevice', 'Settings', 'Trash', 'ProviderConfig'],
+  tagTypes: ['Meeting', 'Template', 'AudioDevice', 'Settings', 'Trash', 'ProviderConfig', 'Marker'],
   endpoints: () => ({}),
 });

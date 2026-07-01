@@ -19,6 +19,7 @@ async fn migration_creates_expected_tables() {
             "blockers",
             "chat_messages",
             "decisions",
+            "markers",
             "meeting_assets",
             "meeting_search",
             "meetings",

@@ -150,7 +150,7 @@
 .avatar {
   width: 30px;
   height: 30px;
-  border-radius: 50%;
+  border-radius: var(--avatar-radius, 50%);
   background: linear-gradient(135deg, #6366f1, #a855f7);
   color: white;
   font-size: 11px;

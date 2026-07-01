@@ -1,14 +1,21 @@
 import { Button } from '@/components/primitives/Button/Button';
 import { Chip } from '@/components/primitives/Chip/Chip';
-import { Icon, type IconName } from '@/components/primitives/Icon/Icon';
+import { Icon } from '@/components/primitives/Icon/Icon';
+import type { IconName } from '@/components/primitives/Icon/icons';
 import { SegmentedControl } from '@/components/primitives/SegmentedControl/SegmentedControl';
 import { useT } from '@/i18n/useT';
-import type { MeetingDetail } from '@/ipc/bindings';
+import type { Marker, MeetingAudioInfo, MeetingDetail } from '@/ipc/bindings';
+import {
+  useCreateMarkerMutation,
+  useDeleteMarkerMutation,
+  useListMarkersQuery,
+  useUpdateMarkerMutation,
+} from '@/store/api/markers.api';
 import { fmtDuration } from '@/utils/format';
-import { useMemo } from 'react';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import styles from './AudioTab.module.css';
 
-const PROGRESS = 0.32;
 type Speed = '0.5x' | '1x' | '1.5x' | '2x';
 
 const SPEED_OPTIONS = [
@@ -18,15 +25,133 @@ const SPEED_OPTIONS = [
   { value: '2x' as Speed, label: '2×' },
 ];
 
-export interface AudioTabProps {
-  meeting: MeetingDetail;
+interface KindMeta {
+  label: { es: string; en: string };
+  icon: IconName;
+  color: string;
 }
 
-export function AudioTab({ meeting }: AudioTabProps) {
-  const { t, lang } = useT();
+const KIND_META: Record<string, KindMeta> = {
+  decision: { label: { es: 'Decisión', en: 'Decision' }, icon: 'check', color: 'var(--accent)' },
+  action: { label: { es: 'Acción', en: 'Action' }, icon: 'zap', color: '#c99a2e' },
+  blocker: { label: { es: 'Bloqueo', en: 'Blocker' }, icon: 'flag', color: '#d1453b' },
+  highlight: { label: { es: 'Destacado', en: 'Highlight' }, icon: 'sparkles', color: '#7c5cff' },
+  manual: { label: { es: 'Manual', en: 'Manual' }, icon: 'pin', color: 'var(--text-muted)' },
+};
 
+const FALLBACK_KIND_META: KindMeta = {
+  label: { es: 'Manual', en: 'Manual' },
+  icon: 'pin',
+  color: 'var(--text-muted)',
+};
+
+function kindMeta(kind: string): KindMeta {
+  return KIND_META[kind] ?? FALLBACK_KIND_META;
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatLabel(path: string): string {
+  return path.toLowerCase().endsWith('.flac') ? 'FLAC' : 'WAV';
+}
+
+interface MarkerRowProps {
+  marker: Marker;
+  lang: 'es' | 'en';
+  autoFocus: boolean;
+  onSeek: (tSeconds: number) => void;
+  onSaveLabel: (id: string, label: string) => void;
+  onDelete: (id: string) => void;
+}
+
+function MarkerRow({ marker, lang, autoFocus, onSeek, onSaveLabel, onDelete }: MarkerRowProps) {
+  const meta = kindMeta(marker.kind);
+  const editable = marker.source === 'manual';
+  const [label, setLabel] = useState(marker.label);
+  // Last value we know is persisted; guards against re-firing the mutation
+  // (Enter then blur, or a commit before the refetch updates marker.label).
+  const savedRef = useRef(marker.label);
+
+  // Keep the local field in sync if the marker's label changes upstream
+  // (e.g. after a refetch), but only while the user is not editing it.
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    savedRef.current = marker.label;
+    if (document.activeElement !== inputRef.current) setLabel(marker.label);
+  }, [marker.label]);
+
+  function commit() {
+    const next = label.trim();
+    if (next === savedRef.current) return;
+    savedRef.current = next;
+    onSaveLabel(marker.id, next);
+  }
+
+  return (
+    <div className={styles.markerRow}>
+      <span className={styles.markerChip} style={{ color: meta.color, borderColor: meta.color }}>
+        <Icon name={meta.icon} size={12} stroke={meta.color} />
+        {meta.label[lang]}
+      </span>
+      <button type="button" className={styles.markerTime} onClick={() => onSeek(marker.tSeconds)}>
+        {fmtDuration(marker.tSeconds)}
+      </button>
+      {editable ? (
+        <input
+          ref={inputRef}
+          className={styles.markerInput}
+          value={label}
+          placeholder={lang === 'es' ? 'Nota…' : 'Note…'}
+          aria-label={lang === 'es' ? 'Nota del marcador' : 'Marker note'}
+          // biome-ignore lint/a11y/noAutofocus: focus a freshly created marker so the user can type its note
+          autoFocus={autoFocus}
+          onChange={(e) => setLabel(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commit();
+              e.currentTarget.blur();
+            }
+          }}
+        />
+      ) : (
+        <span className={styles.markerLabel}>{marker.label}</span>
+      )}
+      <button
+        type="button"
+        className={styles.iconBtn}
+        aria-label={lang === 'es' ? 'Eliminar marcador' : 'Delete marker'}
+        onClick={() => onDelete(marker.id)}
+      >
+        <Icon name="trash" size={14} />
+      </button>
+    </div>
+  );
+}
+
+export interface AudioTabProps {
+  meeting: MeetingDetail;
+  onExport: () => void;
+}
+
+export function AudioTab({ meeting, onExport }: AudioTabProps) {
+  const { t, lang } = useT();
+  const audioRef = useRef<HTMLAudioElement>(null);
+  // undefined = loading, null = no audio saved, object = ready
+  const [info, setInfo] = useState<MeetingAudioInfo | null | undefined>(undefined);
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(meeting.durationSec);
+  const [speed, setSpeed] = useState<Speed>('1x');
+
+  // Decorative stable waveform (seeded by id). The bar heights are cosmetic; the
+  // played/seek behaviour is real — driven by the <audio> element's currentTime.
   const bars = useMemo(() => {
-    // Deterministic synthetic waveform per meeting (seeded by id length so it's stable)
     const seed = meeting.id.length;
     return Array.from({ length: 120 }, (_, i) => {
       const sine = 0.2 + Math.sin(i / 4) * 0.3;
@@ -35,25 +160,75 @@ export function AudioTab({ meeting }: AudioTabProps) {
     });
   }, [meeting.id]);
 
-  const markers: { t: string; txt: string; icon: IconName }[] = [
-    {
-      t: '00:01:24',
-      txt: lang === 'es' ? 'Decisión: agendar sesión con SAP' : 'Decision: schedule SAP session',
-      icon: 'check',
-    },
-    {
-      t: '00:01:42',
-      txt: lang === 'es' ? 'Confirmación de Go-Live para 18 dic' : 'Go-Live confirmed for Dec 18',
-      icon: 'flag',
-    },
-    {
-      t: '00:03:05',
-      txt: lang === 'es' ? 'Acción: contratar consultor SAP' : 'Action: hire SAP consultant',
-      icon: 'zap',
-    },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    invoke<MeetingAudioInfo | null>('get_meeting_audio', { meetingId: meeting.id })
+      .then((res) => {
+        if (!cancelled) setInfo(res ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setInfo(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [meeting.id]);
 
-  const playedSec = Math.floor(meeting.durationSec * PROGRESS);
+  const src = info ? convertFileSrc(info.path) : undefined;
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = Number.parseFloat(speed);
+  }, [speed]);
+
+  const progress = duration > 0 ? current / duration : 0;
+
+  function togglePlay() {
+    const el = audioRef.current;
+    if (!el) return;
+    if (el.paused) void el.play();
+    else el.pause();
+  }
+
+  function skip(delta: number) {
+    const el = audioRef.current;
+    if (!el) return;
+    el.currentTime = Math.max(0, Math.min(duration, el.currentTime + delta));
+  }
+
+  function seekToFraction(fraction: number) {
+    const el = audioRef.current;
+    if (!el || duration <= 0) return;
+    el.currentTime = Math.max(0, Math.min(duration, fraction * duration));
+  }
+
+  function seekToSeconds(tSeconds: number) {
+    if (audioRef.current) audioRef.current.currentTime = Math.min(tSeconds, duration);
+  }
+
+  const { data: markers } = useListMarkersQuery(meeting.id);
+  const [createMarker] = useCreateMarkerMutation();
+  const [updateMarker] = useUpdateMarkerMutation();
+  const [deleteMarker] = useDeleteMarkerMutation();
+  // id of the marker that was just created via "Marcar aquí", so its note
+  // input auto-focuses once it appears in the refetched list.
+  const [justCreatedId, setJustCreatedId] = useState<string | null>(null);
+
+  async function markHere() {
+    const tSeconds = Math.floor(audioRef.current?.currentTime ?? 0);
+    try {
+      const created = await createMarker({ meetingId: meeting.id, tSeconds, label: '' }).unwrap();
+      setJustCreatedId(created.id);
+    } catch {
+      // ignore — the list simply won't gain a marker
+    }
+  }
+
+  function saveLabel(id: string, label: string) {
+    void updateMarker({ id, label });
+  }
+
+  const playLabel = lang === 'es' ? 'Reproducir' : 'Play';
+  const pauseLabel = lang === 'es' ? 'Pausar' : 'Pause';
 
   return (
     <div>
@@ -63,68 +238,127 @@ export function AudioTab({ meeting }: AudioTabProps) {
             <Icon name="mic" size={14} stroke="var(--accent)" />
             <span>{t('audio')}</span>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Chip disabled>{'WAV · 48 kHz'}</Chip>
-            <Chip disabled>{'47.2 MB'}</Chip>
+          {info && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Chip disabled>{formatLabel(info.path)}</Chip>
+              <Chip disabled>{fmtBytes(info.sizeBytes)}</Chip>
+            </div>
+          )}
+        </div>
+
+        {info === undefined && (
+          <div className={styles.empty}>{lang === 'es' ? 'Cargando audio…' : 'Loading audio…'}</div>
+        )}
+        {info === null && (
+          <div className={styles.empty}>
+            {lang === 'es'
+              ? 'No se guardó audio para esta reunión.'
+              : 'No audio was saved for this meeting.'}
           </div>
-        </div>
-        <div className={styles.waveform}>
-          {bars.map((b, i) => {
-            const isPlayed = i / bars.length < PROGRESS;
-            return (
-              <div
-                // biome-ignore lint/suspicious/noArrayIndexKey: bars are positional and never reorder
-                key={i}
-                className={`${styles.bar} ${isPlayed ? styles.barPlayed : styles.barUnplayed}`}
-                style={{ height: `${Math.round(b * 100)}%` }}
-              />
-            );
-          })}
-        </div>
-        <div className={styles.controls}>
-          <Button size="icon" disabled>
-            <Icon name="back" size={14} />
-          </Button>
-          <button
-            type="button"
-            className={styles.playBtn}
-            aria-label={t('play')}
-            disabled
-            title={lang === 'es' ? 'Próximamente' : 'Coming soon'}
-          >
-            <Icon name="play" size={18} stroke="currentColor" />
-          </button>
-          <Button size="icon" disabled>
-            <Icon name="forward" size={14} />
-          </Button>
-          <span className={styles.time}>
-            {fmtDuration(playedSec)} / {fmtDuration(meeting.durationSec)}
-          </span>
-          <div className={styles.flex1} />
-          <SegmentedControl<Speed> value="1x" options={SPEED_OPTIONS} onChange={() => {}} />
-          <Button size="icon" disabled>
-            <Icon name="download" size={14} />
-          </Button>
-        </div>
+        )}
+
+        {info && (
+          <>
+            {/* biome-ignore lint/a11y/useMediaCaption: a meeting recording has no caption track */}
+            <audio
+              ref={audioRef}
+              src={src}
+              preload="metadata"
+              onLoadedMetadata={(e) => {
+                e.currentTarget.playbackRate = Number.parseFloat(speed);
+                const d = e.currentTarget.duration;
+                if (Number.isFinite(d) && d > 0) setDuration(d);
+              }}
+              onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onEnded={() => setPlaying(false)}
+            />
+            <button
+              type="button"
+              className={styles.waveform}
+              aria-label={lang === 'es' ? 'Buscar en el audio' : 'Seek audio'}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                seekToFraction((e.clientX - r.left) / r.width);
+              }}
+            >
+              {bars.map((b, i) => {
+                const isPlayed = i / bars.length < progress;
+                return (
+                  <div
+                    // biome-ignore lint/suspicious/noArrayIndexKey: bars are positional and never reorder
+                    key={i}
+                    className={`${styles.bar} ${isPlayed ? styles.barPlayed : styles.barUnplayed}`}
+                    style={{ height: `${Math.round(b * 100)}%` }}
+                  />
+                );
+              })}
+            </button>
+            <div className={styles.controls}>
+              <Button size="icon" onClick={() => skip(-10)} aria-label="-10s">
+                <Icon name="back" size={14} />
+              </Button>
+              <button
+                type="button"
+                className={styles.playBtn}
+                aria-label={playing ? pauseLabel : playLabel}
+                onClick={togglePlay}
+              >
+                <Icon name={playing ? 'pause' : 'play'} size={18} stroke="currentColor" />
+              </button>
+              <Button size="icon" onClick={() => skip(10)} aria-label="+10s">
+                <Icon name="forward" size={14} />
+              </Button>
+              <span className={styles.time}>
+                {fmtDuration(Math.floor(current))} / {fmtDuration(Math.floor(duration))}
+              </span>
+              <div className={styles.flex1} />
+              <SegmentedControl<Speed> value={speed} options={SPEED_OPTIONS} onChange={setSpeed} />
+              <Button
+                size="icon"
+                onClick={onExport}
+                aria-label={lang === 'es' ? 'Descargar / exportar' : 'Download / export'}
+                title={lang === 'es' ? 'Descargar / exportar' : 'Download / export'}
+              >
+                <Icon name="download" size={14} />
+              </Button>
+            </div>
+          </>
+        )}
       </div>
+
       <div className={styles.card}>
-        <h3 className={styles.markersHead}>{lang === 'es' ? 'Marcadores' : 'Markers'}</h3>
-        <div className={styles.markersSub}>
-          {lang === 'es'
-            ? 'Puntos importantes detectados automáticamente.'
-            : 'Important points detected automatically.'}
-        </div>
-        {markers.map((m) => (
-          <div className={styles.markerRow} key={m.t}>
-            <span className={styles.markerTime}>{m.t}</span>
-            <Icon name={m.icon} size={14} stroke="var(--accent)" />
-            <span style={{ fontSize: 13 }}>{m.txt}</span>
-            <div className={styles.flex1} />
-            <Button size="icon" variant="ghost" disabled>
-              <Icon name="play" size={12} />
-            </Button>
+        <div className={styles.head}>
+          <div className={styles.headLeft}>
+            <Icon name="pin" size={14} stroke="var(--accent)" />
+            <span>{lang === 'es' ? 'Marcadores' : 'Markers'}</span>
           </div>
-        ))}
+          <button type="button" className={styles.markBtn} onClick={() => void markHere()}>
+            <Icon name="plus" size={13} />
+            <span>{lang === 'es' ? 'Marcar aquí' : 'Mark here'}</span>
+          </button>
+        </div>
+
+        {!markers || markers.length === 0 ? (
+          <div className={styles.empty}>
+            {lang === 'es' ? 'Sin marcadores aún.' : 'No markers yet.'}
+          </div>
+        ) : (
+          <div>
+            {markers.map((m: Marker) => (
+              <MarkerRow
+                key={m.id}
+                marker={m}
+                lang={lang}
+                autoFocus={m.id === justCreatedId}
+                onSeek={seekToSeconds}
+                onSaveLabel={saveLabel}
+                onDelete={(id) => void deleteMarker(id)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
