@@ -12,6 +12,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Decide code-signing (skipped until a cert secret exists)
+        id: signing
+        shell: bash
+        env:
+          CERT: ${{ secrets.CODE_SIGN_CERT_BASE64 }}
+        run: echo "enabled=$([ -n "$CERT" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - uses: pnpm/action-setup@v4
         with:
           version: 9.12.0
@@ -61,3 +67,12 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
+      - name: Sign the installer (deferred — runs only when a cert secret is configured)
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          # PLACEHOLDER wiring for when a certificate is procured (spec section 3D):
+          #  - decode $env:CODE_SIGN_CERT_BASE64 to a .pfx (or use Azure Trusted Signing)
+          #  - signtool sign /fd SHA256 /tr <timestamp-url> /td SHA256 /f cert.pfx /p $env:CODE_SIGN_PASSWORD `
+          #      "src-tauri/target/release/bundle/nsis/*-setup.exe"
+          Write-Host "Code-signing enabled but not yet implemented — see spec 3D."
