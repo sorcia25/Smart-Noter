@@ -13,6 +13,7 @@ import { setAccent, setLanguage, setTheme } from '@/store/slices/ui.slice';
 import { pickL } from '@/utils/format';
 import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useState } from 'react';
+import { useAppUpdater } from '../updater/useAppUpdater';
 import { AiModelPanel } from './AiModelPanel';
 import { DiarizationPanel } from './DiarizationPanel';
 import { ProviderPanel } from './ProviderPanel';
@@ -47,6 +48,7 @@ export default function SettingsPage() {
   const { data: devices = [] } = useListAudioDevicesQuery();
   const { data: templates = [] } = useListTemplatesQuery();
   const [updateSettings] = useUpdateSettingsMutation();
+  const updater = useAppUpdater();
 
   const [draft, setDraft] = useState<AppSettings>(serverSettings ?? DEFAULT_SETTINGS);
 
@@ -357,10 +359,49 @@ export default function SettingsPage() {
           </div>
         )}
 
-        <div className={styles.footer}>
-          Smart Noter v0.4.0 ·{' '}
-          <a href="#updates">{lang === 'es' ? 'Buscar actualizaciones' : 'Check for updates'}</a>
+        {/* Updates */}
+        <div className={styles.group}>
+          <div className={styles.groupHead}>{t('updateSection')}</div>
+          <div className={styles.row}>
+            <div className={styles.rowLeft}>
+              <div className={styles.rowLabel}>{t('updateCheck')}</div>
+              <div className={styles.rowDesc}>
+                {updater.status.kind === 'checking' && t('updateChecking')}
+                {updater.status.kind === 'upToDate' && t('updateUpToDate')}
+                {updater.status.kind === 'error' && t('updateError')}
+              </div>
+            </div>
+            <Button
+              onClick={() => void updater.check()}
+              loading={updater.status.kind === 'checking'}
+            >
+              {t('updateCheck')}
+            </Button>
+          </div>
+          {(updater.status.kind === 'available' || updater.status.kind === 'downloading') && (
+            <div className={styles.row}>
+              <div className={styles.rowLeft}>
+                <div className={styles.rowLabel}>
+                  {updater.status.kind === 'available'
+                    ? t('updateAvailable', { version: updater.status.version })
+                    : t('updateDownloading')}
+                </div>
+              </div>
+              <Button
+                variant="primary"
+                loading={updater.status.kind === 'downloading'}
+                disabled={updater.status.kind === 'downloading'}
+                onClick={() =>
+                  updater.status.kind === 'available' && void updater.install(updater.status.update)
+                }
+              >
+                {t('updateInstall')}
+              </Button>
+            </div>
+          )}
         </div>
+
+        <div className={styles.footer}>{'Smart Noter v1.0.0'}</div>
       </div>
     </div>
   );

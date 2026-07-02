@@ -256,5 +256,13 @@
   "transcriptionProviderLabel": "Proveedor de transcripción",
   "azureWhisperDeployment": "Deployment de Whisper (Azure)",
   "sttKeyHint": "La API key y el endpoint se configuran en Proveedores de IA.",
-  "transcriptionError.ConfigError": "Error de configuración del proveedor"
+  "transcriptionError.ConfigError": "Error de configuración del proveedor",
+  "updateSection": "Actualizaciones",
+  "updateCheck": "Buscar actualizaciones",
+  "updateChecking": "Buscando…",
+  "updateUpToDate": "Estás en la última versión.",
+  "updateAvailable": "Versión {version} disponible",
+  "updateDownloading": "Descargando e instalando…",
+  "updateInstall": "Actualizar ahora",
+  "updateError": "No se pudo comprobar. Inténtalo más tarde."
 }

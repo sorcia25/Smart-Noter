@@ -16,6 +16,8 @@
     "core:event:default",
     "core:app:default",
     "dialog:allow-save",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "updater:default",
+    "process:default"
   ]
 }

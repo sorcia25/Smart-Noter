@@ -256,5 +256,13 @@
   "transcriptionProviderLabel": "Transcription provider",
   "azureWhisperDeployment": "Azure Whisper deployment",
   "sttKeyHint": "The API key and endpoint are set under AI Providers.",
-  "transcriptionError.ConfigError": "Provider configuration error"
+  "transcriptionError.ConfigError": "Provider configuration error",
+  "updateSection": "Updates",
+  "updateCheck": "Check for updates",
+  "updateChecking": "Checking…",
+  "updateUpToDate": "You're on the latest version.",
+  "updateAvailable": "Version {version} available",
+  "updateDownloading": "Downloading and installing…",
+  "updateInstall": "Update now",
+  "updateError": "Couldn't check. Try again later."
 }

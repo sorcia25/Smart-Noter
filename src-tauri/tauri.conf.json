@@ -1,12 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Smart Noter",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "identifier": "com.smartnoter.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "pnpm build",
+    "beforeBundleCommand": "node scripts/stage-dlls.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -37,7 +38,16 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
+    "resources": { "bundle-dlls/*.dll": "./" }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY0QTY5MjMxRDk2QUZDMEEKUldRSy9HclpNWkttWk9wcVViM1FzUFpTblRsNC9BK1JMS1ozZmNXV1NJbmdQU2xVdDdORS9wVlIK",
+      "endpoints": ["https://github.com/sorcia25/Smart-Noter/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
   }
 }

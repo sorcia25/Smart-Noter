@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # create the GitHub Release + upload assets
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decide code-signing (skipped until a cert secret exists)
+        id: signing
+        shell: bash
+        env:
+          CERT: ${{ secrets.CODE_SIGN_CERT_BASE64 }}
+        run: echo "enabled=$([ -n "$CERT" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          # Keep cache settings in sync with ci.yml: sherpa-rs-sys downloads its
+          # prebuilt libs into %LOCALAPPDATA%\sherpa-rs (outside target/), which a
+          # cache hit would otherwise leave missing on the fresh runner VM.
+          prefix-key: v1-rust
+          cache-directories: ~/AppData/Local/sherpa-rs
+      - run: pnpm install --frozen-lockfile
+      - name: Set up LLVM (libclang for whisper-rs bindgen)
+        shell: bash
+        run: |
+          if [ ! -f "/c/Program Files/LLVM/bin/libclang.dll" ]; then
+            choco install llvm -y --no-progress
+          fi
+          echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+      - name: Generate IPC bindings + i18n keys
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          cargo build --bin specta-export
+          # On a rust-cache hit the sys crates' build.rs are skipped, so the runtime
+          # DLLs they normally stage next to the exe are missing — copy them from the
+          # cached locations (same fix as ci.yml).
+          find ~/AppData/Local/sherpa-rs -name '*.dll' -exec cp -f {} target/debug/ \; 2>/dev/null || true
+          find target/debug/build -path '*llama-cpp-sys-2-*/out/bin/*.dll' -exec cp -f {} target/debug/ \; 2>/dev/null || true
+          ./target/debug/specta-export.exe
+      - run: pnpm generate:i18n-keys
+      - name: Build + release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Smart Noter ${{ github.ref_name }}"
+          releaseBody: "See the assets to download and install."
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+      - name: Sign the installer (deferred — runs only when a cert secret is configured)
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          # PLACEHOLDER wiring for when a certificate is procured (spec section 3D):
+          #  - decode $env:CODE_SIGN_CERT_BASE64 to a .pfx (or use Azure Trusted Signing)
+          #  - signtool sign /fd SHA256 /tr <timestamp-url> /td SHA256 /f cert.pfx /p $env:CODE_SIGN_PASSWORD `
+          #      "src-tauri/target/release/bundle/nsis/*-setup.exe"
+          Write-Host "Code-signing enabled but not yet implemented — see spec 3D."
