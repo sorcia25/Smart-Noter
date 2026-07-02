@@ -25,7 +25,8 @@
   border-color: var(--accent-ring);
 }
 
-.chip:disabled {
+.chip:disabled,
+.chip.disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }

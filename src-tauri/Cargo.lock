@@ -4845,7 +4845,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4882,7 +4882,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-audio"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "cpal",
  "crossbeam-channel",
@@ -4903,7 +4903,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "serde",
@@ -4915,7 +4915,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-db"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "chrono",
  "serde",
@@ -4931,7 +4931,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-diarize"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "hound",
  "serde",
@@ -4945,7 +4945,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-export"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "claxon",
  "flacenc",
@@ -4959,7 +4959,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-llm"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "encoding_rs",
  "llama-cpp-2",
@@ -4975,7 +4975,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-providers"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "claxon",
  "hound",
@@ -4989,7 +4989,7 @@ dependencies = [
 
 [[package]]
 name = "smart-noter-whisper"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "claxon",
  "hound",
