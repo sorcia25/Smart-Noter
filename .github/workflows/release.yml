@@ -50,7 +50,7 @@ jobs:
           # On a rust-cache hit the sys crates' build.rs are skipped, so the runtime
           # DLLs they normally stage next to the exe are missing — copy them from the
           # cached locations (same fix as ci.yml).
-          find ~/AppData/Local/sherpa-rs -name '*.dll' -exec cp -f {} target/debug/ \;
+          find ~/AppData/Local/sherpa-rs -name '*.dll' -exec cp -f {} target/debug/ \; 2>/dev/null || true
           find target/debug/build -path '*llama-cpp-sys-2-*/out/bin/*.dll' -exec cp -f {} target/debug/ \; 2>/dev/null || true
           ./target/debug/specta-export.exe
       - run: pnpm generate:i18n-keys

@@ -104,9 +104,11 @@ so staging must run **after** the Rust build but **before** bundling. Two ways, 
   ```
 - **Manifest:** `tauri-action` generates `latest.json` (version, notes, `pub_date`, and per-platform
   `{ signature, url }` pointing at the `-setup.exe` update artifact) and uploads it to the Release.
-- **Frontend:** a small updater module checks for an update (on startup + a manual "Check for
-  updates" button in Settings), and on a found update shows a prompt → download → install →
-  relaunch. Uses the plugin's `check()` / `downloadAndInstall()`.
+- **Frontend:** a small updater module + a manual "Check for updates" button in Settings; on a
+  found update it shows a prompt → download → install → relaunch. Uses the plugin's `check()` /
+  `downloadAndInstall()`. *(Scope narrowed at implementation: the startup auto-check was dropped
+  for v1.0 — manual check only. A silent startup check adds little for a manually-installed
+  desktop app; wire it later together with download-progress UX if wanted.)*
 - **Endpoint reachability:** the repo is **public**, so `releases/latest/download/latest.json`
   is fetchable without a token.
 
