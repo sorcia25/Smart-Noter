@@ -40,9 +40,10 @@ for (const profile of ['release', 'debug']) {
 }
 // (c) sherpa-rs download dir (%LOCALAPPDATA%\sherpa-rs) — authoritative on a rust-cache
 // hit, when sherpa-rs-sys's build.rs (which normally copies next to the exe) is skipped.
+// Copy ALL DLLs (mirrors ci.yml): the dir holds exactly the vendor runtime set
+// (onnxruntime*, sherpa-onnx-*-api, cargs) whose real names a narrow filter would miss.
 if (process.env.LOCALAPPDATA) {
-  sources.push(...findDlls(join(process.env.LOCALAPPDATA, 'sherpa-rs'),
-    (p) => /onnxruntime\.dll|sherpa-onnx\.dll/i.test(basename(p))));
+  sources.push(...findDlls(join(process.env.LOCALAPPDATA, 'sherpa-rs')));
 }
 
 // Dedupe by filename; release before debug (first hit wins).
