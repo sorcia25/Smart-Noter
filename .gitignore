@@ -54,3 +54,6 @@ logs/
 
 # Handoff artifacts (do not commit)
 *-handoff.zip
+
+# Sub-8: native DLLs staged into the installer at bundle time (generated)
+src-tauri/bundle-dlls/
