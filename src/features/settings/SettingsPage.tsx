@@ -401,7 +401,7 @@ export default function SettingsPage() {
           )}
         </div>
 
-        <div className={styles.footer}>{'Smart Noter v0.4.0'}</div>
+        <div className={styles.footer}>{'Smart Noter v1.0.0'}</div>
       </div>
     </div>
   );
