@@ -332,3 +332,27 @@
   display: flex;
   gap: 8px;
 }
+
+/* v1.0.1: the mix card spans the full grid row to stand out as the recommended path */
+.mixCard {
+  grid-column: 1 / -1;
+}
+
+.micPickerRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.micPickerRow select {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--stroke);
+  background: var(--bg-surface);
+  color: inherit;
+  font-size: 12px;
+}

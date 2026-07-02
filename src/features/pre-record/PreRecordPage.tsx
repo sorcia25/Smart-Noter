@@ -31,6 +31,9 @@ function genSessionId(): string {
 const iconFor = (kind: AudioDeviceKind): IconName =>
   kind === 'loopback' ? 'monitor' : 'headphones';
 
+// Virtual card id for the Mix option — not a real AudioDevice.id from the backend.
+const MIX_CARD_ID = '__mix__';
+
 export default function PreRecordPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -38,17 +41,22 @@ export default function PreRecordPage() {
 
   const { data: devices = [] } = useListAudioDevicesQuery();
   const { data: templates = [] } = useListTemplatesQuery();
-  const { data: settings } = useGetSettingsQuery();
+  const { data: settings, isSuccess: settingsLoaded } = useGetSettingsQuery();
   const [updateSettings] = useUpdateSettingsMutation();
 
   const [deviceId, setDeviceId] = useState<string>('');
+  const [micDeviceId, setMicDeviceId] = useState<string | null>(null);
+  const isMix = deviceId === MIX_CARD_ID;
   const selectedDevice = devices.find((d) => d.id === deviceId);
-  const previewMode: CaptureMode = selectedDevice?.kind === 'input' ? 'mic' : 'system';
-  // The Settings-level Mix preference applies to the RECORDING only — preview stays
-  // single-source (the level bar meters the selected device). Mix needs the selected
-  // device to be a loopback: picking an input device is an explicit mic-only choice.
-  const recordMode: CaptureMode =
-    settings?.captureMode === 'mix' && previewMode === 'system' ? 'mix' : previewMode;
+  const defaultLoopback =
+    devices.find((d) => d.kind === 'loopback' && d.isDefault) ??
+    devices.find((d) => d.kind === 'loopback');
+  const inputDevices = devices.filter((d) => d.kind === 'input');
+  // The mix card previews (and records) the system loopback lane; the mic lane
+  // has no preview. Single devices preview themselves.
+  const previewDeviceId = isMix ? defaultLoopback?.id : deviceId;
+  const previewMode: CaptureMode = !isMix && selectedDevice?.kind === 'input' ? 'mic' : 'system';
+  const recordMode: CaptureMode = isMix ? 'mix' : previewMode;
 
   const [templateId, setTemplateId] = useState<string>(searchParams.get('tpl') ?? '');
   const [name, setName] = useState('');
@@ -70,30 +78,50 @@ export default function PreRecordPage() {
     }
   }, [settings, searchParams]);
 
+  // Seed the initial device selection once devices AND settings are both loaded: honor
+  // the Settings-level Mix preference by preselecting the mix card, otherwise fall back
+  // to the default device — mirrors the tplInitialized once-guard above.
+  //
+  // Guarded by a ref rather than `!deviceId`, and also flipped by selectDevice() below:
+  // list_audio_devices and get_settings resolve independently, so a user can click a
+  // card before this effect ever runs. Without the manual-selection flag here, the
+  // effect would fire once settings finally arrives and clobber that manual choice.
+  const deviceInitialized = useRef(false);
+  const selectDevice = (id: string) => {
+    deviceInitialized.current = true;
+    setDeviceId(id);
+  };
   useEffect(() => {
-    if (!deviceId && devices.length > 0) {
+    if (deviceInitialized.current) return;
+    if (devices.length === 0 || !settingsLoaded) return;
+    if (settings?.captureMode === 'mix') {
+      setDeviceId(MIX_CARD_ID);
+    } else {
       const def = devices.find((d) => d.isDefault) ?? devices[0];
       if (def) setDeviceId(def.id);
     }
-  }, [deviceId, devices]);
+    deviceInitialized.current = true;
+  }, [devices, settings, settingsLoaded]);
 
   useEffect(() => {
-    if (!deviceId) return;
+    if (!previewDeviceId) return;
     let cancelled = false;
-    invoke('start_preview', { deviceId, captureMode: previewMode }).catch((err) => {
-      if (!cancelled) {
-        const ae = toAppError(err);
-        toast.error(t('audioErrorTitle'), {
-          id: `audio-error:${ae.code}`,
-          description: errorMessage(ae, t),
-        });
+    invoke('start_preview', { deviceId: previewDeviceId, captureMode: previewMode }).catch(
+      (err) => {
+        if (!cancelled) {
+          const ae = toAppError(err);
+          toast.error(t('audioErrorTitle'), {
+            id: `audio-error:${ae.code}`,
+            description: errorMessage(ae, t),
+          });
+        }
       }
-    });
+    );
     return () => {
       cancelled = true;
       void invoke('stop_preview');
     };
-  }, [deviceId, previewMode, t]);
+  }, [previewDeviceId, previewMode, t]);
 
   const speakerIdOn = settings?.identifySpeakers ?? true;
 
@@ -102,8 +130,9 @@ export default function PreRecordPage() {
       state: {
         name: name.trim() || (lang === 'es' ? 'Reunión sin título' : 'Untitled meeting'),
         templateId,
-        deviceId,
+        deviceId: isMix ? (defaultLoopback?.id ?? '') : deviceId,
         captureMode: recordMode,
+        micDeviceId: isMix ? micDeviceId : null,
         format: settings?.recordingQuality === 'FLAC' ? 'flac' : 'wav',
         speakerHint: speakerIdOn ? speakerHint : null,
       },
@@ -136,18 +165,39 @@ export default function PreRecordPage() {
             <h2 className={styles.sectionTitle}>{t('deviceSection')}</h2>
             <div className={styles.sectionHint}>{t('deviceHint')}</div>
             <div className={styles.grid2}>
+              <MixCard
+                selected={isMix}
+                disabled={!defaultLoopback}
+                onSelect={() => selectDevice(MIX_CARD_ID)}
+              />
               {devices.map((d) => (
                 <DeviceCard
                   key={d.id}
                   device={d}
                   selected={deviceId === d.id}
-                  onSelect={() => setDeviceId(d.id)}
+                  onSelect={() => selectDevice(d.id)}
                 />
               ))}
             </div>
-            {recordMode === 'mix' && <div className={styles.modeHint}>{t('mixRecordHint')}</div>}
-            {settings?.captureMode === 'mix' && recordMode === 'mic' && (
-              <div className={styles.modeHint}>{t('mixOverrideHint')}</div>
+            {isMix && (
+              <>
+                <div className={styles.micPickerRow}>
+                  <label htmlFor="mix-mic">{t('mixMicLabel')}</label>
+                  <select
+                    id="mix-mic"
+                    value={micDeviceId ?? ''}
+                    onChange={(e) => setMicDeviceId(e.target.value === '' ? null : e.target.value)}
+                  >
+                    <option value="">{t('mixMicDefault')}</option>
+                    {inputDevices.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className={styles.modeHint}>{t('mixHeadphonesHint')}</div>
+              </>
             )}
             <AudioPreviewCard />
           </div>
@@ -225,7 +275,7 @@ export default function PreRecordPage() {
                 variant="primary"
                 icon={<Icon name="record" size={12} />}
                 onClick={start}
-                disabled={!deviceId}
+                disabled={!deviceId || (isMix && !defaultLoopback)}
               >
                 {t('startRecording')}
               </Button>
@@ -268,6 +318,40 @@ function DeviceCard({
         <div className={styles.optDesc}>
           {device.sampleRate / 1000}kHz · {device.channels === 1 ? 'mono' : 'stereo'}
         </div>
+      </div>
+      <div className={styles.radio} />
+    </button>
+  );
+}
+
+function MixCard({
+  selected,
+  disabled,
+  onSelect,
+}: {
+  selected: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  const { t, lang } = useT();
+  return (
+    <button
+      type="button"
+      className={`${styles.optCard} ${styles.mixCard} ${selected ? styles.optCardSelected : ''}`}
+      onClick={onSelect}
+      disabled={disabled}
+    >
+      <div className={styles.iconBox}>
+        <Icon name="monitor" size={18} />
+      </div>
+      <div className={styles.optMeta}>
+        <div className={styles.optName}>
+          <span>{t('mixCardTitle')}</span>
+          <Chip variant="accent" disabled>
+            {lang === 'es' ? 'Recomendado' : 'Recommended'}
+          </Chip>
+        </div>
+        <div className={styles.optDesc}>{t('mixCardDesc')}</div>
       </div>
       <div className={styles.radio} />
     </button>
