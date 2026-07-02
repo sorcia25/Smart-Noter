@@ -7,7 +7,8 @@ use smart_noter_core::AppError;
 ///
 /// - `System` / `Mic`: `device_id` selects the device.
 /// - `Mix`: `device_id` selects the **system loopback**; the microphone is
-///   always the OS default input device. (See Phase 4 boundary decision #5.)
+///   the explicitly chosen input device (`mic_device_id`), or the OS default
+///   input device when omitted. (See Phase 4 boundary decision #5.)
 ///
 /// Callers MUST invoke `stop_preview` before `start_recording`: both commands
 /// share a single `Recorder` slot in `AppState`, so a recording attempt while
@@ -33,7 +34,7 @@ pub fn start_preview(
     // Lives in the audio dir with `tmp-preview-` prefix so the startup sweep
     // (Task 4.6) can reclaim it if the app crashed mid-preview.
     let tmp = audio_dir(&state)?.join(format!("tmp-preview-{}.wav", std::process::id()));
-    match Recorder::start(app, capture_mode, device_id, AudioFormat::Wav, tmp) {
+    match Recorder::start(app, capture_mode, device_id, None, AudioFormat::Wav, tmp) {
         Ok(recorder) => {
             *state.recorder.lock() = Some(recorder);
             Ok(())
@@ -92,7 +93,8 @@ pub struct RecordingStartedDto {
 ///
 /// - `System` / `Mic`: `device_id` selects the device.
 /// - `Mix`: `device_id` selects the **system loopback**; the microphone is
-///   always the OS default input device. (See Phase 4 boundary decision #5.)
+///   the explicitly chosen input device (`mic_device_id`), or the OS default
+///   input device when omitted. (See Phase 4 boundary decision #5.)
 ///
 /// Callers MUST `finalize_recording` or `discard_recording` after stopping;
 /// a new `start_recording` while a `Stopped` payload is pending will return
@@ -104,6 +106,7 @@ pub fn start_recording(
     app: tauri::AppHandle,
     device_id: String,
     capture_mode: CaptureMode,
+    mic_device_id: Option<String>,
     format: AudioFormat,
 ) -> Result<RecordingStartedDto, AppError> {
     let session_id = format!("sess-{}", uuid::Uuid::new_v4());
@@ -119,7 +122,14 @@ pub fn start_recording(
 
     let tmp_path =
         audio_dir(&state)?.join(format!("tmp-{session_id}.{ext}", ext = ext_for(format)));
-    match Recorder::start(app, capture_mode, device_id, format, tmp_path) {
+    match Recorder::start(
+        app,
+        capture_mode,
+        device_id,
+        mic_device_id,
+        format,
+        tmp_path,
+    ) {
         Ok(recorder) => {
             let sample_rate = recorder.stream.sample_rate;
             let channels = recorder.stream.channels;

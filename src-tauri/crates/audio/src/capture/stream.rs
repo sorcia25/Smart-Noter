@@ -96,6 +96,7 @@ impl Drop for WasapiStreamThread {
 pub fn open(
     mode: CaptureMode,
     device_id: &str,
+    mic_device_id: Option<&str>,
     tx_a: Sender<Vec<f32>>,
     tx_b: Option<Sender<Vec<f32>>>,
 ) -> Result<StreamHandle, AudioError> {
@@ -106,12 +107,19 @@ pub fn open(
             let tx_b = tx_b.ok_or_else(|| {
                 AudioError::Other("Mix mode requires a second channel sender".into())
             })?;
-            // device_id is the loopback id; mic picks the system default for now.
+            // device_id is the loopback id; the mic is the explicitly chosen input
+            // device, falling back to the system default when none was chosen.
             // Share a single drops counter across both streams so Task 3.2's recorder
             // sees aggregate pipeline drops from the whole Mix pipeline.
             let shared_drops = Arc::new(AtomicU32::new(0));
             let loop_handle = open_loopback_with_drops(device_id, tx_a, shared_drops.clone())?;
-            let mic_handle = open_mic_default_with_drops(tx_b, shared_drops.clone())?;
+            let mic_handle = match mic_device_id {
+                Some(mic_id) => {
+                    let device = resolve_input_device(mic_id)?;
+                    build_cpal_input_stream(device, tx_b, shared_drops.clone())?
+                }
+                None => open_mic_default_with_drops(tx_b, shared_drops.clone())?,
+            };
             // Capture the Mix source metadata before the handles are consumed.
             let mic_sample_rate = mic_handle.sample_rate;
             let loop_sample_rate = loop_handle.sample_rate;
@@ -207,7 +215,8 @@ fn open_loopback_with_drops(
     })
 }
 
-fn open_mic(device_id: &str, tx: Sender<Vec<f32>>) -> Result<StreamHandle, AudioError> {
+/// Resolve an input device by our enumerated id (matched back to cpal by name).
+fn resolve_input_device(device_id: &str) -> Result<cpal::Device, AudioError> {
     let host = cpal::default_host();
     let devices = enumerate()?;
     let target = devices
@@ -215,12 +224,14 @@ fn open_mic(device_id: &str, tx: Sender<Vec<f32>>) -> Result<StreamHandle, Audio
         .find(|d| d.id == device_id && d.kind == AudioDeviceKind::Input)
         .ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?;
 
-    let device = host
-        .input_devices()
+    host.input_devices()
         .map_err(|e| AudioError::Other(format!("cpal input_devices: {e}")))?
         .find(|d| d.name().ok().as_deref() == Some(target.name.as_str()))
-        .ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?;
+        .ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))
+}
 
+fn open_mic(device_id: &str, tx: Sender<Vec<f32>>) -> Result<StreamHandle, AudioError> {
+    let device = resolve_input_device(device_id)?;
     let drops = Arc::new(AtomicU32::new(0));
     build_cpal_input_stream(device, tx, drops)
 }
@@ -694,7 +705,7 @@ mod tests {
     #[test]
     fn open_mix_without_second_tx_returns_other() {
         let (tx, _rx) = crossbeam_channel::bounded::<Vec<f32>>(1);
-        let result = open(CaptureMode::Mix, "any-id", tx, None);
+        let result = open(CaptureMode::Mix, "any-id", None, tx, None);
         match result {
             Err(AudioError::Other(msg)) => {
                 assert!(
@@ -717,7 +728,13 @@ mod tests {
     #[test]
     fn open_system_with_unknown_device_returns_device_not_found() {
         let (tx, _rx) = crossbeam_channel::bounded::<Vec<f32>>(1);
-        let result = open(CaptureMode::System, "id-that-does-not-exist", tx, None);
+        let result = open(
+            CaptureMode::System,
+            "id-that-does-not-exist",
+            None,
+            tx,
+            None,
+        );
         match result {
             Err(AudioError::DeviceNotFound(id)) => {
                 assert_eq!(id, "id-that-does-not-exist");

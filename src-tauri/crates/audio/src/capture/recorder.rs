@@ -144,6 +144,7 @@ impl Recorder {
         app: AppHandle,
         mode: CaptureMode,
         device_id: String,
+        mic_device_id: Option<String>,
         format: AudioFormat,
         tmp_path: PathBuf,
     ) -> Result<Self, AudioError> {
@@ -155,7 +156,7 @@ impl Recorder {
         let stream = if matches!(mode, CaptureMode::Mix) {
             let (a_tx, a_rx) = bounded::<Vec<f32>>(64);
             let (b_tx, b_rx) = bounded::<Vec<f32>>(64);
-            let handle = open(mode, &device_id, a_tx, Some(b_tx))?;
+            let handle = open(mode, &device_id, mic_device_id.as_deref(), a_tx, Some(b_tx))?;
 
             // Read the real source formats from the handle; warn on fallback (shouldn't happen).
             let loop_sample_rate = handle.loop_sample_rate.unwrap_or_else(|| {
@@ -253,7 +254,7 @@ impl Recorder {
             });
             handle
         } else {
-            open(mode, &device_id, source_tx.clone(), None)?
+            open(mode, &device_id, None, source_tx.clone(), None)?
         };
         // NOTE: `source_tx` is NOT stored in `Self`. In Mic/System mode it was
         // cloned into the stream callback above; in Mix mode `source_tx_for_mixer`
