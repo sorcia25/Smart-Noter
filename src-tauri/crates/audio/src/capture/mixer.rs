@@ -52,9 +52,10 @@
 //!
 //! # Output clipping
 //!
-//! Mixed output can reach ±1.4 (if both lanes are at full scale). Downstream
-//! writers (writer.rs) hard-clamp to `[-1.0, 1.0]`, so hot sources clip rather
-//! than wrap. Document hot input levels to callers when relevant.
+//! Mixed output can reach ±1.12 if both lanes are at full scale:
+//! (SYSTEM_LANE_GAIN + MIC_LANE_GAIN) × ANTI_CLIP_GAIN = (0.6 + 1.0) × 0.7.
+//! Downstream writers (writer.rs) hard-clamp to `[-1.0, 1.0]`, so hot sources
+//! clip rather than wrap. Document hot input levels to callers when relevant.
 //!
 //! # Surplus retention
 //!
@@ -80,6 +81,12 @@ use rubato::{FftFixedIn, Resampler};
 
 pub const TARGET_SAMPLE_RATE: u32 = 48_000;
 pub const ANTI_CLIP_GAIN: f32 = 0.7;
+
+/// v1.0.1 lane balance (real-hardware tuning): the digital system loopback is
+/// hot relative to the voice, so the system lane is attenuated while the mic
+/// lane stays at full level. Tuned on real hardware before each release.
+pub const SYSTEM_LANE_GAIN: f32 = 0.6; // lane A (loopback)
+pub const MIC_LANE_GAIN: f32 = 1.0; // lane B (mic)
 
 /// Per-source cap on buffered ready samples (~2 s @ 48 kHz mono).
 ///
@@ -249,7 +256,7 @@ impl Mixer {
         let mixed: Vec<f32> = self.a_ready[..n]
             .iter()
             .zip(self.b_ready[..n].iter())
-            .map(|(a, b)| (a + b) * ANTI_CLIP_GAIN)
+            .map(|(a, b)| (a * SYSTEM_LANE_GAIN + b * MIC_LANE_GAIN) * ANTI_CLIP_GAIN)
             .collect();
 
         self.a_ready.drain(..n);
@@ -367,7 +374,7 @@ mod tests {
         let b: Vec<f32> = vec![0.2f32; n_frames];
         let out = m.mix(&a, &b).unwrap();
         assert_eq!(out.len(), n_frames);
-        let expected = (0.5 + 0.2) * ANTI_CLIP_GAIN;
+        let expected = (0.5 * SYSTEM_LANE_GAIN + 0.2 * MIC_LANE_GAIN) * ANTI_CLIP_GAIN;
         for &s in &out {
             assert!((s - expected).abs() < 0.001, "sample {s} != {expected}");
         }
@@ -405,7 +412,7 @@ mod tests {
         let b = vec![0.3f32; 100];
         let out = m.mix(&a, &b).unwrap();
         assert_eq!(out.len(), 100);
-        let expected = (0.5 + 0.3) * ANTI_CLIP_GAIN;
+        let expected = (0.5 * SYSTEM_LANE_GAIN + 0.3 * MIC_LANE_GAIN) * ANTI_CLIP_GAIN;
         assert!((out[0] - expected).abs() < 0.001);
     }
 
@@ -549,7 +556,7 @@ mod tests {
 
         // Output must be exactly 50 samples of (2.0 + 3.0) * ANTI_CLIP_GAIN.
         assert_eq!(out.len(), 50, "overlap must be 50 samples");
-        let expected = (2.0f32 + 3.0f32) * ANTI_CLIP_GAIN;
+        let expected = (2.0f32 * SYSTEM_LANE_GAIN + 3.0f32 * MIC_LANE_GAIN) * ANTI_CLIP_GAIN;
         for &s in &out {
             assert!(
                 (s - expected).abs() < 0.001,
@@ -591,10 +598,10 @@ mod tests {
         // We must have gotten some output (both lanes active).
         assert!(!out.is_empty(), "must produce output after 3072 A frames");
 
-        // The first sample of mixed output = (a_resampled[0] + b[0]) * GAIN.
+        // The first sample of mixed output = (a_resampled[0]*SYSTEM_LANE_GAIN + b[0]*MIC_LANE_GAIN) * GAIN.
         // With priming discarded, a_resampled[0] ≈ 0.8 (DC signal).
         // Without priming skip, a_resampled[0] ≈ 0 (zero-filled priming).
-        // b[0] = 0.5. Expected first sample ≈ (0.8 + 0.5) * 0.7 = 0.91.
+        // b[0] = 0.5. Expected first sample ≈ (0.8*0.6 + 0.5*1.0) * 0.7 ≈ 0.69.
         // We check that it is > 0.5 to confirm priming was discarded.
         let first = out[0];
         assert!(
@@ -638,6 +645,34 @@ mod tests {
             dt.as_millis() < 10,
             "expected <10ms, got {} ms",
             dt.as_millis()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // v1.0.1: per-lane balance — system (A) attenuated, mic (B) full level
+    // -----------------------------------------------------------------------
+
+    /// DC 1.0 on one lane and 0.0 on the other isolates each lane's gain:
+    /// A-only content must come out at SYSTEM_LANE_GAIN * ANTI_CLIP_GAIN and
+    /// B-only content at MIC_LANE_GAIN * ANTI_CLIP_GAIN.
+    #[test]
+    fn lane_gains_are_asymmetric_system_down_mic_full() {
+        let mut m = Mixer::new(48_000, 1, 48_000, 1).unwrap();
+        let out = m.mix(&[1.0f32; 100], &[0.0f32; 100]).unwrap();
+        let expected_a = SYSTEM_LANE_GAIN * ANTI_CLIP_GAIN;
+        assert!(
+            (out[0] - expected_a).abs() < 0.001,
+            "A lane: {} != {expected_a}",
+            out[0]
+        );
+
+        let mut m = Mixer::new(48_000, 1, 48_000, 1).unwrap();
+        let out = m.mix(&[0.0f32; 100], &[1.0f32; 100]).unwrap();
+        let expected_b = MIC_LANE_GAIN * ANTI_CLIP_GAIN;
+        assert!(
+            (out[0] - expected_b).abs() < 0.001,
+            "B lane: {} != {expected_b}",
+            out[0]
         );
     }
 }
