@@ -41,7 +41,7 @@
     "targets": ["nsis"],
     "createUpdaterArtifacts": true,
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
-    "resources": { "bundle-dlls/*.dll": "./" }
+    "resources": { "bundle-dlls/*": "./" }
   },
   "plugins": {
     "updater": {
