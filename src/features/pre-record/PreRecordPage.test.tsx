@@ -286,5 +286,41 @@ describe('PreRecordPage', () => {
         })
       );
     });
+
+    // v1.0.1 F2: the preview effect must not restart on re-renders that don't change
+    // previewDeviceId/previewMode (e.g. a background store update re-rendering the
+    // page while `t` churns identity). Re-running would fire an un-awaited
+    // stop_preview + an immediate start_preview, racing the backend into
+    // AlreadyRecording. Clicking the already-selected device re-renders the page
+    // without changing device/mode — start_preview must stay called exactly once.
+    it('preview_does_not_restart_on_unrelated_rerenders', async () => {
+      const invokeMock = setupWithSettings('mix');
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith('start_preview', {
+          deviceId: 'd-L-test',
+          captureMode: 'system',
+        })
+      );
+      const startPreviewCallsBefore = invokeMock.mock.calls.filter(
+        ([cmd]) => cmd === 'start_preview'
+      );
+      expect(startPreviewCallsBefore).toHaveLength(1);
+
+      // Re-click the already-selected mix card: same deviceId ('__mix__') and same
+      // previewMode, so previewDeviceId/previewMode are referentially unchanged,
+      // but the component re-renders (setDeviceId to its current value).
+      const mixCard = await screen.findByRole('button', { name: /Sistema \+ Micrófono/ });
+      await userEvent.click(mixCard);
+
+      // invoke() is async (mocked), so give any (incorrect) effect re-run a real
+      // macrotask to fire and resolve before asserting — a plain synchronous check
+      // right after the click could pass even if a spurious start_preview is
+      // still in flight.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const startPreviewCallsAfter = invokeMock.mock.calls.filter(
+        ([cmd]) => cmd === 'start_preview'
+      );
+      expect(startPreviewCallsAfter).toHaveLength(1);
+    });
   });
 });

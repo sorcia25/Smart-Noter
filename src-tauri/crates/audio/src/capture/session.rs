@@ -264,4 +264,15 @@ mod tests {
         s.cancel_recording();
         assert_eq!(s.state, CaptureState::Idle);
     }
+
+    #[test]
+    fn preview_can_be_replaced_after_end_preview_roundtrip() {
+        let mut s = CaptureSession::default();
+        s.begin_preview("dev-1".into()).unwrap();
+        // The command layer self-heals by ending the stale preview first…
+        s.end_preview();
+        // …so a new preview begins cleanly (last-wins).
+        s.begin_preview("dev-2".into()).unwrap();
+        assert!(matches!(s.state, CaptureState::Preview { ref device_id } if device_id == "dev-2"));
+    }
 }

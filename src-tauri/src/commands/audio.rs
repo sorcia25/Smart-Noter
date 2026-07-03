@@ -17,6 +17,13 @@ use smart_noter_core::AppError;
 /// `stop_preview` is a **no-op when not in Preview state**, so it is safe for
 /// `start_recording` to call it defensively without risking teardown of a live
 /// recording.
+///
+/// Self-healing / last-wins: if a preview is already active when this is called
+/// (e.g. the PreRecord page re-ran its effect while the prior instance's
+/// un-awaited `stop_preview` was still in flight), the stale preview is torn
+/// down inline first instead of returning `AlreadyRecording`. A live Recording
+/// or pending Stopped payload is never touched by this — only `Preview` state
+/// is self-healed; those states still return `AlreadyRecording` as before.
 #[tauri::command]
 #[specta::specta]
 pub fn start_preview(
@@ -25,6 +32,14 @@ pub fn start_preview(
     device_id: String,
     capture_mode: CaptureMode,
 ) -> Result<(), AppError> {
+    // Preview is a singleton, last-wins concern: the PreRecord page can fire a new
+    // start_preview while the previous page-instance's (async, un-awaited)
+    // stop_preview is still in flight — Tauri commands are not serialized. If a
+    // preview is already active, tear it down inline instead of erroring
+    // AlreadyRecording. stop_preview is state-guarded (no-op unless Preview), so
+    // this never touches a live RECORDING session.
+    let _ = stop_preview(state.clone());
+
     state
         .capture_session
         .lock()

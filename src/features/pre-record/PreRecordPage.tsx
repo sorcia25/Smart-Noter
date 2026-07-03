@@ -103,6 +103,12 @@ export default function PreRecordPage() {
     deviceInitialized.current = true;
   }, [devices, settings, settingsLoaded]);
 
+  // `t` is only used inside the error-toast path; this codebase's `t` is
+  // referentially unstable across re-renders (see LiveRecordingPage), and having
+  // it in the deps makes background re-renders (e.g. a transcription finishing)
+  // restart the preview — racing the un-awaited stop_preview and toasting
+  // AlreadyRecording. Re-run only on real device/mode changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: t is unstable; effect must re-run only on device/mode change
   useEffect(() => {
     if (!previewDeviceId) return;
     let cancelled = false;
@@ -121,7 +127,7 @@ export default function PreRecordPage() {
       cancelled = true;
       void invoke('stop_preview');
     };
-  }, [previewDeviceId, previewMode, t]);
+  }, [previewDeviceId, previewMode]);
 
   const speakerIdOn = settings?.identifySpeakers ?? true;
 
