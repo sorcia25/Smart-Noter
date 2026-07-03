@@ -41,6 +41,10 @@ pub struct AppSettings {
     /// existing files). `audio_dir()` resolves this at startup into AppState.
     #[serde(default)]
     pub storage_dir: String,
+    /// v1.1: cancel speaker echo in Mix mode (default on). Only meaningful when
+    /// capture_mode == "mix". Consumed by start_recording → the mixer's EchoCanceller.
+    #[serde(default = "default_true")]
+    pub aec_enabled: bool,
 }
 
 #[derive(Debug, Clone, Type, Serialize, Deserialize, PartialEq, Eq)]
@@ -90,6 +94,7 @@ impl Default for AppSettings {
             provider_models: std::collections::BTreeMap::new(),
             azure_endpoint: String::new(),
             storage_dir: String::new(),
+            aec_enabled: true,
         }
     }
 }
