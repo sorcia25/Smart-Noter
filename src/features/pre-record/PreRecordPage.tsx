@@ -34,12 +34,26 @@ const iconFor = (kind: AudioDeviceKind): IconName =>
 // Virtual card id for the Mix option — not a real AudioDevice.id from the backend.
 const MIX_CARD_ID = '__mix__';
 
+// Sentinel device id: tells the backend to resolve the CURRENT default render
+// endpoint at stream-open time, instead of pinning whatever device happened to
+// be the default when this page loaded. Must match `stream.rs::DEFAULT_RENDER_LOOPBACK`.
+// v1.0.1 F3: without this, switching Windows' default output (e.g. speakers →
+// headphones) between page load and recording start left the Mix card capturing
+// a silent endpoint nothing renders to.
+const DEFAULT_RENDER_LOOPBACK = '__default_render__';
+
 export default function PreRecordPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { t, lang } = useT();
 
-  const { data: devices = [] } = useListAudioDevicesQuery();
+  // v1.0.1 F3: refetch on mount — a cached list can serve stale `isDefault`
+  // flags after the user switches Windows' default output/input device between
+  // visits to this page, which would silently mis-seed the auto-select effect
+  // below (and, before the sentinel fix, pin a dead loopback endpoint).
+  const { data: devices = [] } = useListAudioDevicesQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  });
   const { data: templates = [] } = useListTemplatesQuery();
   const { data: settings, isSuccess: settingsLoaded } = useGetSettingsQuery();
   const [updateSettings] = useUpdateSettingsMutation();
@@ -48,13 +62,17 @@ export default function PreRecordPage() {
   const [micDeviceId, setMicDeviceId] = useState<string | null>(null);
   const isMix = deviceId === MIX_CARD_ID;
   const selectedDevice = devices.find((d) => d.id === deviceId);
+  // Used ONLY to gate the Mix card's disabled state (no render device at all →
+  // Mix can't work). NOT used to pick a device to preview/record — that's the
+  // DEFAULT_RENDER_LOOPBACK sentinel below, resolved by the backend at stream-open
+  // time so it always reflects the CURRENT default, not this (possibly stale) pick.
   const defaultLoopback =
     devices.find((d) => d.kind === 'loopback' && d.isDefault) ??
     devices.find((d) => d.kind === 'loopback');
   const inputDevices = devices.filter((d) => d.kind === 'input');
   // The mix card previews (and records) the system loopback lane; the mic lane
   // has no preview. Single devices preview themselves.
-  const previewDeviceId = isMix ? defaultLoopback?.id : deviceId;
+  const previewDeviceId = isMix ? DEFAULT_RENDER_LOOPBACK : deviceId;
   const previewMode: CaptureMode = !isMix && selectedDevice?.kind === 'input' ? 'mic' : 'system';
   const recordMode: CaptureMode = isMix ? 'mix' : previewMode;
 
@@ -136,7 +154,7 @@ export default function PreRecordPage() {
       state: {
         name: name.trim() || (lang === 'es' ? 'Reunión sin título' : 'Untitled meeting'),
         templateId,
-        deviceId: isMix ? (defaultLoopback?.id ?? '') : deviceId,
+        deviceId: isMix ? DEFAULT_RENDER_LOOPBACK : deviceId,
         captureMode: recordMode,
         micDeviceId: isMix ? micDeviceId : null,
         format: settings?.recordingQuality === 'FLAC' ? 'flac' : 'wav',

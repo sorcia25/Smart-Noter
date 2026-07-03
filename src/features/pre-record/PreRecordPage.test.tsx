@@ -95,7 +95,10 @@ describe('PreRecordPage', () => {
 
   it('start_preview rejection shows toast.error', async () => {
     const invokeMock = vi.mocked(tauriCore.invoke);
-    invokeMock.mockImplementationOnce(async (cmd: string) => {
+    // mockImplementation (not -Once): with refetchOnMountOrArgChange (v1.0.1 F3),
+    // list_audio_devices is invoked on every mount, consuming a one-shot mock
+    // before start_preview ever fires. Use a persistent implementation instead.
+    invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === 'list_audio_devices') {
         return [
           {
@@ -219,6 +222,9 @@ describe('PreRecordPage', () => {
       ];
       expect(navOptions.state.captureMode).toBe('mix');
       expect(navOptions.state.micDeviceId).toBeNull();
+      // v1.0.1 F3: mix records the CURRENT default render endpoint, not the id
+      // pinned from the device list at page load.
+      expect(navOptions.state.deviceId).toBe('__default_render__');
     });
 
     // Case 3: choosing an input device in the mic picker threads that id through to start.
@@ -241,6 +247,9 @@ describe('PreRecordPage', () => {
         { state: Record<string, unknown> },
       ];
       expect(navOptions.state.micDeviceId).toBe('d-I-test');
+      // v1.0.1 F3: the loopback lane still uses the sentinel even when a specific
+      // mic was chosen — only the mic side is an explicit pick in Mix mode.
+      expect(navOptions.state.deviceId).toBe('__default_render__');
     });
 
     // Case 4: selecting a plain input device card (not the mix card) is mic-only.
@@ -274,14 +283,18 @@ describe('PreRecordPage', () => {
         { state: Record<string, unknown> },
       ];
       expect(navOptions.state.captureMode).toBe('mix');
+      // v1.0.1 F3: preselected via settings, still records the CURRENT default.
+      expect(navOptions.state.deviceId).toBe('__default_render__');
     });
 
-    // Case 6: with the mix card selected, start_preview previews the loopback lane only.
-    it('with the mix card selected, start_preview is invoked with the loopback device id', async () => {
+    // Case 6: with the mix card selected, start_preview previews the CURRENT default
+    // render endpoint via the sentinel — not a device id pinned from the (possibly
+    // stale) device list at page load. v1.0.1 F3.
+    it('with the mix card selected, start_preview is invoked with the default-render sentinel', async () => {
       const invokeMock = setupWithSettings('mix');
       await waitFor(() =>
         expect(invokeMock).toHaveBeenCalledWith('start_preview', {
-          deviceId: 'd-L-test',
+          deviceId: '__default_render__',
           captureMode: 'system',
         })
       );
@@ -297,7 +310,7 @@ describe('PreRecordPage', () => {
       const invokeMock = setupWithSettings('mix');
       await waitFor(() =>
         expect(invokeMock).toHaveBeenCalledWith('start_preview', {
-          deviceId: 'd-L-test',
+          deviceId: '__default_render__',
           captureMode: 'system',
         })
       );
