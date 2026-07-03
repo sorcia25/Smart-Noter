@@ -20,4 +20,12 @@ describe('Chip', () => {
     await userEvent.click(screen.getByRole('button'));
     expect(onClick).toHaveBeenCalled();
   });
+
+  it('renders a non-interactive span (not a button) when disabled, so it can nest inside other buttons', () => {
+    render(<Chip disabled>Recomendado</Chip>);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    const el = screen.getByText('Recomendado');
+    expect(el.tagName).toBe('SPAN');
+    expect(el).toHaveAttribute('aria-disabled', 'true');
+  });
 });

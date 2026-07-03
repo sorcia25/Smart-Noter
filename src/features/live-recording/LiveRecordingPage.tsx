@@ -29,6 +29,7 @@ interface NavState {
   templateId?: string;
   deviceId?: string;
   captureMode?: CaptureMode;
+  micDeviceId?: string | null;
   format?: AudioFormat;
   speakerHint?: number | null;
 }
@@ -105,6 +106,7 @@ export default function LiveRecordingPage() {
       invoke<RecordingStartedDto>('start_recording', {
         deviceId: navState.deviceId,
         captureMode: navState.captureMode ?? 'system',
+        micDeviceId: navState.micDeviceId ?? null,
         format: navState.format ?? 'wav',
       }).catch((err) => {
         /* start failures are invoke rejections (never audio:error events) — surface them here */

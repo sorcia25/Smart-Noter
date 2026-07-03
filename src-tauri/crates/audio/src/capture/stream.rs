@@ -21,18 +21,24 @@ use std::sync::{
     Arc,
 };
 
+/// Sentinel device id: resolve the CURRENT default render endpoint at open time.
+/// The Mix card means "record whatever the PC is playing" — pinning a concrete
+/// endpoint breaks when the user switches output (e.g. speakers → headphones)
+/// between page load and recording start.
+pub const DEFAULT_RENDER_LOOPBACK: &str = "__default_render__";
+
 pub struct StreamHandle {
     pub sample_rate: u32,
     pub channels: u16,
     /// Cumulative drop counter shared across all streams for this handle.
     ///
-    /// **Unit asymmetry:** stream callbacks (System/Mic mode) increment this by 1
-    /// per *dropped buffer* (~480 frames / ~10 ms each). The Mix path's mixer
-    /// thread adds *sample counts* directly from `Mixer::dropped_frames()`. The
-    /// ≥ 100 threshold that fires the overflow toast therefore means ~1 s of loss
-    /// in System/Mic mode (100 × 480 frames) but only ~2 ms via mixer overflow
-    /// (100 individual samples). Changing the unit is out of scope; callers should
-    /// be aware of this asymmetry when interpreting the counter.
+    /// **Unit asymmetry (resolved in v1.0.1, Fix F1):** stream callbacks
+    /// (System/Mic mode) increment this by 1 per *dropped buffer* (~480 frames
+    /// / ~10 ms each). The Mix path's mixer thread computes drops as *sample
+    /// counts* (`Mixer::dropped_frames()`), so the recorder's mixer thread now
+    /// converts samples → buffer-equivalents (`÷ 480`, remainder carried
+    /// forward) before adding to this counter — the ≥ 100 overflow-toast
+    /// threshold means the same ~1 s of loss in both modes.
     pub drops: Arc<AtomicU32>,
     /// Populated only in Mix mode: the actual sample rate of the mic input.
     ///
@@ -96,6 +102,7 @@ impl Drop for WasapiStreamThread {
 pub fn open(
     mode: CaptureMode,
     device_id: &str,
+    mic_device_id: Option<&str>,
     tx_a: Sender<Vec<f32>>,
     tx_b: Option<Sender<Vec<f32>>>,
 ) -> Result<StreamHandle, AudioError> {
@@ -106,12 +113,19 @@ pub fn open(
             let tx_b = tx_b.ok_or_else(|| {
                 AudioError::Other("Mix mode requires a second channel sender".into())
             })?;
-            // device_id is the loopback id; mic picks the system default for now.
+            // device_id is the loopback id; the mic is the explicitly chosen input
+            // device, falling back to the system default when none was chosen.
             // Share a single drops counter across both streams so Task 3.2's recorder
             // sees aggregate pipeline drops from the whole Mix pipeline.
             let shared_drops = Arc::new(AtomicU32::new(0));
             let loop_handle = open_loopback_with_drops(device_id, tx_a, shared_drops.clone())?;
-            let mic_handle = open_mic_default_with_drops(tx_b, shared_drops.clone())?;
+            let mic_handle = match mic_device_id {
+                Some(mic_id) => {
+                    let device = resolve_input_device(mic_id)?;
+                    build_cpal_input_stream(device, tx_b, shared_drops.clone())?
+                }
+                None => open_mic_default_with_drops(tx_b, shared_drops.clone())?,
+            };
             // Capture the Mix source metadata before the handles are consumed.
             let mic_sample_rate = mic_handle.sample_rate;
             let loop_sample_rate = loop_handle.sample_rate;
@@ -150,37 +164,52 @@ fn open_loopback_with_drops(
     tx: Sender<Vec<f32>>,
     drops: Arc<AtomicU32>,
 ) -> Result<StreamHandle, AudioError> {
-    let devices = enumerate()?;
-    let target = devices
-        .iter()
-        .find(|d| d.id == device_id && d.kind == AudioDeviceKind::Loopback)
-        .ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?;
+    // Mix's "record whatever the PC is playing" semantics: resolve the CURRENT
+    // default render endpoint at open time instead of matching a device id that
+    // may have been pinned earlier (e.g. before the user switched output device).
+    // This branch never falls through to the by-id enumerate/match path below.
+    let (device, sample_rate, channels) = if device_id == DEFAULT_RENDER_LOOPBACK {
+        let device =
+            wasapi::get_default_device(&wasapi::Direction::Render).map_err(|e| match e {
+                wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
+                    hresult: inner.code().0,
+                },
+                other => AudioError::Other(format!("WASAPI get_default_device: {other}")),
+            })?;
+        let (sample_rate, channels) = crate::devices::render_format(&device);
+        (device, sample_rate, channels)
+    } else {
+        let devices = enumerate()?;
+        let target = devices
+            .iter()
+            .find(|d| d.id == device_id && d.kind == AudioDeviceKind::Loopback)
+            .ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?;
 
-    // Resolve back to a wasapi::Device by enumerating render endpoints and
-    // matching by friendly name (the name stored in our AudioDevice).
-    use wasapi::{DeviceCollection, Direction};
-    let coll = DeviceCollection::new(&Direction::Render).map_err(|e| match e {
-        wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
-            hresult: inner.code().0,
-        },
-        other => AudioError::Other(format!("WASAPI: {other}")),
-    })?;
+        // Resolve back to a wasapi::Device by enumerating render endpoints and
+        // matching by friendly name (the name stored in our AudioDevice).
+        use wasapi::{DeviceCollection, Direction};
+        let coll = DeviceCollection::new(&Direction::Render).map_err(|e| match e {
+            wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
+                hresult: inner.code().0,
+            },
+            other => AudioError::Other(format!("WASAPI: {other}")),
+        })?;
 
-    let count = coll.get_nbr_devices().unwrap_or(0);
-    let mut wasapi_dev = None;
-    for i in 0..count {
-        if let Ok(d) = coll.get_device_at_index(i) {
-            if d.get_friendlyname().ok().as_deref() == Some(target.name.as_str()) {
-                wasapi_dev = Some(d);
-                break;
+        let count = coll.get_nbr_devices().unwrap_or(0);
+        let mut wasapi_dev = None;
+        for i in 0..count {
+            if let Ok(d) = coll.get_device_at_index(i) {
+                if d.get_friendlyname().ok().as_deref() == Some(target.name.as_str()) {
+                    wasapi_dev = Some(d);
+                    break;
+                }
             }
         }
-    }
-    let device = wasapi_dev.ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?;
+        let device = wasapi_dev.ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?;
+        (device, target.sample_rate, target.channels)
+    };
 
     let drops_clone = drops.clone();
-    let sample_rate = target.sample_rate;
-    let channels = target.channels;
 
     let stop = Arc::new(AtomicBool::new(false));
     let handle = spawn_wasapi_loopback_thread(
@@ -207,7 +236,8 @@ fn open_loopback_with_drops(
     })
 }
 
-fn open_mic(device_id: &str, tx: Sender<Vec<f32>>) -> Result<StreamHandle, AudioError> {
+/// Resolve an input device by our enumerated id (matched back to cpal by name).
+fn resolve_input_device(device_id: &str) -> Result<cpal::Device, AudioError> {
     let host = cpal::default_host();
     let devices = enumerate()?;
     let target = devices
@@ -215,12 +245,14 @@ fn open_mic(device_id: &str, tx: Sender<Vec<f32>>) -> Result<StreamHandle, Audio
         .find(|d| d.id == device_id && d.kind == AudioDeviceKind::Input)
         .ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?;
 
-    let device = host
-        .input_devices()
+    host.input_devices()
         .map_err(|e| AudioError::Other(format!("cpal input_devices: {e}")))?
         .find(|d| d.name().ok().as_deref() == Some(target.name.as_str()))
-        .ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?;
+        .ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))
+}
 
+fn open_mic(device_id: &str, tx: Sender<Vec<f32>>) -> Result<StreamHandle, AudioError> {
+    let device = resolve_input_device(device_id)?;
     let drops = Arc::new(AtomicU32::new(0));
     build_cpal_input_stream(device, tx, drops)
 }
@@ -694,7 +726,7 @@ mod tests {
     #[test]
     fn open_mix_without_second_tx_returns_other() {
         let (tx, _rx) = crossbeam_channel::bounded::<Vec<f32>>(1);
-        let result = open(CaptureMode::Mix, "any-id", tx, None);
+        let result = open(CaptureMode::Mix, "any-id", None, tx, None);
         match result {
             Err(AudioError::Other(msg)) => {
                 assert!(
@@ -717,7 +749,13 @@ mod tests {
     #[test]
     fn open_system_with_unknown_device_returns_device_not_found() {
         let (tx, _rx) = crossbeam_channel::bounded::<Vec<f32>>(1);
-        let result = open(CaptureMode::System, "id-that-does-not-exist", tx, None);
+        let result = open(
+            CaptureMode::System,
+            "id-that-does-not-exist",
+            None,
+            tx,
+            None,
+        );
         match result {
             Err(AudioError::DeviceNotFound(id)) => {
                 assert_eq!(id, "id-that-does-not-exist");
@@ -726,6 +764,37 @@ mod tests {
             Err(AudioError::WasapiInit { .. }) | Err(AudioError::Other(_)) => {}
             Err(other) => panic!("unexpected error: {other:?}"),
             Ok(_) => panic!("expected Err, got Ok"),
+        }
+    }
+
+    /// v1.0.1 F3: the `DEFAULT_RENDER_LOOPBACK` sentinel must resolve the
+    /// CURRENT default render endpoint directly (`wasapi::get_default_device`)
+    /// and must NEVER fall through to the by-id enumerate/match path — that
+    /// path would look up a device literally named `__default_render__`, which
+    /// never exists, and incorrectly return `DeviceNotFound`.
+    ///
+    /// On a machine with a render device this succeeds. On a headless CI
+    /// runner without audio hardware `get_default_device` itself may fail
+    /// (WasapiInit) or a later WASAPI call may fail (Other) — both acceptable,
+    /// mirroring `open_system_with_unknown_device_returns_device_not_found`
+    /// above. The one outcome that must NEVER happen is `DeviceNotFound` for
+    /// the sentinel id, since that would mean the sentinel leaked into the
+    /// by-id lookup.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn default_render_sentinel_does_not_hit_device_not_found() {
+        let (tx, _rx) = crossbeam_channel::bounded::<Vec<f32>>(1);
+        let result = open(CaptureMode::System, DEFAULT_RENDER_LOOPBACK, None, tx, None);
+        match result {
+            Ok(_) => {}
+            // Acceptable: WASAPI subsystem or default render endpoint absent
+            // on the test runner.
+            Err(AudioError::WasapiInit { .. }) | Err(AudioError::Other(_)) => {}
+            Err(AudioError::DeviceNotFound(id)) => panic!(
+                "sentinel must resolve via get_default_device, not the by-id \
+                 enumerate/match path; got DeviceNotFound({id:?})"
+            ),
+            Err(other) => panic!("unexpected error: {other:?}"),
         }
     }
 }

@@ -47,6 +47,21 @@ pub fn enumerate() -> Result<Vec<AudioDevice>, AudioError> {
     Ok(out)
 }
 
+/// Derive (sample_rate, channels) for a WASAPI render endpoint from its mix
+/// format, falling back to a sane default (48 kHz stereo) when the format
+/// query fails. Shared by `enumerate_loopback` (per-endpoint listing) and
+/// `capture::stream`'s default-render sentinel resolution (single endpoint,
+/// resolved at stream-open time) so both derive render format identically.
+pub(crate) fn render_format(device: &wasapi::Device) -> (u32, u16) {
+    let format = device
+        .get_iaudioclient()
+        .and_then(|c| c.get_mixformat())
+        .ok();
+    format
+        .map(|f| (f.get_samplespersec(), f.get_nchannels()))
+        .unwrap_or((48_000, 2))
+}
+
 fn enumerate_loopback() -> Result<Vec<AudioDevice>, AudioError> {
     use wasapi::{get_default_device, DeviceCollection, Direction};
 
@@ -75,13 +90,7 @@ fn enumerate_loopback() -> Result<Vec<AudioDevice>, AudioError> {
             .unwrap_or_else(|_| "Unknown".into());
         let endpoint_id = device.get_id().unwrap_or_else(|_| name.clone());
         let id = stable_id_for(&endpoint_id, AudioDeviceKind::Loopback);
-        let format = device
-            .get_iaudioclient()
-            .and_then(|c| c.get_mixformat())
-            .ok();
-        let (sr, ch) = format
-            .map(|f| (f.get_samplespersec(), f.get_nchannels()))
-            .unwrap_or((48_000, 2));
+        let (sr, ch) = render_format(&device);
         out.push(AudioDevice {
             id,
             name,

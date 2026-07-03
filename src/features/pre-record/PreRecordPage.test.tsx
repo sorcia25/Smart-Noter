@@ -1,6 +1,6 @@
 import { store } from '@/store';
 import { baseApi } from '@/store/api/base';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
@@ -95,7 +95,10 @@ describe('PreRecordPage', () => {
 
   it('start_preview rejection shows toast.error', async () => {
     const invokeMock = vi.mocked(tauriCore.invoke);
-    invokeMock.mockImplementationOnce(async (cmd: string) => {
+    // mockImplementation (not -Once): with refetchOnMountOrArgChange (v1.0.1 F3),
+    // list_audio_devices is invoked on every mount, consuming a one-shot mock
+    // before start_preview ever fires. Use a persistent implementation instead.
+    invokeMock.mockImplementation(async (cmd: string) => {
       if (cmd === 'list_audio_devices') {
         return [
           {
@@ -121,31 +124,38 @@ describe('PreRecordPage', () => {
     expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toBe('Error de captura de audio');
   });
 
-  describe('captureMode derivation (settings Mix preference)', () => {
+  describe('Mix as a first-class device card', () => {
     beforeEach(() => {
       // Reset RTK Query cache so each test gets a fresh fetch from the mocked invoke.
       store.dispatch(baseApi.util.resetApiState());
     });
 
     // Helper: override get_settings to return a specific captureMode value and
-    // optionally swap the device kind. Returns the invokeMock for further assertions.
-    function setupWithSettings(
-      settingsCaptureMode: string,
-      deviceKind: 'loopback' | 'input' = 'loopback'
-    ) {
+    // list both a loopback and an input device (so the mic picker has an option
+    // to select). Returns the invokeMock for further assertions.
+    function setupWithSettings(settingsCaptureMode: string) {
       const invokeMock = vi.mocked(tauriCore.invoke);
       invokeMock.mockClear();
       invokeMock.mockImplementation(async (cmd: string) => {
         if (cmd === 'list_audio_devices') {
           return [
             {
-              id: deviceKind === 'input' ? 'd-I-test' : 'd-L-test',
-              name: deviceKind === 'input' ? 'Test Mic' : 'Test Speakers',
-              kind: deviceKind,
+              id: 'd-L-test',
+              name: 'Test Speakers',
+              kind: 'loopback',
               sampleRate: 48000,
-              channels: deviceKind === 'input' ? 1 : 2,
+              channels: 2,
               isDefault: true,
               recommended: true,
+            },
+            {
+              id: 'd-I-test',
+              name: 'Test Mic',
+              kind: 'input',
+              sampleRate: 48000,
+              channels: 1,
+              isDefault: true,
+              recommended: false,
             },
           ];
         }
@@ -181,13 +191,28 @@ describe('PreRecordPage', () => {
       return invokeMock;
     }
 
-    // Case 1: settings.captureMode === 'mix' + loopback → recording navigates with captureMode 'mix'
-    it('settings.captureMode mix + loopback device → start navigates with captureMode mix', async () => {
-      setupWithSettings('mix', 'loopback');
-      // Wait for device to auto-select (preview fires)
-      await waitFor(() =>
-        expect(vi.mocked(tauriCore.invoke)).toHaveBeenCalledWith('start_preview', expect.anything())
-      );
+    // Case 1: the mix card renders first in the device grid.
+    it('renders a "Sistema + Micrófono" card first in the device grid', async () => {
+      setupWithSettings('system');
+      const cards = await screen.findAllByRole('button', {
+        name: /Sistema \+ Micrófono|Test Speakers|Test Mic/,
+      });
+      expect(cards[0]).toHaveTextContent('Sistema + Micrófono');
+    });
+
+    // Case 2: selecting the mix card reveals the mic picker + the headphones hint,
+    // and starting without picking a mic navigates with micDeviceId: null.
+    it('selecting the mix card shows the mic picker and headphones hint; start navigates mix/null mic', async () => {
+      setupWithSettings('system');
+      const mixCard = await screen.findByRole('button', { name: /Sistema \+ Micrófono/ });
+      // The mix card is disabled until list_audio_devices resolves (needs a loopback
+      // device) — wait for that before clicking, or the click is a silent no-op.
+      await waitFor(() => expect(mixCard).toBeEnabled());
+      await userEvent.click(mixCard);
+
+      expect(await screen.findByLabelText('Micrófono de la mezcla')).toBeInTheDocument();
+      expect(screen.getByText(/audífonos/i)).toBeInTheDocument();
+
       const startBtn = await screen.findByRole('button', { name: /Iniciar|Start/i });
       await userEvent.click(startBtn);
       expect(navigateSpy).toHaveBeenCalledOnce();
@@ -196,14 +221,43 @@ describe('PreRecordPage', () => {
         { state: Record<string, unknown> },
       ];
       expect(navOptions.state.captureMode).toBe('mix');
+      expect(navOptions.state.micDeviceId).toBeNull();
+      // v1.0.1 F3: mix records the CURRENT default render endpoint, not the id
+      // pinned from the device list at page load.
+      expect(navOptions.state.deviceId).toBe('__default_render__');
     });
 
-    // Case 2: settings.captureMode === 'mix' + input device → input choice wins → captureMode 'mic'
-    it('settings.captureMode mix + input device → start navigates with captureMode mic', async () => {
-      setupWithSettings('mix', 'input');
-      await waitFor(() =>
-        expect(vi.mocked(tauriCore.invoke)).toHaveBeenCalledWith('start_preview', expect.anything())
-      );
+    // Case 3: choosing an input device in the mic picker threads that id through to start.
+    it('choosing an input device in the mic picker → start navigates with that micDeviceId', async () => {
+      setupWithSettings('system');
+      const mixCard = await screen.findByRole('button', { name: /Sistema \+ Micrófono/ });
+      // The mix card is disabled until list_audio_devices resolves (needs a loopback
+      // device) — wait for that before clicking, or the click is a silent no-op.
+      await waitFor(() => expect(mixCard).toBeEnabled());
+      await userEvent.click(mixCard);
+
+      const micSelect = await screen.findByLabelText('Micrófono de la mezcla');
+      fireEvent.change(micSelect, { target: { value: 'd-I-test' } });
+
+      const startBtn = await screen.findByRole('button', { name: /Iniciar|Start/i });
+      await userEvent.click(startBtn);
+      expect(navigateSpy).toHaveBeenCalledOnce();
+      const [, navOptions] = navigateSpy.mock.calls[0] as [
+        string,
+        { state: Record<string, unknown> },
+      ];
+      expect(navOptions.state.micDeviceId).toBe('d-I-test');
+      // v1.0.1 F3: the loopback lane still uses the sentinel even when a specific
+      // mic was chosen — only the mic side is an explicit pick in Mix mode.
+      expect(navOptions.state.deviceId).toBe('__default_render__');
+    });
+
+    // Case 4: selecting a plain input device card (not the mix card) is mic-only.
+    it('selecting a plain input device card → start navigates captureMode mic, micDeviceId null', async () => {
+      setupWithSettings('system');
+      const micCard = await screen.findByRole('button', { name: /Test Mic/ });
+      await userEvent.click(micCard);
+
       const startBtn = await screen.findByRole('button', { name: /Iniciar|Start/i });
       await userEvent.click(startBtn);
       expect(navigateSpy).toHaveBeenCalledOnce();
@@ -212,17 +266,15 @@ describe('PreRecordPage', () => {
         { state: Record<string, unknown> },
       ];
       expect(navOptions.state.captureMode).toBe('mic');
+      expect(navOptions.state.micDeviceId).toBeNull();
     });
 
-    // Case 3: settings.captureMode !== 'mix' (e.g. 'system') + loopback → unchanged 'system'
-    // NOTE: The top-level 'starts preview' test already covers get_settings returning null
-    // (settings undefined) with a loopback device → captureMode 'system'. This case makes
-    // the non-mix explicit with settings.captureMode === 'system'.
-    it('settings.captureMode system + loopback device → start navigates with captureMode system', async () => {
-      setupWithSettings('system', 'loopback');
-      await waitFor(() =>
-        expect(vi.mocked(tauriCore.invoke)).toHaveBeenCalledWith('start_preview', expect.anything())
-      );
+    // Case 5: settings.captureMode 'mix' preselects the card — starting without any click
+    // still navigates 'mix'.
+    it('settings captureMode mix preselects the card; start navigates mix without clicking it', async () => {
+      setupWithSettings('mix');
+      await screen.findByLabelText('Micrófono de la mezcla');
+
       const startBtn = await screen.findByRole('button', { name: /Iniciar|Start/i });
       await userEvent.click(startBtn);
       expect(navigateSpy).toHaveBeenCalledOnce();
@@ -230,54 +282,58 @@ describe('PreRecordPage', () => {
         string,
         { state: Record<string, unknown> },
       ];
-      expect(navOptions.state.captureMode).toBe('system');
+      expect(navOptions.state.captureMode).toBe('mix');
+      // v1.0.1 F3: preselected via settings, still records the CURRENT default.
+      expect(navOptions.state.deviceId).toBe('__default_render__');
     });
 
-    // Case 4: preview is NOT affected by mix preference — start_preview always uses previewMode
-    it('settings.captureMode mix + loopback → start_preview invoked with captureMode system (not mix)', async () => {
-      const invokeMock = setupWithSettings('mix', 'loopback');
+    // Case 6: with the mix card selected, start_preview previews the CURRENT default
+    // render endpoint via the sentinel — not a device id pinned from the (possibly
+    // stale) device list at page load. v1.0.1 F3.
+    it('with the mix card selected, start_preview is invoked with the default-render sentinel', async () => {
+      const invokeMock = setupWithSettings('mix');
       await waitFor(() =>
         expect(invokeMock).toHaveBeenCalledWith('start_preview', {
-          deviceId: 'd-L-test',
+          deviceId: '__default_render__',
           captureMode: 'system',
         })
       );
     });
 
-    // Case 5: resolved mix mode is surfaced in the UI near the device grid
-    it('settings.captureMode mix + loopback device → shows the mix recording hint', async () => {
-      setupWithSettings('mix', 'loopback');
-      expect(
-        await screen.findByText(
-          'Modo Mezcla: se grabará el audio del sistema + tu micrófono predeterminado.'
-        )
-      ).toBeInTheDocument();
-      expect(
-        screen.queryByText('Modo Mezcla ignorado: se grabará sólo el micrófono seleccionado.')
-      ).not.toBeInTheDocument();
-    });
-
-    // Case 6: mix preference overridden by an input device → the override is surfaced
-    it('settings.captureMode mix + input device → shows the mix override hint', async () => {
-      setupWithSettings('mix', 'input');
-      expect(
-        await screen.findByText('Modo Mezcla ignorado: se grabará sólo el micrófono seleccionado.')
-      ).toBeInTheDocument();
-      expect(
-        screen.queryByText(
-          'Modo Mezcla: se grabará el audio del sistema + tu micrófono predeterminado.'
-        )
-      ).not.toBeInTheDocument();
-    });
-
-    // Case 7: non-mix settings → no mode hint at all
-    it('settings.captureMode system + loopback device → shows no mix hint', async () => {
-      const invokeMock = setupWithSettings('system', 'loopback');
-      // Settle: device auto-selected (preview fired) — settings resolve in the same mock pass.
+    // v1.0.1 F2: the preview effect must not restart on re-renders that don't change
+    // previewDeviceId/previewMode (e.g. a background store update re-rendering the
+    // page while `t` churns identity). Re-running would fire an un-awaited
+    // stop_preview + an immediate start_preview, racing the backend into
+    // AlreadyRecording. Clicking the already-selected device re-renders the page
+    // without changing device/mode — start_preview must stay called exactly once.
+    it('preview_does_not_restart_on_unrelated_rerenders', async () => {
+      const invokeMock = setupWithSettings('mix');
       await waitFor(() =>
-        expect(invokeMock).toHaveBeenCalledWith('start_preview', expect.anything())
+        expect(invokeMock).toHaveBeenCalledWith('start_preview', {
+          deviceId: '__default_render__',
+          captureMode: 'system',
+        })
       );
-      expect(screen.queryByText(/Modo Mezcla/)).not.toBeInTheDocument();
+      const startPreviewCallsBefore = invokeMock.mock.calls.filter(
+        ([cmd]) => cmd === 'start_preview'
+      );
+      expect(startPreviewCallsBefore).toHaveLength(1);
+
+      // Re-click the already-selected mix card: same deviceId ('__mix__') and same
+      // previewMode, so previewDeviceId/previewMode are referentially unchanged,
+      // but the component re-renders (setDeviceId to its current value).
+      const mixCard = await screen.findByRole('button', { name: /Sistema \+ Micrófono/ });
+      await userEvent.click(mixCard);
+
+      // invoke() is async (mocked), so give any (incorrect) effect re-run a real
+      // macrotask to fire and resolve before asserting — a plain synchronous check
+      // right after the click could pass even if a spurious start_preview is
+      // still in flight.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const startPreviewCallsAfter = invokeMock.mock.calls.filter(
+        ([cmd]) => cmd === 'start_preview'
+      );
+      expect(startPreviewCallsAfter).toHaveLength(1);
     });
   });
 });
