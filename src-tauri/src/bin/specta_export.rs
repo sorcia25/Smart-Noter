@@ -1,6 +1,6 @@
-use specta_typescript::{BigIntExportBehavior, Typescript};
-
+#[cfg(feature = "generate-bindings")]
 fn main() {
+    use specta_typescript::{BigIntExportBehavior, Typescript};
     smart_noter_lib::specta_builder()
         .export(
             Typescript::default()
@@ -10,4 +10,11 @@ fn main() {
         )
         .expect("export bindings");
     println!("bindings.ts exported");
+}
+
+#[cfg(not(feature = "generate-bindings"))]
+fn main() {
+    // Stub for release/bundle builds — Tauri bundles every [[bin]], so the target
+    // must exist, but without `generate-bindings` it links no app-lib code and
+    // ships as a small no-op instead of the ~20 MB dev exporter.
 }

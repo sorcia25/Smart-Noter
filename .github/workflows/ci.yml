@@ -43,7 +43,7 @@ jobs:
         working-directory: src-tauri
         shell: bash
         run: |
-          cargo build --bin specta-export
+          cargo build --bin specta-export --features generate-bindings
           # sherpa-rs-sys's build.rs copies the onnx/sherpa runtime DLLs next to the exe,
           # but only when it runs (cache miss). On a cache hit it's skipped, so the exe
           # dies with STATUS_DLL_NOT_FOUND. Copy them from the cached download dir.
@@ -146,7 +146,7 @@ jobs:
         working-directory: src-tauri
         shell: bash
         run: |
-          cargo build --bin specta-export
+          cargo build --bin specta-export --features generate-bindings
           # See the frontend job: copy the cached sherpa/onnx DLLs next to the exe so
           # it doesn't die with STATUS_DLL_NOT_FOUND on a rust-cache hit.
           find ~/AppData/Local/sherpa-rs -name '*.dll' -exec cp -f {} target/debug/ \;

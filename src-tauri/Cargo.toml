@@ -62,6 +62,9 @@ path = "src/bin/specta_export.rs"
 # the embedded `frontendDist` — making an installed app unable to load its UI. The
 # `tauri build` CLI enables this feature when it's defined here. DO NOT REMOVE.
 custom-protocol = ["tauri/custom-protocol"]
+# Dev-only: enables the specta-export bin to link the app lib and emit bindings.
+# OFF in release/bundle → the bin compiles to a trivial stub (no 20 MB app-lib link).
+generate-bindings = []
 
 [build-dependencies]
 tauri-build.workspace = true
