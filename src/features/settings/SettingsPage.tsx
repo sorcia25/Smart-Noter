@@ -386,6 +386,26 @@ export default function SettingsPage() {
                     ? t('updateAvailable', { version: updater.status.version })
                     : t('updateDownloading')}
                 </div>
+                {updater.status.kind === 'downloading' && (
+                  <div className={styles.progressWrap}>
+                    <div
+                      className={styles.progressBar}
+                      style={{
+                        width: updater.status.total
+                          ? `${Math.round((updater.status.downloaded / updater.status.total) * 100)}%`
+                          : '100%',
+                      }}
+                    />
+                    <span className={styles.progressText}>
+                      {t('updateProgress', {
+                        done: (updater.status.downloaded / 1_048_576).toFixed(1),
+                        total: updater.status.total
+                          ? (updater.status.total / 1_048_576).toFixed(1)
+                          : '?',
+                      })}
+                    </span>
+                  </div>
+                )}
               </div>
               <Button
                 variant="primary"

@@ -268,6 +268,7 @@
   "updateUpToDate": "Estás en la última versión.",
   "updateAvailable": "Versión {version} disponible",
   "updateDownloading": "Descargando e instalando…",
+  "updateProgress": "{done} / {total} MB",
   "updateInstall": "Actualizar ahora",
   "updateError": "No se pudo comprobar. Inténtalo más tarde.",
   "outputDeviceChanged": "Salida cambiada a «{name}»"
