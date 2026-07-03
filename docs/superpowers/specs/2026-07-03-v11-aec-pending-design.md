@@ -24,7 +24,7 @@ records silence — v1.0.1 gotcha #3), and two Sub-8 leftovers (updater download
 | # | Module | What |
 |---|--------|------|
 | A | **AEC** (`EchoCanceller`) — centerpiece | New isolated `EchoCanceller` invoked inside the Mixer on the already-aligned mono/48k lanes; 16 kHz internally (48k↔16k encapsulated). `aec-rs` 1.0.0. A **"Cancelar eco de bocinas"** toggle on the mix card, persisted, default ON |
-| B | Output-device following | `IMMNotificationClient` re-opens the loopback to the new default render endpoint mid-stream (System + Mix modes, sentinel only); Mixer reconfigures lane A on rate change; discreet toast |
+| B | Output-device following | Poll the default render endpoint in the loopback thread; re-open on change (System + Mix modes, sentinel only), requesting the original format (WASAPI `convert=true`) so the Mixer/writer are untouched; discreet toast |
 | C | Updater download progress | `downloadAndInstall` `onEvent` (Started/Progress/Finished) → progress bar + MB/% in Settings |
 | D | Exclude `specta-export.exe` | `#[cfg]`-gate the bin's *contents* → a trivial stub (~200 KB) in release instead of the 20 MB dev bin |
 | E | Version 1.1.0 + release | 5 version sites, e2e baselines (the AEC toggle changes the mix card), tag → Release → in-app update smoke |
@@ -91,26 +91,29 @@ lane A by the same latency is the fallback if it ever matters).
 - i18n (both locales): `aecToggleLabel` ("Cancelar eco de bocinas" / "Cancel speaker echo"),
   `aecToggleHint` ("Actívalo con bocinas; con audífonos apágalo"). Regenerate `keys.ts`.
 
-### 3B. Output-device following (`IMMNotificationClient`)
+### 3B. Output-device following (polling)
 
 Today the loopback resolves the default render endpoint once at stream-open (sentinel
 `DEFAULT_RENDER_LOOPBACK` → `wasapi::get_default_device`, `stream.rs:28,171-180`) and then pins it.
+wasapi 0.16 does NOT expose `IMMNotificationClient` for default-device changes (its `EventCallbacks`
+are audio-session events), so following uses **polling** (user-approved 2026-07-03) instead of a COM
+notification client — simpler and lower-risk, same observable behavior.
 
-- Register an `IMMNotificationClient` (windows crate 0.59, via
-  `IMMDeviceEnumerator::RegisterEndpointNotificationCallback`) while a loopback stream is alive —
-  i.e. **System and Mix modes** (Mic-only has no loopback). Unregister on stop.
+- Restructure `wasapi_loopback_loop` into an outer re-open loop + the existing inner capture loop.
+  Applies while a loopback stream is alive — **System and Mix modes** (Mic-only has no loopback).
 - **Only when the device id is the sentinel** `__default_render__`. A user-pinned device means
   "record exactly this endpoint" → do not follow.
-- On `OnDefaultDeviceChanged(flow = eRender, role = eConsole)`: the COM callback (which runs on the
-  MMDevice API thread) must NOT touch WASAPI directly — it sends a signal over a channel to the
-  loopback thread, which closes the old `IAudioClient` and opens the new default endpoint. The
-  Mixer's **silence-fill already covers the ~ms gap** (no new gap handling).
-- **Rate/channel change:** the new endpoint may differ (48k→44.1k). The loopback thread sends the
-  new `(rate, channels)` to the mixer thread over a control channel; the Mixer recreates its lane-A
-  resampler via a new `Mixer::reconfigure_lane_a(rate, channels)` method (R3). Without this a rate
-  change corrupts lane A.
-- **Toast:** emit a Tauri event `output-device-changed { name }`; the frontend shows a discreet
-  toast ("Salida cambiada a «X»") so an audible change is explained.
+- Every ~1 s the inner loop compares the current default render endpoint id
+  (`wasapi::get_default_device`) against the open one; on change it stops the old `IAudioClient` and
+  re-opens at the top of the outer loop. The Mixer's **silence-fill already covers the sub-second
+  gap**. Detection latency ≤1 s is irrelevant while the user is switching devices.
+- **Rate/channel change (supersedes the earlier control-channel design):** the re-open requests the
+  ORIGINAL rate/channels with WASAPI `convert=true` (already used at `stream.rs`), so WASAPI absorbs
+  any new-endpoint format difference and the Mixer + writer never see a change — no
+  `reconfigure_lane_a`, no control channel. If `convert=true` turns out not to resample, the
+  fallback resamples inside the loopback thread to the original rate (still untouching the Mixer).
+- **Toast:** emit a Tauri event `audio:output-device-changed { name }`; the frontend (`App.tsx`)
+  shows a discreet toast ("Salida cambiada a «X»").
 
 ### 3C. Updater download progress
 
@@ -184,8 +187,8 @@ linking). New angle — gate the **contents**, keep the target existing:
 |---|------|------------|
 | R1 | Speex preprocessor over-attenuates near-end voice in double-talk (~-9 dB) | Start with preprocessor OFF (canceller only); tune on hardware; the toggle lets the user disable AEC entirely with headphones |
 | R2 | `EchoCanceller` fixed latency offsets cleaned voice vs system lane | ~1 frame (16–32 ms), imperceptible for a meeting; accepted. Fallback: delay lane A by the same latency |
-| R3 | Output-device switch changes sample rate → lane A corrupts | `Mixer::reconfigure_lane_a(rate, channels)` recreates the lane-A resampler on the control-channel signal |
-| R4 | `IMMNotificationClient` COM runs on its own thread | Callback only sends a channel signal; all WASAPI re-open work happens on the loopback thread |
+| R3 | Output-device switch changes sample rate | Re-open requests the ORIGINAL format with WASAPI `convert=true`; Mixer/writer untouched. Fallback: resample in the loopback thread |
+| R4 | Polling adds latency / misses a fast switch | ~1 s poll; silence-fill covers the gap; a device switch is a human action, so sub-second detection is ample |
 | R5 | `specta-export` stub still ships (~200 KB) | Acceptable vs 20 MB; delete-in-`beforeBundle` refinement if the bundler tolerates absence |
 | R6 | PreRecord e2e baseline churn from the toggle | Regen + spot-check inside the branch (known trap) |
 | R7 | `aec-rs-sys` may ship a speexdsp DLL (new installer dependency) | Verify early; if so, bundle it via `stage-dlls.mjs` + `bundle.resources` (Sub-8 pattern) |
