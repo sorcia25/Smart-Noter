@@ -22,6 +22,20 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+/// Callback invoked when the loopback follows a default-render-endpoint switch,
+/// receiving the friendly name of the new output device.
+///
+/// Kept as a plain boxed closure (NOT a `tauri::AppHandle`) so this audio crate
+/// stays decoupled from the GUI runtime: `stream.rs` must not reference any
+/// `tauri` type, otherwise its object file drags `tao`/`tauri-runtime-wry` (and
+/// the `TaskDialogIndirect` import from a `comctl32` v6 the test binary can't
+/// resolve without an app manifest) into the crate's test executable, which
+/// then fails to start. The recorder supplies a closure that emits the Tauri
+/// `audio:output-device-changed` event.
+///
+/// `Send + Sync` because the closure is moved into the WASAPI capture thread.
+pub type DeviceChangeCallback = Box<dyn Fn(String) + Send + Sync>;
+
 /// Sentinel device id: resolve the CURRENT default render endpoint at open time.
 /// The Mix card means "record whatever the PC is playing" — pinning a concrete
 /// endpoint breaks when the user switches output (e.g. speakers → headphones)
@@ -90,15 +104,22 @@ impl Drop for WasapiStreamThread {
 /// Open one or two streams depending on the mode.
 ///
 /// Returns a handle whose drop closes the streams.
+///
+/// `on_device_change` is only consulted for loopback (System/Mix) capture, where
+/// it is threaded down to the WASAPI capture thread and invoked with the new
+/// device's friendly name when following a default-render switch (see
+/// `wasapi_loopback_loop`). Mic-only capture never has a loopback thread, so it
+/// ignores the callback — pass `None` from non-Tauri contexts (e.g. tests).
 pub fn open(
     mode: CaptureMode,
     device_id: &str,
     mic_device_id: Option<&str>,
     tx_a: Sender<Vec<f32>>,
     tx_b: Option<Sender<Vec<f32>>>,
+    on_device_change: Option<DeviceChangeCallback>,
 ) -> Result<StreamHandle, AudioError> {
     match mode {
-        CaptureMode::System => open_loopback(device_id, tx_a),
+        CaptureMode::System => open_loopback(device_id, tx_a, on_device_change),
         CaptureMode::Mic => open_mic(device_id, tx_a),
         CaptureMode::Mix => {
             let tx_b = tx_b.ok_or_else(|| {
@@ -109,7 +130,8 @@ pub fn open(
             // Share a single drops counter across both streams so Task 3.2's recorder
             // sees aggregate pipeline drops from the whole Mix pipeline.
             let shared_drops = Arc::new(AtomicU32::new(0));
-            let loop_handle = open_loopback_with_drops(device_id, tx_a, shared_drops.clone())?;
+            let loop_handle =
+                open_loopback_with_drops(device_id, tx_a, shared_drops.clone(), on_device_change)?;
             let mic_handle = match mic_device_id {
                 Some(mic_id) => {
                     let device = resolve_input_device(mic_id)?;
@@ -145,9 +167,13 @@ pub fn open(
     }
 }
 
-fn open_loopback(device_id: &str, tx: Sender<Vec<f32>>) -> Result<StreamHandle, AudioError> {
+fn open_loopback(
+    device_id: &str,
+    tx: Sender<Vec<f32>>,
+    on_device_change: Option<DeviceChangeCallback>,
+) -> Result<StreamHandle, AudioError> {
     let drops = Arc::new(AtomicU32::new(0));
-    open_loopback_with_drops(device_id, tx, drops)
+    open_loopback_with_drops(device_id, tx, drops, on_device_change)
 }
 
 /// Resolve a loopback `device_id` to a concrete `wasapi::Device` plus a stable id
@@ -227,6 +253,7 @@ fn open_loopback_with_drops(
     device_id: &str,
     tx: Sender<Vec<f32>>,
     drops: Arc<AtomicU32>,
+    on_device_change: Option<DeviceChangeCallback>,
 ) -> Result<StreamHandle, AudioError> {
     // We need (sample_rate, channels) up front to configure the returned
     // StreamHandle's writer. Resolve once here to read the format; the capture
@@ -263,6 +290,7 @@ fn open_loopback_with_drops(
         tx,
         drops_clone,
         stop.clone(),
+        on_device_change,
     )?;
 
     Ok(StreamHandle {
@@ -546,15 +574,22 @@ fn spawn_wasapi_loopback_thread(
     tx: Sender<Vec<f32>>,
     drops: Arc<AtomicU32>,
     stop: Arc<AtomicBool>,
+    on_device_change: Option<DeviceChangeCallback>,
 ) -> Result<std::thread::JoinHandle<()>, AudioError> {
     let handle = std::thread::Builder::new()
         .name("wasapi-loopback".into())
         .spawn(move || {
             // The thread resolves the device itself from `device_id` (inside the
             // MTA it initialises below), so nothing non-Send crosses this boundary.
-            if let Err(e) =
-                wasapi_loopback_loop(device_id, sample_rate, channels, &tx, &drops, &stop)
-            {
+            if let Err(e) = wasapi_loopback_loop(
+                device_id,
+                sample_rate,
+                channels,
+                &tx,
+                &drops,
+                &stop,
+                on_device_change,
+            ) {
                 tracing::error!("WASAPI loopback thread exited with error: {e}");
             }
         })
@@ -589,6 +624,7 @@ fn wasapi_loopback_loop(
     tx: &Sender<Vec<f32>>,
     drops: &Arc<AtomicU32>,
     stop: &Arc<AtomicBool>,
+    on_device_change: Option<DeviceChangeCallback>,
 ) -> Result<(), AudioError> {
     use wasapi::{Direction, SampleType, ShareMode, WaveFormat};
 
@@ -745,6 +781,9 @@ fn wasapi_loopback_loop(
                     if should_reopen(follow, &open_id, &cur_id) {
                         tracing::info!(old = %open_id, new = %cur_id, "default render changed; reopening loopback");
                         let _ = audio_client.stop_stream();
+                        if let Some(cb) = &on_device_change {
+                            cb(cur.get_friendlyname().unwrap_or_default());
+                        }
                         continue 'reopen;
                     }
                 }
@@ -833,7 +872,7 @@ mod tests {
     #[test]
     fn open_mix_without_second_tx_returns_other() {
         let (tx, _rx) = crossbeam_channel::bounded::<Vec<f32>>(1);
-        let result = open(CaptureMode::Mix, "any-id", None, tx, None);
+        let result = open(CaptureMode::Mix, "any-id", None, tx, None, None);
         match result {
             Err(AudioError::Other(msg)) => {
                 assert!(
@@ -861,6 +900,7 @@ mod tests {
             "id-that-does-not-exist",
             None,
             tx,
+            None,
             None,
         );
         match result {
@@ -891,7 +931,14 @@ mod tests {
     #[test]
     fn default_render_sentinel_does_not_hit_device_not_found() {
         let (tx, _rx) = crossbeam_channel::bounded::<Vec<f32>>(1);
-        let result = open(CaptureMode::System, DEFAULT_RENDER_LOOPBACK, None, tx, None);
+        let result = open(
+            CaptureMode::System,
+            DEFAULT_RENDER_LOOPBACK,
+            None,
+            tx,
+            None,
+            None,
+        );
         match result {
             Ok(_) => {}
             // Acceptable: WASAPI subsystem or default render endpoint absent

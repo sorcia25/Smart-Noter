@@ -269,5 +269,6 @@
   "updateAvailable": "Version {version} available",
   "updateDownloading": "Downloading and installing…",
   "updateInstall": "Update now",
-  "updateError": "Couldn't check. Try again later."
+  "updateError": "Couldn't check. Try again later.",
+  "outputDeviceChanged": "Output switched to \"{name}\""
 }

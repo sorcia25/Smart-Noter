@@ -269,5 +269,6 @@
   "updateAvailable": "Versión {version} disponible",
   "updateDownloading": "Descargando e instalando…",
   "updateInstall": "Actualizar ahora",
-  "updateError": "No se pudo comprobar. Inténtalo más tarde."
+  "updateError": "No se pudo comprobar. Inténtalo más tarde.",
+  "outputDeviceChanged": "Salida cambiada a «{name}»"
 }
