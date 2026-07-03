@@ -62,16 +62,6 @@ impl KeepAlive for CpalStream {}
 // In practice we keep it on the thread that opened it; do NOT move handles across threads.
 unsafe impl Send for CpalStream {}
 
-/// Newtype wrapper that makes `wasapi::Device` sendable across threads.
-///
-/// SAFETY: `wasapi::Device` wraps an `IMMDevice` COM pointer. COM objects in the
-/// MTA (Multi-Threaded Apartment, which we use for the loopback thread) can be
-/// safely accessed from any thread in that MTA. The loopback thread calls
-/// `initialize_mta()` before touching the device, ensuring it is in the MTA.
-/// We never share the raw pointer between threads simultaneously.
-struct SendDevice(wasapi::Device);
-unsafe impl Send for SendDevice {}
-
 /// Holds the WASAPI loopback background thread and the flag to request its shutdown.
 ///
 /// We store the stop flag alongside the JoinHandle so that Drop can signal the
@@ -159,25 +149,33 @@ fn open_loopback(device_id: &str, tx: Sender<Vec<f32>>) -> Result<StreamHandle, 
     open_loopback_with_drops(device_id, tx, drops)
 }
 
-fn open_loopback_with_drops(
-    device_id: &str,
-    tx: Sender<Vec<f32>>,
-    drops: Arc<AtomicU32>,
-) -> Result<StreamHandle, AudioError> {
-    // Mix's "record whatever the PC is playing" semantics: resolve the CURRENT
-    // default render endpoint at open time instead of matching a device id that
-    // may have been pinned earlier (e.g. before the user switched output device).
-    // This branch never falls through to the by-id enumerate/match path below.
-    let (device, sample_rate, channels) = if device_id == DEFAULT_RENDER_LOOPBACK {
-        let device =
-            wasapi::get_default_device(&wasapi::Direction::Render).map_err(|e| match e {
-                wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
-                    hresult: inner.code().0,
-                },
-                other => AudioError::Other(format!("WASAPI get_default_device: {other}")),
-            })?;
-        let (sample_rate, channels) = crate::devices::render_format(&device);
-        (device, sample_rate, channels)
+/// Resolve a loopback `device_id` to a concrete `wasapi::Device` plus a stable id
+/// string for that endpoint.
+///
+/// Two resolution modes, mirroring the caller's original inline logic:
+///  - `DEFAULT_RENDER_LOOPBACK` sentinel: resolve the CURRENT default render
+///    endpoint (`wasapi::get_default_device`). This is Mix's "record whatever the
+///    PC is playing" semantics — never fall through to the by-id path, which would
+///    look up a device literally named `__default_render__` and always fail.
+///  - any other id: enumerate our devices, find the matching Loopback entry, then
+///    match it back to a `wasapi::Device` by friendly name (the name we store in
+///    `AudioDevice`).
+///
+/// The returned id string comes from `wasapi::Device::get_id()` (wraps
+/// `IMMDevice::GetId` — the persistent endpoint id), so it is stable and
+/// comparable for the same endpoint across calls. Task B2 uses it to detect when
+/// the default render endpoint has switched and a re-open is required. If
+/// `get_id()` fails we fall back to the device's friendly name so the caller
+/// always gets *some* comparable id rather than an error (the id is advisory, not
+/// load-bearing for capture).
+fn resolve_render_device(device_id: &str) -> Result<(wasapi::Device, String), AudioError> {
+    let device = if device_id == DEFAULT_RENDER_LOOPBACK {
+        wasapi::get_default_device(&wasapi::Direction::Render).map_err(|e| match e {
+            wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
+                hresult: inner.code().0,
+            },
+            other => AudioError::Other(format!("WASAPI get_default_device: {other}")),
+        })?
     } else {
         let devices = enumerate()?;
         let target = devices
@@ -205,15 +203,55 @@ fn open_loopback_with_drops(
                 }
             }
         }
-        let device = wasapi_dev.ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?;
-        (device, target.sample_rate, target.channels)
+        wasapi_dev.ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?
     };
+
+    // Prefer the persistent endpoint id (IMMDevice::GetId); fall back to the
+    // friendly name if GetId fails. Either is stable/comparable for the same
+    // endpoint, which is all B2's change detection needs.
+    let open_id = device
+        .get_id()
+        .or_else(|_| device.get_friendlyname())
+        .unwrap_or_default();
+
+    Ok((device, open_id))
+}
+
+fn open_loopback_with_drops(
+    device_id: &str,
+    tx: Sender<Vec<f32>>,
+    drops: Arc<AtomicU32>,
+) -> Result<StreamHandle, AudioError> {
+    // We need (sample_rate, channels) up front to configure the returned
+    // StreamHandle's writer. Resolve once here to read the format; the capture
+    // thread re-resolves the device itself from `device_id` (so it can later
+    // follow a default-device switch). Resolving twice at startup is a cheap,
+    // acceptable cost and keeps the thread self-contained.
+    let (device, sample_rate, channels) = if device_id == DEFAULT_RENDER_LOOPBACK {
+        let (device, _open_id) = resolve_render_device(device_id)?;
+        let (sample_rate, channels) = crate::devices::render_format(&device);
+        (device, sample_rate, channels)
+    } else {
+        // For the by-id path the rate/channels are the values we enumerated and
+        // stored on the AudioDevice; look them up alongside resolving the device.
+        let devices = enumerate()?;
+        let target = devices
+            .iter()
+            .find(|d| d.id == device_id && d.kind == AudioDeviceKind::Loopback)
+            .ok_or_else(|| AudioError::DeviceNotFound(device_id.to_string()))?;
+        let (sample_rate, channels) = (target.sample_rate, target.channels);
+        let (device, _open_id) = resolve_render_device(device_id)?;
+        (device, sample_rate, channels)
+    };
+    // The resolved `device` is only used to read the format here; the thread
+    // re-resolves from `device_id`. Drop it explicitly to make that intent clear.
+    drop(device);
 
     let drops_clone = drops.clone();
 
     let stop = Arc::new(AtomicBool::new(false));
     let handle = spawn_wasapi_loopback_thread(
-        SendDevice(device),
+        device_id.to_string(),
         sample_rate,
         channels,
         tx,
@@ -496,7 +534,7 @@ fn build_cpal_input_stream(
 /// the thread at most every 100 ms so it can check the flag and exit cleanly.
 /// The `WasapiStreamThread` Drop impl stores the same Arc and joins the thread.
 fn spawn_wasapi_loopback_thread(
-    device: SendDevice,
+    device_id: String,
     sample_rate: u32,
     channels: u16,
     tx: Sender<Vec<f32>>,
@@ -506,8 +544,10 @@ fn spawn_wasapi_loopback_thread(
     let handle = std::thread::Builder::new()
         .name("wasapi-loopback".into())
         .spawn(move || {
-            // device is a SendDevice (unsafe impl Send); unwrap inside the thread.
-            if let Err(e) = wasapi_loopback_loop(device, sample_rate, channels, &tx, &drops, &stop)
+            // The thread resolves the device itself from `device_id` (inside the
+            // MTA it initialises below), so nothing non-Send crosses this boundary.
+            if let Err(e) =
+                wasapi_loopback_loop(device_id, sample_rate, channels, &tx, &drops, &stop)
             {
                 tracing::error!("WASAPI loopback thread exited with error: {e}");
             }
@@ -530,8 +570,15 @@ fn spawn_wasapi_loopback_thread(
 /// The "Render device + Capture direction" combination is what wasapi-rs calls
 /// WASAPI loopback: `initialize_client` detects the mismatch and sets
 /// `AUDCLNT_STREAMFLAGS_LOOPBACK` automatically (see wasapi api.rs line ~835).
+///
+/// `clippy::never_loop`: the outer `'reopen` loop intentionally never iterates
+/// yet — its body opens once and the inner capture loop only exits via `return`.
+/// The trailing `continue 'reopen` is scaffolding Task B2 will make reachable
+/// (re-open on default-device change); allowing the lint keeps that structure in
+/// place without a behaviour change now.
+#[allow(clippy::never_loop)]
 fn wasapi_loopback_loop(
-    device: SendDevice,
+    device_id: String,
     sample_rate: u32,
     channels: u16,
     tx: &Sender<Vec<f32>>,
@@ -558,145 +605,184 @@ fn wasapi_loopback_loop(
         // S_OK or S_FALSE — both acceptable
     }
 
-    let device = device.0;
-    let mut audio_client = device.get_iaudioclient().map_err(|e| match e {
-        wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
-            hresult: inner.code().0,
-        },
-        other => AudioError::Other(format!("WASAPI get_iaudioclient: {other}")),
-    })?;
+    // Whether this thread should follow default-render-endpoint changes. Only the
+    // sentinel id has "record whatever the PC is playing" semantics; a concrete
+    // device id stays pinned. Bound here, consumed by Task B2's poll below.
+    let follow = device_id == DEFAULT_RENDER_LOOPBACK;
+    let _ = follow; // used by B2 default-device polling
 
-    // Request 32-bit IEEE-float samples natively — no i16→f32 conversion needed.
-    let desired_format = WaveFormat::new(
-        32,
-        32,
-        &SampleType::Float,
-        sample_rate as usize,
-        channels as usize,
-        None,
-    );
+    // Outer re-open loop. Currently runs exactly once (open → capture until stop),
+    // so behaviour is identical to before. Task B2 will add a `continue 'reopen`
+    // path so the loop re-resolves the device and rebuilds the client when the
+    // default render endpoint changes; every resource below is scoped to one
+    // iteration, so the old client fully drops (stop_stream + COM release) before
+    // the next open.
+    'reopen: loop {
+        if stop.load(Ordering::Relaxed) {
+            return Ok(());
+        }
 
-    let (_, min_time) = audio_client.get_periods().map_err(|e| match e {
-        wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
-            hresult: inner.code().0,
-        },
-        other => AudioError::Other(format!("WASAPI get_periods: {other}")),
-    })?;
+        // Re-resolve the device inside the thread (in the MTA). B2 re-enters here
+        // to pick up the new default endpoint.
+        let (device, _open_id) = match resolve_render_device(&device_id) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(?e, "loopback resolve failed");
+                return Ok(()); // exit cleanly; recorder observes silent channel
+            }
+        };
 
-    // initialize_client: device direction is Render, requested direction is Capture.
-    // wasapi-rs detects this and adds AUDCLNT_STREAMFLAGS_LOOPBACK automatically.
-    // convert=true enables format auto-conversion so the driver accepts our f32 format
-    // even if its native mix format differs.
-    audio_client
-        .initialize_client(
-            &desired_format,
-            min_time,
-            &Direction::Capture,
-            &ShareMode::Shared,
-            true,
-        )
-        .map_err(|e| match e {
+        let mut audio_client = device.get_iaudioclient().map_err(|e| match e {
             wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
                 hresult: inner.code().0,
             },
-            other => AudioError::Other(format!("WASAPI initialize_client: {other}")),
+            other => AudioError::Other(format!("WASAPI get_iaudioclient: {other}")),
         })?;
 
-    // Event handle: the OS signals this when a new packet is ready, so we don't
-    // have to spin-poll — dramatically reduces CPU usage at idle.
-    let h_event = audio_client.set_get_eventhandle().map_err(|e| match e {
-        wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
-            hresult: inner.code().0,
-        },
-        other => AudioError::Other(format!("WASAPI set_get_eventhandle: {other}")),
-    })?;
+        // Request 32-bit IEEE-float samples natively — no i16→f32 conversion needed.
+        // We always request the ORIGINAL sample_rate/channels (the fn params) so
+        // downstream (writer/mixer) never sees a format change across a re-open.
+        let desired_format = WaveFormat::new(
+            32,
+            32,
+            &SampleType::Float,
+            sample_rate as usize,
+            channels as usize,
+            None,
+        );
 
-    let capture_client = audio_client.get_audiocaptureclient().map_err(|e| match e {
-        wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
-            hresult: inner.code().0,
-        },
-        other => AudioError::Other(format!("WASAPI get_audiocaptureclient: {other}")),
-    })?;
+        let (_, min_time) = audio_client.get_periods().map_err(|e| match e {
+            wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
+                hresult: inner.code().0,
+            },
+            other => AudioError::Other(format!("WASAPI get_periods: {other}")),
+        })?;
 
-    let blockalign = desired_format.get_blockalign() as usize;
+        // initialize_client: device direction is Render, requested direction is Capture.
+        // wasapi-rs detects this and adds AUDCLNT_STREAMFLAGS_LOOPBACK automatically.
+        // convert=true enables format auto-conversion so the driver accepts our f32 format
+        // even if its native mix format differs.
+        audio_client
+            .initialize_client(
+                &desired_format,
+                min_time,
+                &Direction::Capture,
+                &ShareMode::Shared,
+                true,
+            )
+            .map_err(|e| match e {
+                wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
+                    hresult: inner.code().0,
+                },
+                other => AudioError::Other(format!("WASAPI initialize_client: {other}")),
+            })?;
 
-    audio_client.start_stream().map_err(|e| match e {
-        wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
-            hresult: inner.code().0,
-        },
-        other => AudioError::Other(format!("WASAPI start_stream: {other}")),
-    })?;
+        // Event handle: the OS signals this when a new packet is ready, so we don't
+        // have to spin-poll — dramatically reduces CPU usage at idle.
+        let h_event = audio_client.set_get_eventhandle().map_err(|e| match e {
+            wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
+                hresult: inner.code().0,
+            },
+            other => AudioError::Other(format!("WASAPI set_get_eventhandle: {other}")),
+        })?;
 
-    tracing::info!(sample_rate, channels, "WASAPI loopback stream started");
+        let capture_client = audio_client.get_audiocaptureclient().map_err(|e| match e {
+            wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
+                hresult: inner.code().0,
+            },
+            other => AudioError::Other(format!("WASAPI get_audiocaptureclient: {other}")),
+        })?;
 
-    // One-shot scratch buffer: sized for one packet worth of bytes.
-    // We'll grow it as needed below.
-    let mut raw_buf: Vec<u8> = Vec::new();
+        let blockalign = desired_format.get_blockalign() as usize;
 
-    loop {
-        if stop.load(Ordering::Relaxed) {
-            break;
-        }
+        audio_client.start_stream().map_err(|e| match e {
+            wasapi::WasapiError::Windows(inner) => AudioError::WasapiInit {
+                hresult: inner.code().0,
+            },
+            other => AudioError::Other(format!("WASAPI start_stream: {other}")),
+        })?;
 
-        // Wait up to 100 ms. On timeout (no audio playing / device went silent)
-        // we loop back and check the stop flag, then wait again.
-        if h_event.wait_for_event(100).is_err() {
-            // Timeout is not an error — just no data yet.
-            continue;
-        }
+        tracing::info!(sample_rate, channels, "WASAPI loopback stream started");
 
-        // Drain all packets that became available in this event cycle.
+        // One-shot scratch buffer: sized for one packet worth of bytes.
+        // We'll grow it as needed below.
+        let mut raw_buf: Vec<u8> = Vec::new();
+
+        // Inner capture loop for this open. On stop we stop the stream and return.
         loop {
-            // [I2] Check stop flag inside the inner drain loop too, so shutdown
-            // latency is bounded at ≤ event-timeout (~100 ms) even under load.
             if stop.load(Ordering::Relaxed) {
-                break;
+                if let Err(e) = audio_client.stop_stream() {
+                    tracing::warn!("WASAPI stop_stream error: {e}");
+                }
+                tracing::info!("WASAPI loopback stream stopped");
+                return Ok(());
             }
 
-            let frames = match capture_client.get_next_nbr_frames() {
-                Ok(Some(0)) | Ok(None) => break,
-                Ok(Some(n)) => n as usize,
-                Err(e) => {
-                    tracing::warn!("WASAPI get_next_nbr_frames error: {e}");
+            // (Task B2 will insert the ~1s default-device poll here, which stops
+            // this stream and `continue 'reopen`s to re-resolve + rebuild.)
+
+            // Wait up to 100 ms. On timeout (no audio playing / device went silent)
+            // we loop back and check the stop flag, then wait again.
+            if h_event.wait_for_event(100).is_err() {
+                // Timeout is not an error — just no data yet.
+                continue;
+            }
+
+            // Drain all packets that became available in this event cycle.
+            loop {
+                // [I2] Check stop flag inside the inner drain loop too, so shutdown
+                // latency is bounded at ≤ event-timeout (~100 ms) even under load.
+                if stop.load(Ordering::Relaxed) {
                     break;
                 }
-            };
 
-            let needed_bytes = frames * blockalign;
-            if raw_buf.len() < needed_bytes {
-                raw_buf.resize(needed_bytes, 0u8);
-            }
+                let frames = match capture_client.get_next_nbr_frames() {
+                    Ok(Some(0)) | Ok(None) => break,
+                    Ok(Some(n)) => n as usize,
+                    Err(e) => {
+                        tracing::warn!("WASAPI get_next_nbr_frames error: {e}");
+                        break;
+                    }
+                };
 
-            match capture_client.read_from_device(&mut raw_buf[..needed_bytes]) {
-                Ok((frames_read, _flags)) if frames_read > 0 => {
-                    let bytes_read = frames_read as usize * blockalign;
-                    // Decode little-endian IEEE-754 single-precision floats packet-by-packet.
-                    // blockalign = channels * 4 bytes/sample, so bytes_read is always
-                    // a multiple of 4.
-                    let raw_slice = &raw_buf[..bytes_read];
-                    // [M3] Skip zero-init pass: collect directly via iterator.
-                    let samples: Vec<f32> = raw_slice
-                        .chunks_exact(4)
-                        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                        .collect();
-                    if tx.try_send(samples).is_err() {
-                        drops.fetch_add(1, Ordering::Relaxed);
+                let needed_bytes = frames * blockalign;
+                if raw_buf.len() < needed_bytes {
+                    raw_buf.resize(needed_bytes, 0u8);
+                }
+
+                match capture_client.read_from_device(&mut raw_buf[..needed_bytes]) {
+                    Ok((frames_read, _flags)) if frames_read > 0 => {
+                        let bytes_read = frames_read as usize * blockalign;
+                        // Decode little-endian IEEE-754 single-precision floats packet-by-packet.
+                        // blockalign = channels * 4 bytes/sample, so bytes_read is always
+                        // a multiple of 4.
+                        let raw_slice = &raw_buf[..bytes_read];
+                        // [M3] Skip zero-init pass: collect directly via iterator.
+                        let samples: Vec<f32> = raw_slice
+                            .chunks_exact(4)
+                            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                            .collect();
+                        if tx.try_send(samples).is_err() {
+                            drops.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::warn!("WASAPI read_from_device error: {e}");
+                        break;
                     }
                 }
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::warn!("WASAPI read_from_device error: {e}");
-                    break;
-                }
             }
         }
-    }
 
-    if let Err(e) = audio_client.stop_stream() {
-        tracing::warn!("WASAPI stop_stream error: {e}");
+        // Unreachable until B2 adds `continue 'reopen`; the inner loop only exits
+        // via the stop-path `return Ok(())` above. The label is declared now so
+        // B2's diff is a single `continue 'reopen`.
+        #[allow(unreachable_code)]
+        {
+            continue 'reopen;
+        }
     }
-    tracing::info!("WASAPI loopback stream stopped");
-    Ok(())
 }
 
 #[cfg(test)]
