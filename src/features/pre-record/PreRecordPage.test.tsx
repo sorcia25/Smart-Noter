@@ -174,6 +174,7 @@ describe('PreRecordPage', () => {
             transcriptionProvider: 'local',
             transcriptionModel: 'base',
             defaultTemplate: 'tecnica',
+            aecEnabled: true,
           };
         }
         if (cmd === 'start_preview') return null;
@@ -211,7 +212,9 @@ describe('PreRecordPage', () => {
       await userEvent.click(mixCard);
 
       expect(await screen.findByLabelText('Micrófono de la mezcla')).toBeInTheDocument();
-      expect(screen.getByText(/audífonos/i)).toBeInTheDocument();
+      // v1.1 AEC: anchor on the 💡 hint text specifically — the new AEC toggle's
+      // hint ("...con audífonos apágalo.") also matches a loose /audífonos/i.
+      expect(screen.getByText(/Con audífonos la calidad es máxima/i)).toBeInTheDocument();
 
       const startBtn = await screen.findByRole('button', { name: /Iniciar|Start/i });
       await userEvent.click(startBtn);
@@ -225,6 +228,28 @@ describe('PreRecordPage', () => {
       // v1.0.1 F3: mix records the CURRENT default render endpoint, not the id
       // pinned from the device list at page load.
       expect(navOptions.state.deviceId).toBe('__default_render__');
+    });
+
+    // v1.1 AEC: the mix card shows a "Cancel speaker echo" toggle, on by default
+    // (settings.aecEnabled: true from setupWithSettings), and threads its value
+    // into the nav state consumed by LiveRecordingPage → start_recording.
+    it('mix card shows the AEC toggle (default on) and passes it to recording', async () => {
+      setupWithSettings('system');
+      const mixCard = await screen.findByRole('button', { name: /Sistema \+ Micrófono/ });
+      await waitFor(() => expect(mixCard).toBeEnabled());
+      await userEvent.click(mixCard);
+
+      const aecToggle = await screen.findByRole('checkbox', { name: 'Cancelar eco de bocinas' });
+      expect(aecToggle).toBeChecked();
+
+      const startBtn = await screen.findByRole('button', { name: /Iniciar|Start/i });
+      await userEvent.click(startBtn);
+      expect(navigateSpy).toHaveBeenCalledOnce();
+      const [, navOptions] = navigateSpy.mock.calls[0] as [
+        string,
+        { state: Record<string, unknown> },
+      ];
+      expect(navOptions.state.aecEnabled).toBe(true);
     });
 
     // Case 3: choosing an input device in the mic picker threads that id through to start.

@@ -60,6 +60,10 @@ export default function PreRecordPage() {
 
   const [deviceId, setDeviceId] = useState<string>('');
   const [micDeviceId, setMicDeviceId] = useState<string | null>(null);
+  const [aecEnabled, setAecEnabled] = useState(true);
+  useEffect(() => {
+    if (settings) setAecEnabled(settings.aecEnabled ?? true);
+  }, [settings]);
   const isMix = deviceId === MIX_CARD_ID;
   const selectedDevice = devices.find((d) => d.id === deviceId);
   // Used ONLY to gate the Mix card's disabled state (no render device at all →
@@ -157,6 +161,7 @@ export default function PreRecordPage() {
         deviceId: isMix ? DEFAULT_RENDER_LOOPBACK : deviceId,
         captureMode: recordMode,
         micDeviceId: isMix ? micDeviceId : null,
+        aecEnabled: isMix ? aecEnabled : false,
         format: settings?.recordingQuality === 'FLAC' ? 'flac' : 'wav',
         speakerHint: speakerIdOn ? speakerHint : null,
       },
@@ -220,6 +225,19 @@ export default function PreRecordPage() {
                     ))}
                   </select>
                 </div>
+                <label className={styles.aecToggleRow}>
+                  <input
+                    type="checkbox"
+                    checked={aecEnabled}
+                    onChange={(e) => {
+                      const v = e.target.checked;
+                      setAecEnabled(v);
+                      if (settings) void updateSettings({ ...settings, aecEnabled: v });
+                    }}
+                  />
+                  <span>{t('aecToggleLabel')}</span>
+                </label>
+                <div className={styles.modeHint}>{t('aecToggleHint')}</div>
                 <div className={styles.modeHint}>{t('mixHeadphonesHint')}</div>
               </>
             )}

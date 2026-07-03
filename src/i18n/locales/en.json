@@ -44,6 +44,8 @@
   "mixMicLabel": "Mix microphone",
   "mixMicDefault": "Windows default microphone",
   "mixHeadphonesHint": "💡 Headphones give the best quality (avoids speaker echo)",
+  "aecToggleLabel": "Cancel speaker echo",
+  "aecToggleHint": "Turn on when you hear the audio through speakers; with headphones, leave it off.",
   "templateSection": "Meeting template",
   "templateHint": "Defines what kind of summary and actions are generated.",
   "advancedSection": "Advanced options",
