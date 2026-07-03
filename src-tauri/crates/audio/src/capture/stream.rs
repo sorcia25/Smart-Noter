@@ -20,6 +20,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
 };
+use std::time::{Duration, Instant};
 
 /// Sentinel device id: resolve the CURRENT default render endpoint at open time.
 /// The Mix card means "record whatever the PC is playing" — pinning a concrete
@@ -215,6 +216,11 @@ fn resolve_render_device(device_id: &str) -> Result<(wasapi::Device, String), Au
         .unwrap_or_default();
 
     Ok((device, open_id))
+}
+
+/// True when following is on and the current default differs from the open one.
+fn should_reopen(follow: bool, open_id: &str, current_id: &str) -> bool {
+    follow && open_id != current_id
 }
 
 fn open_loopback_with_drops(
@@ -571,12 +577,11 @@ fn spawn_wasapi_loopback_thread(
 /// WASAPI loopback: `initialize_client` detects the mismatch and sets
 /// `AUDCLNT_STREAMFLAGS_LOOPBACK` automatically (see wasapi api.rs line ~835).
 ///
-/// `clippy::never_loop`: the outer `'reopen` loop intentionally never iterates
-/// yet — its body opens once and the inner capture loop only exits via `return`.
-/// The trailing `continue 'reopen` is scaffolding Task B2 will make reachable
-/// (re-open on default-device change); allowing the lint keeps that structure in
-/// place without a behaviour change now.
-#[allow(clippy::never_loop)]
+/// The outer `'reopen` loop re-resolves the device and rebuilds the client
+/// whenever the default render endpoint changes (Mix mode only — see `follow`
+/// below); every resource is scoped to one iteration, so `continue 'reopen`
+/// only runs after the current `audio_client` (and its capture client / event
+/// handle) has been stopped and dropped.
 fn wasapi_loopback_loop(
     device_id: String,
     sample_rate: u32,
@@ -607,24 +612,23 @@ fn wasapi_loopback_loop(
 
     // Whether this thread should follow default-render-endpoint changes. Only the
     // sentinel id has "record whatever the PC is playing" semantics; a concrete
-    // device id stays pinned. Bound here, consumed by Task B2's poll below.
+    // device id stays pinned. Consumed by the default-device poll below.
     let follow = device_id == DEFAULT_RENDER_LOOPBACK;
-    let _ = follow; // used by B2 default-device polling
 
-    // Outer re-open loop. Currently runs exactly once (open → capture until stop),
-    // so behaviour is identical to before. Task B2 will add a `continue 'reopen`
-    // path so the loop re-resolves the device and rebuilds the client when the
-    // default render endpoint changes; every resource below is scoped to one
-    // iteration, so the old client fully drops (stop_stream + COM release) before
-    // the next open.
+    // Outer re-open loop: re-resolves the device and rebuilds the client when the
+    // default render endpoint changes (poll below). Every resource below is
+    // scoped to one iteration, so the old client fully drops (stop_stream + COM
+    // release) before the next open.
     'reopen: loop {
         if stop.load(Ordering::Relaxed) {
             return Ok(());
         }
 
-        // Re-resolve the device inside the thread (in the MTA). B2 re-enters here
-        // to pick up the new default endpoint.
-        let (device, _open_id) = match resolve_render_device(&device_id) {
+        // Re-resolve the device inside the thread (in the MTA). Re-entered via
+        // `continue 'reopen` to pick up the new default endpoint. `open_id` is
+        // the endpoint id this iteration opened against, used by the poll below
+        // to detect a subsequent default-device change.
+        let (device, open_id) = match resolve_render_device(&device_id) {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!(?e, "loopback resolve failed");
@@ -642,6 +646,11 @@ fn wasapi_loopback_loop(
         // Request 32-bit IEEE-float samples natively — no i16→f32 conversion needed.
         // We always request the ORIGINAL sample_rate/channels (the fn params) so
         // downstream (writer/mixer) never sees a format change across a re-open.
+        // On re-open (poll-triggered `continue 'reopen`) the new endpoint's native
+        // mix format may differ (e.g. speakers @ 48 kHz → headphones @ 44.1 kHz);
+        // `convert=true` below asks WASAPI to resample/reformat to this requested
+        // format, so this assumption should hold, but it is only truly verified by
+        // a manual smoke with two real output devices at different native rates.
         let desired_format = WaveFormat::new(
             32,
             32,
@@ -708,6 +717,10 @@ fn wasapi_loopback_loop(
         // We'll grow it as needed below.
         let mut raw_buf: Vec<u8> = Vec::new();
 
+        // Throttles the default-device poll below to ~once per second, so we
+        // don't call `get_default_device` on every event wakeup.
+        let mut last_poll = Instant::now();
+
         // Inner capture loop for this open. On stop we stop the stream and return.
         loop {
             if stop.load(Ordering::Relaxed) {
@@ -718,8 +731,24 @@ fn wasapi_loopback_loop(
                 return Ok(());
             }
 
-            // (Task B2 will insert the ~1s default-device poll here, which stops
-            // this stream and `continue 'reopen`s to re-resolve + rebuild.)
+            // Poll the default render endpoint (~1 s) and re-open if it changed.
+            // Only active when following the sentinel (Mix "whatever is playing");
+            // a pinned device id never triggers this. Stopping the stream here
+            // (before `continue 'reopen`) ensures the client is fully torn down —
+            // `audio_client`/`capture_client`/`h_event` all drop at the top of this
+            // block's scope — before the next iteration resolves + opens the new
+            // endpoint. The mixer's silence-fill covers the sub-second gap.
+            if follow && last_poll.elapsed() >= Duration::from_secs(1) {
+                last_poll = Instant::now();
+                if let Ok(cur) = wasapi::get_default_device(&wasapi::Direction::Render) {
+                    let cur_id = cur.get_id().unwrap_or_default();
+                    if should_reopen(follow, &open_id, &cur_id) {
+                        tracing::info!(old = %open_id, new = %cur_id, "default render changed; reopening loopback");
+                        let _ = audio_client.stop_stream();
+                        continue 'reopen;
+                    }
+                }
+            }
 
             // Wait up to 100 ms. On timeout (no audio playing / device went silent)
             // we loop back and check the stop flag, then wait again.
@@ -773,14 +802,6 @@ fn wasapi_loopback_loop(
                     }
                 }
             }
-        }
-
-        // Unreachable until B2 adds `continue 'reopen`; the inner loop only exits
-        // via the stop-path `return Ok(())` above. The label is declared now so
-        // B2's diff is a single `continue 'reopen`.
-        #[allow(unreachable_code)]
-        {
-            continue 'reopen;
         }
     }
 }
@@ -882,5 +903,12 @@ mod tests {
             ),
             Err(other) => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn reopens_only_when_following_and_id_changed() {
+        assert!(should_reopen(true, "spk", "hp"));
+        assert!(!should_reopen(true, "spk", "spk"));
+        assert!(!should_reopen(false, "spk", "hp")); // pinned device never follows
     }
 }
