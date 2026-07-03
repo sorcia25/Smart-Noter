@@ -88,6 +88,47 @@ impl RecordedClock {
     }
 }
 
+/// Length (in interleaved samples) of the silence to synthesize for a starved
+/// lane covering `elapsed` of wall-clock time at `rate` Hz × `channels`.
+pub(crate) fn silence_len(elapsed: Duration, rate: u32, channels: u16) -> usize {
+    ((elapsed.as_secs_f64() * f64::from(rate)) as usize) * usize::from(channels)
+}
+
+/// Sustained-starvation threshold before a starved MIC lane (B) is zero-filled.
+///
+/// The mic delivers continuously while alive — even in a silent room — so B
+/// starving means the stream died (device unplugged, exclusive-mode theft).
+/// After this much sustained starvation we fill B with silence so the system
+/// lane keeps recording instead of stalling the whole file (the old behavior:
+/// output stalls + a_ready caps + a spurious overflow toast).
+pub(crate) const MIC_FILL_AFTER: Duration = Duration::from_millis(250);
+
+/// Decides when a starved MIC lane (B) starts being zero-filled. See
+/// `MIC_FILL_AFTER` for the rationale.
+pub(crate) struct MicFillTracker {
+    starved_since: Option<Instant>,
+}
+
+impl MicFillTracker {
+    pub(crate) fn new() -> Self {
+        Self {
+            starved_since: None,
+        }
+    }
+
+    /// Call once per loop tick. `got_data` = the mic delivered samples this tick.
+    /// Returns `true` when filling should be active (sustained starvation has
+    /// crossed `MIC_FILL_AFTER`).
+    pub(crate) fn update(&mut self, got_data: bool, now: Instant) -> bool {
+        if got_data {
+            self.starved_since = None;
+            return false;
+        }
+        let since = *self.starved_since.get_or_insert(now);
+        now.duration_since(since) >= MIC_FILL_AFTER
+    }
+}
+
 /// Fan-out thread: receives from `source_rx`, forwards losslessly to `writer_tx`
 /// and lossily to `meter_tx` (meter is visualization-only — dropping is fine).
 ///
@@ -206,6 +247,13 @@ impl Recorder {
                 while b_rx.try_recv().is_ok() {}
 
                 let mut last_synced: u32 = 0;
+                // Contiguous-span bookkeeping for silence-fill (Fix F1, v1.0.1):
+                // each advances only on a tick where its lane ends up non-empty
+                // (real data or fill), so a run of consecutive fills covers the
+                // wall-clock gap exactly once — no double-counting, no gaps.
+                let mut last_a_tick = Instant::now();
+                let mut last_b_fill_tick = Instant::now();
+                let mut mic_fill = MicFillTracker::new();
                 loop {
                     // A (loopback) paces the loop via recv_timeout so that transient
                     // system silence (no app rendering audio → WASAPI delivers nothing)
@@ -227,28 +275,71 @@ impl Recorder {
                     }
 
                     // Mic (B) side: with A paced at ~10 ms (or 50 ms during silence),
-                    // try_recv drain is enough — no blocking wait needed. B Disconnected
-                    // (mic death) → empty Vec: the mixer keeps consuming system audio but
-                    // produces no further overlap, so nothing more reaches the file; the
-                    // system lane accumulates to the ready-buffer cap, then drops count up
-                    // and fire the one-shot overflow toast. Documented Sub-2 semantics —
-                    // see mixer.rs "Known Sub-2 limitations".
+                    // try_recv drain is enough — no blocking wait needed. Drained
+                    // BEFORE the lane-A fill decision below so that decision sees
+                    // this tick's fresh B data, not stale state from a prior tick.
                     let mut b_buf: Vec<f32> = b_rx.try_recv().unwrap_or_default();
                     while let Ok(more) = b_rx.try_recv() {
                         b_buf.extend(more);
                     }
 
+                    let now = Instant::now();
+
+                    // Lane A fill (Fix F1): WASAPI loopback delivers nothing while
+                    // no app renders audio — that absence IS silence, so fill
+                    // immediately (no hysteresis, unlike B below). Only when B has
+                    // real data this tick; if both are starved, see the
+                    // both-starved fallthrough at the bottom of the loop.
+                    if a_buf.is_empty() && !b_buf.is_empty() {
+                        let elapsed = now.duration_since(last_a_tick);
+                        a_buf = vec![0.0; silence_len(elapsed, loop_sample_rate, loop_channels)];
+                    }
+                    if !a_buf.is_empty() {
+                        last_a_tick = now;
+                    }
+
+                    // Lane B fill (Fix F1 — mic death, hysteresis): unlike loopback
+                    // silence, a starved mic means the STREAM died (unplugged,
+                    // exclusive-mode theft) — a live mic always delivers something,
+                    // even in a silent room. Wait MIC_FILL_AFTER of sustained
+                    // starvation before filling so a few missed ticks (scheduling
+                    // jitter) don't trigger it spuriously; once triggered, fill only
+                    // while A has real data so the system lane keeps recording
+                    // instead of stalling (the old behavior this replaces).
+                    let fill_b = mic_fill.update(!b_buf.is_empty(), now);
+                    if fill_b && !a_buf.is_empty() {
+                        let elapsed = now.duration_since(last_b_fill_tick);
+                        b_buf = vec![0.0; silence_len(elapsed, mic_sample_rate, mic_channels)];
+                    }
+                    if !b_buf.is_empty() {
+                        last_b_fill_tick = now;
+                    }
+
+                    // Both-starved ticks (a_buf and b_buf both still empty here):
+                    // neither fill condition above could fire (each requires the
+                    // OTHER lane to have data), so mixer.mix(&[], &[]) is a no-op —
+                    // no data flows, no drops accumulate, no spurious toast. The
+                    // recording is effectively idle, matching reality.
                     if let Ok(mixed) = mixer.mix(&a_buf, &b_buf) {
                         // Skip empty outputs — one side is waiting for the other.
                         if !mixed.is_empty() {
                             let _ = source_tx_for_mixer.try_send(mixed);
                         }
                     }
-                    // Sync mixer overflow counter into the shared drops Arc.
+                    // Sync mixer overflow counter into the shared drops Arc, converting
+                    // units: the mixer counts dropped SAMPLES while stream callbacks
+                    // (System/Mic mode) count dropped BUFFERS (~480 frames each), and
+                    // the shared overflow-toast threshold (≥100) was tuned for buffer
+                    // units. Convert samples → buffer-equivalents before adding; the
+                    // remainder stays pending in `last_synced` so it accumulates
+                    // toward the next whole buffer instead of being lost.
                     let d = mixer.dropped_frames();
                     if d > last_synced {
-                        mixer_drops.fetch_add(d - last_synced, Ordering::Relaxed);
-                        last_synced = d;
+                        let delta_buffers = (d - last_synced) / 480;
+                        if delta_buffers > 0 {
+                            mixer_drops.fetch_add(delta_buffers, Ordering::Relaxed);
+                            last_synced += delta_buffers * 480;
+                        }
                     }
                 }
             });
@@ -545,6 +636,60 @@ mod tests {
             final_recorded,
             Duration::from_secs(6),
             "paused 60 s must not appear in recorded time"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // silence_len tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn silence_len_covers_elapsed_time_at_rate_and_channels() {
+        assert_eq!(
+            silence_len(Duration::from_millis(50), 48_000, 2),
+            4800,
+            "50ms @ 48kHz x 2ch must be 4800 interleaved samples"
+        );
+        assert_eq!(
+            silence_len(Duration::ZERO, 48_000, 2),
+            0,
+            "zero elapsed must yield zero samples"
+        );
+        assert_eq!(
+            silence_len(Duration::from_millis(100), 44_100, 1),
+            4410,
+            "100ms @ 44.1kHz x 1ch must be 4410 interleaved samples"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // MicFillTracker tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn mic_fill_tracker_waits_for_sustained_starvation() {
+        let t0 = Instant::now();
+        let mut tracker = MicFillTracker::new();
+
+        assert!(
+            !tracker.update(false, t0),
+            "starvation just started must not fill yet"
+        );
+        assert!(
+            !tracker.update(false, t0 + Duration::from_millis(100)),
+            "100ms of starvation is still under MIC_FILL_AFTER"
+        );
+        assert!(
+            tracker.update(false, t0 + Duration::from_millis(260)),
+            "260ms of sustained starvation must trigger fill"
+        );
+        assert!(
+            !tracker.update(true, t0 + Duration::from_millis(300)),
+            "real data arriving must reset the starvation window"
+        );
+        assert!(
+            !tracker.update(false, t0 + Duration::from_millis(310)),
+            "fresh starvation window must not immediately fill"
         );
     }
 

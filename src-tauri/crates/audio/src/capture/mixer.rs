@@ -28,27 +28,29 @@
 //! Pre-sync: the cap (`MAX_READY_SAMPLES`) still applies to both ready buffers so
 //! memory is bounded even before the lanes meet.
 //!
-//! # Known Sub-2 limitations
+//! # Known Sub-2 limitations (fixed in v1.0.1, Fix F1)
 //!
-//! * **Prolonged total system idle (> ~2 s):** WASAPI loopback delivers nothing
-//!   while no app renders audio, so `b_ready` (mic) accumulates unmatched samples
-//!   until it reaches `MAX_READY_SAMPLES` (~2 s). The oldest mic samples are then
-//!   dropped and counted in `dropped_frames`, triggering one overflow toast. This
-//!   is unavoidable without silence-fill (explicitly deferred).
+//! * **Prolonged total system idle:** FIXED. WASAPI loopback delivers nothing
+//!   while no app renders audio; the recorder's mixer thread now treats that
+//!   absence as literal silence and synthesizes zero samples for lane A
+//!   (`recorder.rs`'s `silence_len` helper) so mic-only speech keeps being
+//!   mixed and recorded instead of piling up unmatched in `b_ready`.
 //!
-//! * **Transient system silence (< ~2 s):** the recorder's mixer thread now drains
+//! * **Transient system silence (< ~2 s):** the recorder's mixer thread drains
 //!   both sources with timeouts/try_recv so short silences are handled cleanly —
 //!   no spurious overflow toast.
 //!
-//! * **Mic stream death mid-recording:** the mirror image of system idle. Lane B
-//!   stops producing, so no further overlap exists and mixed output stalls
-//!   (nothing more reaches the file). System samples accumulate in `a_ready`
-//!   until `MAX_READY_SAMPLES`, then count as drops and trigger the one overflow
-//!   toast. Recovery requires stopping the session.
+//! * **Mic stream death mid-recording:** FIXED. The mirror image of system idle.
+//!   Lane B stopping is distinguished from normal silence by hysteresis (a live
+//!   mic always delivers *something*, even in a silent room) — after
+//!   `MIC_FILL_AFTER` (250 ms, see `recorder.rs`'s `MicFillTracker`) of sustained
+//!   B starvation, the recorder fills lane B with silence so the system lane
+//!   keeps recording instead of stalling and triggering the overflow toast.
 //!
-//! * **Silence-fill:** not implemented. The mixer returns an empty Vec during the
-//!   solo-prefix phase and emits nothing to the writer. Short silences are thus
-//!   implicitly trimmed from the output. Future work.
+//! * **Silence-fill:** implemented (this section described the pre-fix gap).
+//!   See `recorder.rs`'s mixer-thread loop: lane A fills immediately (starvation
+//!   IS silence), lane B fills after the hysteresis window (starvation means the
+//!   stream died). Both-starved ticks fill nothing — that span is genuinely idle.
 //!
 //! # Output clipping
 //!
@@ -94,12 +96,14 @@ pub const MIC_LANE_GAIN: f32 = 1.0; // lane B (mic)
 /// When exceeded the oldest samples are dropped from the FRONT, preserving
 /// the freshest audio and bounding temporal skew.
 ///
-/// **Unit asymmetry note:** stream callbacks (System/Mic mode) count *dropped
-/// buffers* (~480 frames each) in the shared `drops` Arc; the Mix path adds
-/// mixer-front *sample counts* directly. The ≥ 100 threshold in the overflow
-/// toast therefore means ~1 s of loss in System/Mic mode (100 × 480 frames)
-/// but only ~2 ms via mixer overflow (100 individual samples). Changing the
-/// unit is out of scope; this asymmetry is documented here for future work.
+/// **Unit asymmetry note (resolved in v1.0.1, Fix F1):** stream callbacks
+/// (System/Mic mode) count *dropped buffers* (~480 frames each) in the shared
+/// `drops` Arc, while this mixer counts dropped *samples* via `dropped_frames()`.
+/// Left unconverted, the ≥ 100 threshold in the overflow toast would mean ~1 s
+/// of loss in System/Mic mode but only ~2 ms via raw mixer overflow — the
+/// recorder's mixer thread now converts samples → buffer-equivalents
+/// (`÷ 480`, remainder carried forward) before adding to the shared `drops`
+/// Arc, so the toast threshold means the same thing in both modes.
 pub const MAX_READY_SAMPLES: usize = 96_000;
 
 const RESAMPLER_CHUNK: usize = 1024;
@@ -646,6 +650,40 @@ mod tests {
             "expected <10ms, got {} ms",
             dt.as_millis()
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // v1.0.1 Fix F1: silence-fill semantics — mic-only speech over a
+    // synthesized-silence A lane must still be recorded (the exact
+    // end-user bug: "mic records nothing until system audio plays").
+    // -----------------------------------------------------------------------
+
+    /// Feed a zero-filled A lane (what the recorder synthesizes while loopback
+    /// is starved) against a DC 0.5 mic lane (voice). The mixer must treat the
+    /// zeros exactly like real silent samples — output length equals the
+    /// overlap and every sample matches the expected gain-mixed value. This is
+    /// the fill semantics proof: mic-only speech over silence IS recorded.
+    #[test]
+    fn silence_fill_a_lane_still_mixes_mic_only_speech() {
+        let mut m = Mixer::new(48_000, 1, 48_000, 1).unwrap();
+        let n = 100;
+        let zeros_a = vec![0.0f32; n]; // synthesized loopback silence
+        let voice_b = vec![0.5f32; n]; // real mic speech (DC approximation)
+
+        let out = m.mix(&zeros_a, &voice_b).unwrap();
+
+        assert_eq!(
+            out.len(),
+            n,
+            "overlap must equal n — silence-fill must not shrink output"
+        );
+        let expected = (0.0f32 * SYSTEM_LANE_GAIN + 0.5f32 * MIC_LANE_GAIN) * ANTI_CLIP_GAIN;
+        for &s in &out {
+            assert!(
+                (s - expected).abs() < 0.001,
+                "sample {s} != {expected} — mic-only speech over silence must be recorded"
+            );
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -26,13 +26,13 @@ pub struct StreamHandle {
     pub channels: u16,
     /// Cumulative drop counter shared across all streams for this handle.
     ///
-    /// **Unit asymmetry:** stream callbacks (System/Mic mode) increment this by 1
-    /// per *dropped buffer* (~480 frames / ~10 ms each). The Mix path's mixer
-    /// thread adds *sample counts* directly from `Mixer::dropped_frames()`. The
-    /// ≥ 100 threshold that fires the overflow toast therefore means ~1 s of loss
-    /// in System/Mic mode (100 × 480 frames) but only ~2 ms via mixer overflow
-    /// (100 individual samples). Changing the unit is out of scope; callers should
-    /// be aware of this asymmetry when interpreting the counter.
+    /// **Unit asymmetry (resolved in v1.0.1, Fix F1):** stream callbacks
+    /// (System/Mic mode) increment this by 1 per *dropped buffer* (~480 frames
+    /// / ~10 ms each). The Mix path's mixer thread computes drops as *sample
+    /// counts* (`Mixer::dropped_frames()`), so the recorder's mixer thread now
+    /// converts samples → buffer-equivalents (`÷ 480`, remainder carried
+    /// forward) before adding to this counter — the ≥ 100 overflow-toast
+    /// threshold means the same ~1 s of loss in both modes.
     pub drops: Arc<AtomicU32>,
     /// Populated only in Mix mode: the actual sample rate of the mic input.
     ///
