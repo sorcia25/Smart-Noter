@@ -186,6 +186,7 @@ impl Recorder {
         mode: CaptureMode,
         device_id: String,
         mic_device_id: Option<String>,
+        aec_enabled: bool,
         format: AudioFormat,
         tmp_path: PathBuf,
     ) -> Result<Self, AudioError> {
@@ -237,6 +238,17 @@ impl Recorder {
                         return;
                     }
                 };
+
+                if aec_enabled {
+                    if let Err(e) =
+                        mixer.enable_aec(crate::capture::echo_canceller::EchoConfig::default())
+                    {
+                        tracing::error!(
+                            ?e,
+                            "AEC init failed; continuing without echo cancellation"
+                        );
+                    }
+                }
 
                 // Drain the b_rx (mic) startup backlog before entering the main loop.
                 // The mic callback fires immediately on stream open and can accumulate

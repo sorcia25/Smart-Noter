@@ -49,7 +49,15 @@ pub fn start_preview(
     // Lives in the audio dir with `tmp-preview-` prefix so the startup sweep
     // (Task 4.6) can reclaim it if the app crashed mid-preview.
     let tmp = audio_dir(&state)?.join(format!("tmp-preview-{}.wav", std::process::id()));
-    match Recorder::start(app, capture_mode, device_id, None, AudioFormat::Wav, tmp) {
+    match Recorder::start(
+        app,
+        capture_mode,
+        device_id,
+        None,
+        false,
+        AudioFormat::Wav,
+        tmp,
+    ) {
         Ok(recorder) => {
             *state.recorder.lock() = Some(recorder);
             Ok(())
@@ -122,6 +130,7 @@ pub fn start_recording(
     device_id: String,
     capture_mode: CaptureMode,
     mic_device_id: Option<String>,
+    aec_enabled: bool,
     format: AudioFormat,
 ) -> Result<RecordingStartedDto, AppError> {
     let session_id = format!("sess-{}", uuid::Uuid::new_v4());
@@ -142,6 +151,7 @@ pub fn start_recording(
         capture_mode,
         device_id,
         mic_device_id,
+        aec_enabled,
         format,
         tmp_path,
     ) {
