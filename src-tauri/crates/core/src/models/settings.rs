@@ -41,9 +41,10 @@ pub struct AppSettings {
     /// existing files). `audio_dir()` resolves this at startup into AppState.
     #[serde(default)]
     pub storage_dir: String,
-    /// v1.1: cancel speaker echo in Mix mode (default on). Only meaningful when
-    /// capture_mode == "mix". Consumed by start_recording → the mixer's EchoCanceller.
-    #[serde(default = "default_true")]
+    /// AEC (mix-mode speaker echo cancellation). DEFERRED to v1.2 and dormant in v1.1:
+    /// the aec-rs/SpeexDSP canceller couldn't overcome loopback/mic clock drift on real
+    /// hardware. Default OFF and the toggle is hidden; the EchoCanceller code stays for v1.2.
+    #[serde(default)]
     pub aec_enabled: bool,
 }
 
@@ -94,7 +95,7 @@ impl Default for AppSettings {
             provider_models: std::collections::BTreeMap::new(),
             azure_endpoint: String::new(),
             storage_dir: String::new(),
-            aec_enabled: true,
+            aec_enabled: false,
         }
     }
 }
