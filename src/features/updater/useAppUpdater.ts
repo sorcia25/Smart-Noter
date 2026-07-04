@@ -8,7 +8,7 @@ export type UpdateStatus =
   | { kind: 'checking' }
   | { kind: 'upToDate' }
   | { kind: 'available'; version: string; notes: string; update: Update }
-  | { kind: 'downloading' }
+  | { kind: 'downloading'; downloaded: number; total: number | null }
   | { kind: 'error'; message: string };
 
 export function useAppUpdater() {
@@ -29,9 +29,25 @@ export function useAppUpdater() {
   }, []);
 
   const install = useCallback(async (update: Update) => {
-    setStatus({ kind: 'downloading' });
+    let total: number | null = null;
+    let downloaded = 0;
+    setStatus({ kind: 'downloading', downloaded: 0, total: null });
     try {
-      await update.downloadAndInstall();
+      await update.downloadAndInstall((event) => {
+        switch (event.event) {
+          case 'Started':
+            total = event.data.contentLength ?? null;
+            setStatus({ kind: 'downloading', downloaded: 0, total });
+            break;
+          case 'Progress':
+            downloaded += event.data.chunkLength;
+            setStatus({ kind: 'downloading', downloaded, total });
+            break;
+          case 'Finished':
+            setStatus({ kind: 'downloading', downloaded, total });
+            break;
+        }
+      });
       await relaunch();
     } catch (e) {
       setStatus({ kind: 'error', message: e instanceof Error ? e.message : String(e) });

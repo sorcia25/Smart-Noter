@@ -30,6 +30,7 @@ interface NavState {
   deviceId?: string;
   captureMode?: CaptureMode;
   micDeviceId?: string | null;
+  aecEnabled?: boolean;
   format?: AudioFormat;
   speakerHint?: number | null;
 }
@@ -107,6 +108,7 @@ export default function LiveRecordingPage() {
         deviceId: navState.deviceId,
         captureMode: navState.captureMode ?? 'system',
         micDeviceId: navState.micDeviceId ?? null,
+        aecEnabled: navState.aecEnabled ?? false,
         format: navState.format ?? 'wav',
       }).catch((err) => {
         /* start failures are invoke rejections (never audio:error events) — surface them here */

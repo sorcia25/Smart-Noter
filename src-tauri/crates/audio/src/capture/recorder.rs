@@ -55,6 +55,19 @@ pub struct ElapsedEvent {
     pub elapsed_sec: u32,
 }
 
+/// Emitted as `audio:output-device-changed` when the loopback follows a
+/// default-render-endpoint switch (Mix/System "record whatever is playing"
+/// mode). The frontend shows a discreet toast naming the new device.
+///
+/// The audio crate's capture thread is decoupled from Tauri (see
+/// `stream::DeviceChangeCallback`); the recorder wraps `AppHandle::emit` in the
+/// callback and constructs this payload here.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceChangedEvent {
+    pub name: String,
+}
+
 /// Tracks recorded time, excluding paused spans.
 ///
 /// Each `tick` call advances the internal accumulator by `now - last_tick`
@@ -186,18 +199,39 @@ impl Recorder {
         mode: CaptureMode,
         device_id: String,
         mic_device_id: Option<String>,
+        aec_enabled: bool,
         format: AudioFormat,
         tmp_path: PathBuf,
     ) -> Result<Self, AudioError> {
         // source channel: stream callback (or mixer) → fan-out thread.
         let (source_tx, source_rx) = bounded::<Vec<f32>>(64);
 
+        // Callback the loopback thread invokes when it follows a default-render
+        // switch. It bridges the GUI-decoupled audio crate back to Tauri: the
+        // audio crate takes a plain `Box<dyn Fn(String)>` (see
+        // `stream::DeviceChangeCallback`) so `stream.rs` never links `tauri`;
+        // here we wrap `AppHandle::emit`. Consumed by whichever `open(...)` arm
+        // below runs (System/Mix both use loopback; Mic-only ignores it).
+        let on_device_change: Option<crate::capture::stream::DeviceChangeCallback> = {
+            let app = app.clone();
+            Some(Box::new(move |name: String| {
+                let _ = app.emit("audio:output-device-changed", DeviceChangedEvent { name });
+            }))
+        };
+
         // Open stream(s); for Mix mode we also wire a mixer thread between
         // the two source channels and `source_tx`.
         let stream = if matches!(mode, CaptureMode::Mix) {
             let (a_tx, a_rx) = bounded::<Vec<f32>>(64);
             let (b_tx, b_rx) = bounded::<Vec<f32>>(64);
-            let handle = open(mode, &device_id, mic_device_id.as_deref(), a_tx, Some(b_tx))?;
+            let handle = open(
+                mode,
+                &device_id,
+                mic_device_id.as_deref(),
+                a_tx,
+                Some(b_tx),
+                on_device_change,
+            )?;
 
             // Read the real source formats from the handle; warn on fallback (shouldn't happen).
             let loop_sample_rate = handle.loop_sample_rate.unwrap_or_else(|| {
@@ -237,6 +271,17 @@ impl Recorder {
                         return;
                     }
                 };
+
+                if aec_enabled {
+                    if let Err(e) =
+                        mixer.enable_aec(crate::capture::echo_canceller::EchoConfig::default())
+                    {
+                        tracing::error!(
+                            ?e,
+                            "AEC init failed; continuing without echo cancellation"
+                        );
+                    }
+                }
 
                 // Drain the b_rx (mic) startup backlog before entering the main loop.
                 // The mic callback fires immediately on stream open and can accumulate
@@ -345,7 +390,14 @@ impl Recorder {
             });
             handle
         } else {
-            open(mode, &device_id, None, source_tx.clone(), None)?
+            open(
+                mode,
+                &device_id,
+                None,
+                source_tx.clone(),
+                None,
+                on_device_change,
+            )?
         };
         // NOTE: `source_tx` is NOT stored in `Self`. In Mic/System mode it was
         // cloned into the stream callback above; in Mix mode `source_tx_for_mixer`

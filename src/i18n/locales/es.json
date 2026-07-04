@@ -44,6 +44,8 @@
   "mixMicLabel": "Micrófono de la mezcla",
   "mixMicDefault": "Micrófono predeterminado de Windows",
   "mixHeadphonesHint": "💡 Con audífonos la calidad es máxima (evita el eco de las bocinas)",
+  "aecToggleLabel": "Cancelar eco de bocinas",
+  "aecToggleHint": "Actívalo si escuchas el audio por bocinas; con audífonos apágalo.",
   "templateSection": "Plantilla de reunión",
   "templateHint": "Define qué tipo de resumen y acciones se generarán.",
   "advancedSection": "Opciones avanzadas",
@@ -266,6 +268,8 @@
   "updateUpToDate": "Estás en la última versión.",
   "updateAvailable": "Versión {version} disponible",
   "updateDownloading": "Descargando e instalando…",
+  "updateProgress": "{done} / {total} MB",
   "updateInstall": "Actualizar ahora",
-  "updateError": "No se pudo comprobar. Inténtalo más tarde."
+  "updateError": "No se pudo comprobar. Inténtalo más tarde.",
+  "outputDeviceChanged": "Salida cambiada a «{name}»"
 }

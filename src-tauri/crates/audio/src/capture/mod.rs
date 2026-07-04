@@ -1,5 +1,6 @@
 //! Capture session state machine + worker thread pipelines.
 
+pub mod echo_canceller;
 pub mod meter;
 pub mod mixer;
 pub mod recorder;

@@ -46,7 +46,7 @@ jobs:
         working-directory: src-tauri
         shell: bash
         run: |
-          cargo build --bin specta-export
+          cargo build --bin specta-export --features generate-bindings
           # On a rust-cache hit the sys crates' build.rs are skipped, so the runtime
           # DLLs they normally stage next to the exe are missing — copy them from the
           # cached locations (same fix as ci.yml).

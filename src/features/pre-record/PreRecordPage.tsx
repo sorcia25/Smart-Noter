@@ -60,6 +60,12 @@ export default function PreRecordPage() {
 
   const [deviceId, setDeviceId] = useState<string>('');
   const [micDeviceId, setMicDeviceId] = useState<string | null>(null);
+  // AEC deferred to v1.2 (clock-drift limits, see EchoCanceller): dormant, always off,
+  // toggle hidden. State kept so re-enabling in v1.2 is a small diff.
+  const [aecEnabled, setAecEnabled] = useState(false);
+  useEffect(() => {
+    if (settings) setAecEnabled(settings.aecEnabled ?? false);
+  }, [settings]);
   const isMix = deviceId === MIX_CARD_ID;
   const selectedDevice = devices.find((d) => d.id === deviceId);
   // Used ONLY to gate the Mix card's disabled state (no render device at all →
@@ -157,6 +163,7 @@ export default function PreRecordPage() {
         deviceId: isMix ? DEFAULT_RENDER_LOOPBACK : deviceId,
         captureMode: recordMode,
         micDeviceId: isMix ? micDeviceId : null,
+        aecEnabled: isMix ? aecEnabled : false,
         format: settings?.recordingQuality === 'FLAC' ? 'flac' : 'wav',
         speakerHint: speakerIdOn ? speakerHint : null,
       },
@@ -220,6 +227,7 @@ export default function PreRecordPage() {
                     ))}
                   </select>
                 </div>
+                {/* AEC toggle hidden — deferred to v1.2 (clock-drift limits, see EchoCanceller). */}
                 <div className={styles.modeHint}>{t('mixHeadphonesHint')}</div>
               </>
             )}
