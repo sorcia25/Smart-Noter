@@ -117,6 +117,7 @@ pub fn open(
     tx_a: Sender<Vec<f32>>,
     tx_b: Option<Sender<Vec<f32>>>,
     on_device_change: Option<DeviceChangeCallback>,
+    aec_enabled: bool,
 ) -> Result<StreamHandle, AudioError> {
     match mode {
         CaptureMode::System => open_loopback(device_id, tx_a, on_device_change),
@@ -132,13 +133,49 @@ pub fn open(
             let shared_drops = Arc::new(AtomicU32::new(0));
             let loop_handle =
                 open_loopback_with_drops(device_id, tx_a, shared_drops.clone(), on_device_change)?;
-            let mic_handle = match mic_device_id {
-                Some(mic_id) => {
-                    let device = resolve_input_device(mic_id)?;
-                    build_cpal_input_stream(device, tx_b, shared_drops.clone())?
-                }
-                None => open_mic_default_with_drops(tx_b, shared_drops.clone())?,
-            };
+            let mic_handle =
+                if crate::capture::mic_comms::use_comms_mic(CaptureMode::Mix, aec_enabled) {
+                    // OS AEC path: derive the echo reference from the loopback id
+                    // (sentinel → None so Windows auto-follows the default render).
+                    let reference = if crate::capture::mic_comms::aec_reference_is_auto(device_id) {
+                        None
+                    } else {
+                        // Pinned endpoint: resolve its persistent id as the reference.
+                        resolve_render_device(device_id).ok().map(|(_, id)| id)
+                    };
+                    match crate::capture::mic_comms::open_mic_comms(
+                        mic_device_id,
+                        reference,
+                        tx_b.clone(),
+                        shared_drops.clone(),
+                    ) {
+                        Ok(h) => h,
+                        Err(e) => {
+                            // Fallback: never record an un-cancelled mix silently — fall
+                            // back to raw cpal and let the recorder's device-change channel
+                            // surface it. Log loudly.
+                            tracing::error!(
+                                ?e,
+                                "OS AEC mic open failed; falling back to raw cpal mic"
+                            );
+                            match mic_device_id {
+                                Some(mic_id) => {
+                                    let device = resolve_input_device(mic_id)?;
+                                    build_cpal_input_stream(device, tx_b, shared_drops.clone())?
+                                }
+                                None => open_mic_default_with_drops(tx_b, shared_drops.clone())?,
+                            }
+                        }
+                    }
+                } else {
+                    match mic_device_id {
+                        Some(mic_id) => {
+                            let device = resolve_input_device(mic_id)?;
+                            build_cpal_input_stream(device, tx_b, shared_drops.clone())?
+                        }
+                        None => open_mic_default_with_drops(tx_b, shared_drops.clone())?,
+                    }
+                };
             // Capture the Mix source metadata before the handles are consumed.
             let mic_sample_rate = mic_handle.sample_rate;
             let loop_sample_rate = loop_handle.sample_rate;
@@ -872,7 +909,7 @@ mod tests {
     #[test]
     fn open_mix_without_second_tx_returns_other() {
         let (tx, _rx) = crossbeam_channel::bounded::<Vec<f32>>(1);
-        let result = open(CaptureMode::Mix, "any-id", None, tx, None, None);
+        let result = open(CaptureMode::Mix, "any-id", None, tx, None, None, false);
         match result {
             Err(AudioError::Other(msg)) => {
                 assert!(
@@ -902,6 +939,7 @@ mod tests {
             tx,
             None,
             None,
+            false,
         );
         match result {
             Err(AudioError::DeviceNotFound(id)) => {
@@ -938,6 +976,7 @@ mod tests {
             tx,
             None,
             None,
+            false,
         );
         match result {
             Ok(_) => {}

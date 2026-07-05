@@ -31,8 +31,6 @@ use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 
 /// Whether the microphone should be captured through the OS AEC (Communications
 /// mode) instead of raw cpal. Only Mix mode has speaker echo to cancel.
-// No caller yet — the COM capture code that uses this lands in a later v1.2 task.
-#[allow(dead_code)]
 pub(crate) fn use_comms_mic(mode: CaptureMode, aec_enabled: bool) -> bool {
     matches!(mode, CaptureMode::Mix) && aec_enabled
 }
@@ -42,8 +40,6 @@ pub(crate) fn use_comms_mic(mode: CaptureMode, aec_enabled: bool) -> bool {
 /// `SetEchoCancellationRenderEndpoint` and let Windows track the default render
 /// (so no manual re-set is needed when the output device changes). A pinned
 /// loopback id resolves to that concrete endpoint instead.
-// No caller yet — the COM capture code that uses this lands in a later v1.2 task.
-#[allow(dead_code)]
 pub(crate) fn aec_reference_is_auto(loopback_device_id: &str) -> bool {
     loopback_device_id == DEFAULT_RENDER_LOOPBACK
 }
@@ -52,8 +48,6 @@ pub(crate) fn aec_reference_is_auto(loopback_device_id: &str) -> bool {
 /// so the event object is released on every exit path of `mic_comms_loop` —
 /// normal return, a `?` early-return after creation, or a panic. Without this the
 /// event leaks once per recording session.
-// No caller yet — see the note on `open_mic_comms` (Task 3 removes this allow).
-#[allow(dead_code)]
 struct EventHandle(HANDLE);
 
 impl Drop for EventHandle {
@@ -72,9 +66,6 @@ impl Drop for EventHandle {
 /// `wasapi` crate's friendly-name matching (mirrors `stream::resolve_render_device`
 /// but for Direction::Capture) and returns the persistent endpoint id
 /// (`IMMDevice::GetId`), which `IMMDeviceEnumerator::GetDevice` re-resolves.
-// No caller yet — the source-selection wiring that uses this lands in the next
-// v1.2 task (Task 3 removes this allow when it adds the consumer).
-#[allow(dead_code)]
 fn resolve_capture_endpoint_id(mic_device_id: Option<&str>) -> Result<String, AudioError> {
     use crate::devices::{enumerate, AudioDeviceKind};
     use wasapi::{DeviceCollection, Direction};
@@ -121,9 +112,6 @@ fn resolve_capture_endpoint_id(mic_device_id: Option<&str>) -> Result<String, Au
 /// or None to let Windows auto-follow the default render (the sentinel case).
 /// Returns a `StreamHandle` whose `sample_rate`/`channels` are the comms mix
 /// format (the mixer resamples to 48k). f32 samples are pushed to `tx`.
-// No caller yet — the source-selection wiring that uses this lands in the next
-// v1.2 task (Task 3 removes this allow when it adds the consumer).
-#[allow(dead_code)]
 pub(crate) fn open_mic_comms(
     mic_device_id: Option<&str>,
     reference: Option<String>,
@@ -173,8 +161,6 @@ pub(crate) fn open_mic_comms(
 /// `IAudioClient` activation works in both STA and MTA. Any other failure is real.
 /// This matters because `open_mic_comms` may run on a thread Tauri already
 /// CoInitialize'd; only `mic_comms_loop`'s fresh thread is guaranteed clean MTA.
-// No caller yet — see the note on `open_mic_comms` (Task 3 removes this allow).
-#[allow(dead_code)]
 fn ensure_com() -> Result<(), AudioError> {
     const RPC_E_CHANGED_MODE: i32 = 0x8001_0106u32 as i32;
     // SAFETY: standard WASAPI init.
@@ -189,8 +175,6 @@ fn ensure_com() -> Result<(), AudioError> {
 ///
 /// # Safety
 /// Must be called on a COM-initialised thread (see `ensure_com`).
-// No caller yet — see the note on `open_mic_comms` (Task 3 removes this allow).
-#[allow(dead_code)]
 unsafe fn device_for_id(endpoint_id: &str) -> Result<IMMDevice, AudioError> {
     let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
         .map_err(|e| AudioError::WasapiInit {
@@ -211,8 +195,6 @@ unsafe fn device_for_id(endpoint_id: &str) -> Result<IMMDevice, AudioError> {
 /// shared-mode mix format is category-independent, so this deliberately skips the
 /// comms-category call (it would be a wasted QueryInterface here); the category is
 /// set in `mic_comms_loop`, before Initialize, where it actually pulls in the AEC.
-// No caller yet — see the note on `open_mic_comms` (Task 3 removes this allow).
-#[allow(dead_code)]
 fn read_comms_mix_format(endpoint_id: &str) -> Result<(u32, u16), AudioError> {
     ensure_com()?;
     unsafe {
@@ -242,8 +224,6 @@ fn read_comms_mix_format(endpoint_id: &str) -> Result<(u32, u16), AudioError> {
 ///
 /// # Safety
 /// `client` must be a freshly-activated, not-yet-Initialized `IAudioClient`.
-// No caller yet — see the note on `open_mic_comms` (Task 3 removes this allow).
-#[allow(dead_code)]
 unsafe fn set_comms_category(client: &IAudioClient) -> Result<(), AudioError> {
     let client2: IAudioClient2 = client.cast().map_err(|e| AudioError::WasapiInit {
         hresult: e.code().0,
@@ -264,8 +244,6 @@ unsafe fn set_comms_category(client: &IAudioClient) -> Result<(), AudioError> {
 /// Capture loop: activate → comms category → initialize (event-driven) → set AEC
 /// reference → start → drain buffers → push f32. Runs on its own thread with its
 /// own COM apartment.
-// No caller yet — see the note on `open_mic_comms` (Task 3 removes this allow).
-#[allow(dead_code)]
 fn mic_comms_loop(
     endpoint_id: &str,
     reference: Option<String>,
