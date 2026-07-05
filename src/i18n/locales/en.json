@@ -271,5 +271,6 @@
   "updateProgress": "{done} / {total} MB",
   "updateInstall": "Update now",
   "updateError": "Couldn't check. Try again later.",
-  "outputDeviceChanged": "Output switched to \"{name}\""
+  "outputDeviceChanged": "Output switched to \"{name}\"",
+  "aecUnavailable": "AEC unavailable; recording the mic without echo cancellation."
 }

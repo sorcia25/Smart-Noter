@@ -91,6 +91,25 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    let un: (() => void) | null = null;
+    // Mix mode fell back to a raw mic because OS AEC could not open (spec §8).
+    listen('audio:aec-unavailable', () => {
+      if (cancelled) return;
+      toast.info(tRef.current('aecUnavailable'));
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else un = fn;
+      })
+      .catch(() => {}); // swallow rejection in browser/test environments without Tauri
+    return () => {
+      cancelled = true;
+      un?.();
+    };
+  }, []);
+
   const element = useRoutes(routes);
   const titleKey = TITLES_KEY[location.pathname];
   const title = titleKey ? t(titleKey as never) : '';

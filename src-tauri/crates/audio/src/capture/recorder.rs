@@ -390,6 +390,15 @@ impl Recorder {
                 false,
             )?
         };
+
+        // Spec §8: the OS-AEC mic open can fall back to a raw (un-cancelled) cpal
+        // mic (Mix mode only). Never let that be silent while the AEC toggle reads
+        // on — signal the frontend so it can toast the user. Fire-and-forget: a
+        // failed emit (e.g. no webview yet) must not abort the recording.
+        if stream.aec_fell_back {
+            let _ = app.emit("audio:aec-unavailable", ());
+        }
+
         // NOTE: `source_tx` is NOT stored in `Self`. In Mic/System mode it was
         // cloned into the stream callback above; in Mix mode `source_tx_for_mixer`
         // is the only surviving clone (captured by the mixer thread). When the

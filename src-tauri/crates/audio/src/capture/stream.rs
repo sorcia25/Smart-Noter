@@ -64,6 +64,11 @@ pub struct StreamHandle {
     pub loop_sample_rate: Option<u32>,
     pub loop_channels: Option<u16>,
     pub mic_channels: Option<u16>,
+    /// Mix mode only: true when the OS-AEC mic open failed and we fell back to a
+    /// raw (un-cancelled) cpal mic. The recorder reads this to emit a user-facing
+    /// toast so the fallback is never silent while the AEC toggle reads on. Always
+    /// false in System/Mic mode and whenever OS AEC opened successfully.
+    pub aec_fell_back: bool,
     /// Keep handles alive so the OS doesn't drop the stream.
     pub(crate) _streams: Vec<Box<dyn KeepAlive>>,
 }
@@ -133,6 +138,9 @@ pub fn open(
             let shared_drops = Arc::new(AtomicU32::new(0));
             let loop_handle =
                 open_loopback_with_drops(device_id, tx_a, shared_drops.clone(), on_device_change)?;
+            // Set true if the OS-AEC mic open fails and we fall back to a raw cpal
+            // mic; propagated on the returned handle so the recorder can toast.
+            let mut aec_fell_back = false;
             let mic_handle =
                 if crate::capture::mic_comms::use_comms_mic(CaptureMode::Mix, aec_enabled) {
                     // OS AEC path: derive the echo reference from the loopback id
@@ -152,12 +160,15 @@ pub fn open(
                         Ok(h) => h,
                         Err(e) => {
                             // Fallback: never record an un-cancelled mix silently — fall
-                            // back to raw cpal and let the recorder's device-change channel
-                            // surface it. Log loudly.
+                            // back to raw cpal. Signal the fallback to the recorder (via
+                            // StreamHandle.aec_fell_back) so it can emit a user-facing
+                            // toast; never fail silently while the toggle reads on. Log
+                            // loudly too.
                             tracing::error!(
                                 ?e,
                                 "OS AEC mic open failed; falling back to raw cpal mic"
                             );
+                            aec_fell_back = true;
                             match mic_device_id {
                                 Some(mic_id) => {
                                     let device = resolve_input_device(mic_id)?;
@@ -198,6 +209,7 @@ pub fn open(
                 loop_sample_rate: Some(loop_sample_rate),
                 loop_channels: Some(loop_channels),
                 mic_channels: Some(mic_channels),
+                aec_fell_back,
                 _streams: streams,
             })
         }
@@ -338,6 +350,7 @@ fn open_loopback_with_drops(
         loop_sample_rate: None,
         loop_channels: None,
         mic_channels: None,
+        aec_fell_back: false,
         _streams: vec![Box::new(WasapiStreamThread {
             stop,
             handle: Some(handle),
@@ -591,6 +604,7 @@ fn build_cpal_input_stream(
         loop_sample_rate: None,
         loop_channels: None,
         mic_channels: None,
+        aec_fell_back: false,
         _streams: vec![Box::new(CpalStream(stream))],
     })
 }
@@ -898,6 +912,7 @@ mod tests {
             loop_sample_rate: None,
             loop_channels: None,
             mic_channels: None,
+            aec_fell_back: false,
             _streams: vec![],
         };
         assert_eq!(h.sample_rate, 48_000);

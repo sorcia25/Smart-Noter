@@ -148,6 +148,7 @@ pub(crate) fn open_mic_comms(
         loop_sample_rate: None,
         loop_channels: None,
         mic_channels: None,
+        aec_fell_back: false,
         _streams: vec![Box::new(WasapiStreamThread {
             stop,
             handle: Some(handle),
