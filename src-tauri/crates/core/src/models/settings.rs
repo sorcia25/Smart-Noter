@@ -41,9 +41,10 @@ pub struct AppSettings {
     /// existing files). `audio_dir()` resolves this at startup into AppState.
     #[serde(default)]
     pub storage_dir: String,
-    /// AEC (mix-mode speaker echo cancellation). DEFERRED to v1.2 and dormant in v1.1:
-    /// the aec-rs/SpeexDSP canceller couldn't overcome loopback/mic clock drift on real
-    /// hardware. Default OFF and the toggle is hidden; the EchoCanceller code stays for v1.2.
+    /// AEC (mix-mode speaker echo cancellation) via the Windows-native AEC
+    /// (Communications signal-processing mode). When on, the mic is captured
+    /// through the OS AEC in Mix mode. Default off until the v1.2 hardware smoke
+    /// passes (the ship commit flips it on).
     #[serde(default)]
     pub aec_enabled: bool,
 }
