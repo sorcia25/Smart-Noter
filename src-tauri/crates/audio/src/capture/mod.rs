@@ -2,6 +2,7 @@
 
 pub mod echo_canceller;
 pub mod meter;
+pub(crate) mod mic_comms;
 pub mod mixer;
 pub mod recorder;
 pub mod session;
