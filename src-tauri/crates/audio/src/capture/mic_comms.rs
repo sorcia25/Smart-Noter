@@ -6,16 +6,14 @@
 //!
 //! The captured f32 samples are pushed to the same `Sender<Vec<f32>>` the cpal
 //! mic path uses, so the mixer/writer downstream are agnostic to the source.
-//!
-//! `#![allow(dead_code)]`: these pure helpers have no caller yet — the COM
-//! capture code that will use them lands in a later v1.2 AEC task.
-#![allow(dead_code)]
 
 use crate::capture::session::CaptureMode;
 use crate::capture::stream::DEFAULT_RENDER_LOOPBACK;
 
 /// Whether the microphone should be captured through the OS AEC (Communications
 /// mode) instead of raw cpal. Only Mix mode has speaker echo to cancel.
+// No caller yet — the COM capture code that uses this lands in a later v1.2 task.
+#[allow(dead_code)]
 pub(crate) fn use_comms_mic(mode: CaptureMode, aec_enabled: bool) -> bool {
     matches!(mode, CaptureMode::Mix) && aec_enabled
 }
@@ -25,6 +23,8 @@ pub(crate) fn use_comms_mic(mode: CaptureMode, aec_enabled: bool) -> bool {
 /// `SetEchoCancellationRenderEndpoint` and let Windows track the default render
 /// (so no manual re-set is needed when the output device changes). A pinned
 /// loopback id resolves to that concrete endpoint instead.
+// No caller yet — the COM capture code that uses this lands in a later v1.2 task.
+#[allow(dead_code)]
 pub(crate) fn aec_reference_is_auto(loopback_device_id: &str) -> bool {
     loopback_device_id == DEFAULT_RENDER_LOOPBACK
 }
