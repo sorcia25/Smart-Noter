@@ -192,10 +192,16 @@ unsafe fn device_for_id(endpoint_id: &str) -> Result<IMMDevice, AudioError> {
         })
 }
 
-/// Activate a client and read its shared-mode mix format, then drop it. The
-/// shared-mode mix format is category-independent, so this deliberately skips the
-/// comms-category call (it would be a wasted QueryInterface here); the category is
-/// set in `mic_comms_loop`, before Initialize, where it actually pulls in the AEC.
+/// Activate a Communications-category client and read its mix format, then drop it.
+///
+/// The comms category MUST be set before `GetMixFormat` here, mirroring
+/// `mic_comms_loop`: the Communications APO can advertise a different shared-mode
+/// format once the category is applied (the classic voice-optimized 16 kHz / mono
+/// case on some hardware). The rate/channels read here configure the mixer's
+/// b-lane resampler/downmix, while the capture thread decodes at ITS post-category
+/// format — so if this read used the pre-category format the two would diverge
+/// (wrong pitch/tempo or channel mismatch on the mic lane). Setting the category
+/// on both reads guarantees they see the same format.
 fn read_comms_mix_format(endpoint_id: &str) -> Result<(u32, u16), AudioError> {
     ensure_com()?;
     unsafe {
@@ -206,6 +212,7 @@ fn read_comms_mix_format(endpoint_id: &str) -> Result<(u32, u16), AudioError> {
                 .map_err(|e| AudioError::WasapiInit {
                     hresult: e.code().0,
                 })?;
+        set_comms_category(&client)?;
         let fmt = client.GetMixFormat().map_err(|e| AudioError::WasapiInit {
             hresult: e.code().0,
         })?;
