@@ -65,11 +65,11 @@ pub struct StreamHandle {
     pub loop_channels: Option<u16>,
     pub mic_channels: Option<u16>,
     /// Keep handles alive so the OS doesn't drop the stream.
-    _streams: Vec<Box<dyn KeepAlive>>,
+    pub(crate) _streams: Vec<Box<dyn KeepAlive>>,
 }
 
 /// Marker trait so we can put cpal::Stream and wasapi handles in the same Vec.
-trait KeepAlive: Send {}
+pub(crate) trait KeepAlive: Send {}
 
 struct CpalStream(#[allow(dead_code)] cpal::Stream);
 impl KeepAlive for CpalStream {}
@@ -83,9 +83,9 @@ unsafe impl Send for CpalStream {}
 /// thread to exit and then join it cleanly. Simply dropping a JoinHandle does
 /// NOT join the thread — it just detaches it — which would leave the WASAPI
 /// stream running and potentially cause COM teardown issues on process exit.
-struct WasapiStreamThread {
-    stop: Arc<AtomicBool>,
-    handle: Option<std::thread::JoinHandle<()>>,
+pub(crate) struct WasapiStreamThread {
+    pub(crate) stop: Arc<AtomicBool>,
+    pub(crate) handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl KeepAlive for WasapiStreamThread {}
