@@ -17,11 +17,12 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use windows::core::{Interface, PCWSTR};
-use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Media::Audio::{
     AudioCategory_Communications, AudioClientProperties, IAcousticEchoCancellationControl,
     IAudioCaptureClient, IAudioClient, IAudioClient2, IMMDevice, IMMDeviceEnumerator,
-    MMDeviceEnumerator, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+    MMDeviceEnumerator, AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
+    AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED,
@@ -45,6 +46,25 @@ pub(crate) fn use_comms_mic(mode: CaptureMode, aec_enabled: bool) -> bool {
 #[allow(dead_code)]
 pub(crate) fn aec_reference_is_auto(loopback_device_id: &str) -> bool {
     loopback_device_id == DEFAULT_RENDER_LOOPBACK
+}
+
+/// RAII guard that closes an owned event `HANDLE` (from `CreateEventW`) on drop,
+/// so the event object is released on every exit path of `mic_comms_loop` —
+/// normal return, a `?` early-return after creation, or a panic. Without this the
+/// event leaks once per recording session.
+// No caller yet — see the note on `open_mic_comms` (Task 3 removes this allow).
+#[allow(dead_code)]
+struct EventHandle(HANDLE);
+
+impl Drop for EventHandle {
+    fn drop(&mut self) {
+        if !self.0.is_invalid() {
+            // SAFETY: handle came from CreateEventW; closed exactly once on drop.
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
+        }
+    }
 }
 
 /// Resolve the capture endpoint id string for the chosen mic (or the default
@@ -187,7 +207,10 @@ unsafe fn device_for_id(endpoint_id: &str) -> Result<IMMDevice, AudioError> {
         })
 }
 
-/// Activate a Communications-category client and read its mix format, then drop it.
+/// Activate a client and read its shared-mode mix format, then drop it. The
+/// shared-mode mix format is category-independent, so this deliberately skips the
+/// comms-category call (it would be a wasted QueryInterface here); the category is
+/// set in `mic_comms_loop`, before Initialize, where it actually pulls in the AEC.
 // No caller yet — see the note on `open_mic_comms` (Task 3 removes this allow).
 #[allow(dead_code)]
 fn read_comms_mix_format(endpoint_id: &str) -> Result<(u32, u16), AudioError> {
@@ -200,7 +223,6 @@ fn read_comms_mix_format(endpoint_id: &str) -> Result<(u32, u16), AudioError> {
                 .map_err(|e| AudioError::WasapiInit {
                     hresult: e.code().0,
                 })?;
-        set_comms_category(&client)?;
         let fmt = client.GetMixFormat().map_err(|e| AudioError::WasapiInit {
             hresult: e.code().0,
         })?;
@@ -267,20 +289,22 @@ fn mic_comms_loop(
         })?;
         let channels = (*fmt).nChannels as usize;
 
-        // 200 ms buffer (in 100-ns units), shared, event-driven.
-        client
-            .Initialize(
-                AUDCLNT_SHAREMODE_SHARED,
-                AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                2_000_000,
-                0,
-                fmt as *const _,
-                None,
-            )
-            .map_err(|e| AudioError::WasapiInit {
-                hresult: e.code().0,
-            })?;
+        // 200 ms buffer (in 100-ns units), shared, event-driven. Initialize copies
+        // the format synchronously, so free `fmt` right after the call regardless of
+        // outcome (an Initialize error would otherwise skip the free via `?`), then
+        // propagate any error.
+        let init = client.Initialize(
+            AUDCLNT_SHAREMODE_SHARED,
+            AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+            2_000_000,
+            0,
+            fmt as *const _,
+            None,
+        );
         CoTaskMemFree(Some(fmt as *const _));
+        init.map_err(|e| AudioError::WasapiInit {
+            hresult: e.code().0,
+        })?;
 
         // Set the AEC reference (non-fatal: E_NOINTERFACE means AEC still runs,
         // OS auto-picks the reference).
@@ -308,13 +332,17 @@ fn mic_comms_loop(
             }
         }
 
-        let event: HANDLE = CreateEventW(None, false, false, PCWSTR::null()).map_err(|e| {
-            AudioError::WasapiInit {
-                hresult: e.code().0,
-            }
-        })?;
+        // Owned event handle, closed on every exit path by the guard's Drop (it
+        // drops after the capture loop returns, i.e. after `client.Stop()`).
+        let event = EventHandle(
+            CreateEventW(None, false, false, PCWSTR::null()).map_err(|e| {
+                AudioError::WasapiInit {
+                    hresult: e.code().0,
+                }
+            })?,
+        );
         client
-            .SetEventHandle(event)
+            .SetEventHandle(event.0)
             .map_err(|e| AudioError::WasapiInit {
                 hresult: e.code().0,
             })?;
@@ -335,7 +363,7 @@ fn mic_comms_loop(
                 return Ok(());
             }
             // Wait up to 100 ms so we can re-check the stop flag.
-            if WaitForSingleObject(event, 100) != WAIT_OBJECT_0 {
+            if WaitForSingleObject(event.0, 100) != WAIT_OBJECT_0 {
                 continue;
             }
             loop {
@@ -351,7 +379,16 @@ fn mic_comms_loop(
                 }
                 // Comms mix format is IEEE float; decode interleaved f32.
                 let n = frames as usize * channels;
-                let samples: Vec<f32> = std::slice::from_raw_parts(data as *const f32, n).to_vec();
+                // SAFETY: GetBuffer succeeded (hr ok, frames > 0), so `data` points
+                // to `frames` valid frames; the comms mix format is interleaved f32,
+                // so the buffer holds exactly `frames * channels` = `n` f32 samples.
+                let mut samples: Vec<f32> =
+                    std::slice::from_raw_parts(data as *const f32, n).to_vec();
+                // Honor AUDCLNT_BUFFERFLAGS_SILENT: the buffer contents are undefined
+                // when set, so don't feed garbage to Whisper — zero the samples.
+                if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
+                    samples.iter_mut().for_each(|s| *s = 0.0);
+                }
                 let _ = capture.ReleaseBuffer(frames);
                 if tx.try_send(samples).is_err() {
                     drops.fetch_add(1, Ordering::Relaxed);
