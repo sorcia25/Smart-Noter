@@ -106,6 +106,24 @@ impl Drop for WasapiStreamThread {
     }
 }
 
+/// Open the Mix mic as a raw (un-cancelled) cpal input: the explicitly chosen
+/// device, or the system default when none was chosen. Shared by both the AEC-off
+/// (`else`) path and the OS-AEC-open fallback so a future change can't diverge the
+/// two — keep it that way.
+fn open_raw_cpal_mic(
+    mic_device_id: Option<&str>,
+    tx_b: Sender<Vec<f32>>,
+    shared_drops: Arc<AtomicU32>,
+) -> Result<StreamHandle, AudioError> {
+    match mic_device_id {
+        Some(mic_id) => {
+            let device = resolve_input_device(mic_id)?;
+            build_cpal_input_stream(device, tx_b, shared_drops)
+        }
+        None => open_mic_default_with_drops(tx_b, shared_drops),
+    }
+}
+
 /// Open one or two streams depending on the mode.
 ///
 /// Returns a handle whose drop closes the streams.
@@ -169,23 +187,11 @@ pub fn open(
                                 "OS AEC mic open failed; falling back to raw cpal mic"
                             );
                             aec_fell_back = true;
-                            match mic_device_id {
-                                Some(mic_id) => {
-                                    let device = resolve_input_device(mic_id)?;
-                                    build_cpal_input_stream(device, tx_b, shared_drops.clone())?
-                                }
-                                None => open_mic_default_with_drops(tx_b, shared_drops.clone())?,
-                            }
+                            open_raw_cpal_mic(mic_device_id, tx_b, shared_drops.clone())?
                         }
                     }
                 } else {
-                    match mic_device_id {
-                        Some(mic_id) => {
-                            let device = resolve_input_device(mic_id)?;
-                            build_cpal_input_stream(device, tx_b, shared_drops.clone())?
-                        }
-                        None => open_mic_default_with_drops(tx_b, shared_drops.clone())?,
-                    }
+                    open_raw_cpal_mic(mic_device_id, tx_b, shared_drops.clone())?
                 };
             // Capture the Mix source metadata before the handles are consumed.
             let mic_sample_rate = mic_handle.sample_rate;
