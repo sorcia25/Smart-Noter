@@ -60,8 +60,8 @@ export default function PreRecordPage() {
 
   const [deviceId, setDeviceId] = useState<string>('');
   const [micDeviceId, setMicDeviceId] = useState<string | null>(null);
-  // AEC deferred to v1.2 (clock-drift limits, see EchoCanceller): dormant, always off,
-  // toggle hidden. State kept so re-enabling in v1.2 is a small diff.
+  // Native Windows AEC (v1.2): the OS cancels speaker echo in Mix mode when on.
+  // Default off until the ship commit flips the persisted default (post-smoke).
   const [aecEnabled, setAecEnabled] = useState(false);
   useEffect(() => {
     if (settings) setAecEnabled(settings.aecEnabled ?? false);
@@ -227,7 +227,19 @@ export default function PreRecordPage() {
                     ))}
                   </select>
                 </div>
-                {/* AEC toggle hidden — deferred to v1.2 (clock-drift limits, see EchoCanceller). */}
+                <label className={styles.aecToggleRow}>
+                  <input
+                    type="checkbox"
+                    checked={aecEnabled}
+                    onChange={(e) => {
+                      const v = e.target.checked;
+                      setAecEnabled(v);
+                      if (settings) void updateSettings({ ...settings, aecEnabled: v });
+                    }}
+                  />
+                  <span>{t('aecToggleLabel')}</span>
+                </label>
+                <div className={styles.modeHint}>{t('aecToggleHint')}</div>
                 <div className={styles.modeHint}>{t('mixHeadphonesHint')}</div>
               </>
             )}

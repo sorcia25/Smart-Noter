@@ -230,17 +230,19 @@ describe('PreRecordPage', () => {
       expect(navOptions.state.deviceId).toBe('__default_render__');
     });
 
-    // v1.1: AEC deferred to v1.2 (clock-drift limits) — the toggle is HIDDEN and recording
-    // starts with aecEnabled: false, keeping the EchoCanceller dormant.
-    it('mix card hides the AEC toggle (deferred) and records with aecEnabled false', async () => {
+    // v1.2: native Windows AEC — the toggle is VISIBLE; enabling it records with
+    // aecEnabled: true (routes the mic through the OS AEC).
+    it('mix card shows the AEC toggle and records with aecEnabled true when enabled', async () => {
       setupWithSettings('system');
       const mixCard = await screen.findByRole('button', { name: /Sistema \+ Micrófono/ });
       await waitFor(() => expect(mixCard).toBeEnabled());
       await userEvent.click(mixCard);
 
-      // The mic picker is present, but the AEC toggle is not.
       expect(await screen.findByLabelText('Micrófono de la mezcla')).toBeInTheDocument();
-      expect(screen.queryByRole('checkbox', { name: 'Cancelar eco de bocinas' })).toBeNull();
+      const aecToggle = await screen.findByRole('checkbox', { name: 'Cancelar eco de bocinas' });
+      expect(aecToggle).not.toBeChecked(); // default off during dev
+
+      await userEvent.click(aecToggle); // enable AEC
 
       const startBtn = await screen.findByRole('button', { name: /Iniciar|Start/i });
       await userEvent.click(startBtn);
@@ -249,7 +251,7 @@ describe('PreRecordPage', () => {
         string,
         { state: Record<string, unknown> },
       ];
-      expect(navOptions.state.aecEnabled).toBe(false);
+      expect(navOptions.state.aecEnabled).toBe(true);
     });
 
     // Case 3: choosing an input device in the mic picker threads that id through to start.
