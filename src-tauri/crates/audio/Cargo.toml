@@ -5,11 +5,16 @@ edition.workspace = true
 
 [dependencies]
 wasapi = "0.16"
+windows = { version = "0.59", features = [
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_System_Threading",
+    "Win32_Foundation",
+] }
 cpal = "0.15"
 hound = "3.5"
 flacenc = { version = "0.5.1", default-features = false }
 rubato = "0.15"
-aec-rs = "1.0.0"
 crossbeam-channel = "0.5"
 parking_lot = "0.12"
 tauri = { workspace = true }

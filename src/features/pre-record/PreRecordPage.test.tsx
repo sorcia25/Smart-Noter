@@ -174,7 +174,7 @@ describe('PreRecordPage', () => {
             transcriptionProvider: 'local',
             transcriptionModel: 'base',
             defaultTemplate: 'tecnica',
-            aecEnabled: false,
+            aecEnabled: true,
           };
         }
         if (cmd === 'start_preview') return null;
@@ -230,17 +230,42 @@ describe('PreRecordPage', () => {
       expect(navOptions.state.deviceId).toBe('__default_render__');
     });
 
-    // v1.1: AEC deferred to v1.2 (clock-drift limits) — the toggle is HIDDEN and recording
-    // starts with aecEnabled: false, keeping the EchoCanceller dormant.
-    it('mix card hides the AEC toggle (deferred) and records with aecEnabled false', async () => {
+    // v1.2: native Windows AEC — on by default (the hardware smoke passed).
+    // The toggle starts checked and Start navigates with aecEnabled: true
+    // without needing a click.
+    it('mix card shows the AEC toggle checked by default and records with aecEnabled true', async () => {
       setupWithSettings('system');
       const mixCard = await screen.findByRole('button', { name: /Sistema \+ Micrófono/ });
       await waitFor(() => expect(mixCard).toBeEnabled());
       await userEvent.click(mixCard);
 
-      // The mic picker is present, but the AEC toggle is not.
       expect(await screen.findByLabelText('Micrófono de la mezcla')).toBeInTheDocument();
-      expect(screen.queryByRole('checkbox', { name: 'Cancelar eco de bocinas' })).toBeNull();
+      const aecToggle = await screen.findByRole('checkbox', { name: 'Cancelar eco de bocinas' });
+      expect(aecToggle).toBeChecked(); // default on since v1.2
+
+      const startBtn = await screen.findByRole('button', { name: /Iniciar|Start/i });
+      await userEvent.click(startBtn);
+      expect(navigateSpy).toHaveBeenCalledOnce();
+      const [, navOptions] = navigateSpy.mock.calls[0] as [
+        string,
+        { state: Record<string, unknown> },
+      ];
+      expect(navOptions.state.aecEnabled).toBe(true);
+    });
+
+    // Clicking the toggle to turn it OFF → Start navigates with aecEnabled: false.
+    it('clicking the AEC toggle off records with aecEnabled false', async () => {
+      setupWithSettings('system');
+      const mixCard = await screen.findByRole('button', { name: /Sistema \+ Micrófono/ });
+      await waitFor(() => expect(mixCard).toBeEnabled());
+      await userEvent.click(mixCard);
+
+      expect(await screen.findByLabelText('Micrófono de la mezcla')).toBeInTheDocument();
+      const aecToggle = await screen.findByRole('checkbox', { name: 'Cancelar eco de bocinas' });
+      expect(aecToggle).toBeChecked(); // default on since v1.2
+
+      await userEvent.click(aecToggle); // disable AEC
+      expect(aecToggle).not.toBeChecked();
 
       const startBtn = await screen.findByRole('button', { name: /Iniciar|Start/i });
       await userEvent.click(startBtn);

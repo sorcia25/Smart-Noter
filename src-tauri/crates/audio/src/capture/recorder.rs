@@ -231,6 +231,7 @@ impl Recorder {
                 a_tx,
                 Some(b_tx),
                 on_device_change,
+                aec_enabled,
             )?;
 
             // Read the real source formats from the handle; warn on fallback (shouldn't happen).
@@ -271,17 +272,6 @@ impl Recorder {
                         return;
                     }
                 };
-
-                if aec_enabled {
-                    if let Err(e) =
-                        mixer.enable_aec(crate::capture::echo_canceller::EchoConfig::default())
-                    {
-                        tracing::error!(
-                            ?e,
-                            "AEC init failed; continuing without echo cancellation"
-                        );
-                    }
-                }
 
                 // Drain the b_rx (mic) startup backlog before entering the main loop.
                 // The mic callback fires immediately on stream open and can accumulate
@@ -397,8 +387,18 @@ impl Recorder {
                 source_tx.clone(),
                 None,
                 on_device_change,
+                false,
             )?
         };
+
+        // Spec §8: the OS-AEC mic open can fall back to a raw (un-cancelled) cpal
+        // mic (Mix mode only). Never let that be silent while the AEC toggle reads
+        // on — signal the frontend so it can toast the user. Fire-and-forget: a
+        // failed emit (e.g. no webview yet) must not abort the recording.
+        if stream.aec_fell_back {
+            let _ = app.emit("audio:aec-unavailable", ());
+        }
+
         // NOTE: `source_tx` is NOT stored in `Self`. In Mic/System mode it was
         // cloned into the stream callback above; in Mix mode `source_tx_for_mixer`
         // is the only surviving clone (captured by the mixer thread). When the

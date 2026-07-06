@@ -271,5 +271,6 @@
   "updateProgress": "{done} / {total} MB",
   "updateInstall": "Actualizar ahora",
   "updateError": "No se pudo comprobar. Inténtalo más tarde.",
-  "outputDeviceChanged": "Salida cambiada a «{name}»"
+  "outputDeviceChanged": "Salida cambiada a «{name}»",
+  "aecUnavailable": "AEC no disponible; grabando el micrófono sin cancelación de eco."
 }
