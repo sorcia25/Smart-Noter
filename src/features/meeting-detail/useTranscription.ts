@@ -86,8 +86,15 @@ export function useTranscription(meetingId: string) {
     try {
       await invoke('transcribe_meeting', { meetingId, speakerCountHint: speakerCountHint ?? null });
     } catch (err) {
-      setStatus('idle');
       const ae = toAppError(err);
+      // TranscriptionBusy isn't a user error: a job is already running for this
+      // meeting (a tab-switch remount re-fired the auto-trigger, or a double-click).
+      // Stay 'running' so the progress listener re-attaches; don't show a toast.
+      if (ae.code === 'TranscriptionBusy') {
+        setStatus('running');
+        return;
+      }
+      setStatus('idle');
       toast.error(t('audioErrorTitle'), {
         id: `transcription-error:${ae.code}`,
         description: errorMessage(ae, t),
