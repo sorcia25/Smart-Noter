@@ -61,10 +61,10 @@ export default function PreRecordPage() {
   const [deviceId, setDeviceId] = useState<string>('');
   const [micDeviceId, setMicDeviceId] = useState<string | null>(null);
   // Native Windows AEC (v1.2): the OS cancels speaker echo in Mix mode when on.
-  // Default off until the ship commit flips the persisted default (post-smoke).
-  const [aecEnabled, setAecEnabled] = useState(false);
+  // On by default since the v1.2 hardware smoke passed.
+  const [aecEnabled, setAecEnabled] = useState(true);
   useEffect(() => {
-    if (settings) setAecEnabled(settings.aecEnabled ?? false);
+    if (settings) setAecEnabled(settings.aecEnabled ?? true);
   }, [settings]);
   const isMix = deviceId === MIX_CARD_ID;
   const selectedDevice = devices.find((d) => d.id === deviceId);

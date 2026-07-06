@@ -43,9 +43,9 @@ pub struct AppSettings {
     pub storage_dir: String,
     /// AEC (mix-mode speaker echo cancellation) via the Windows-native AEC
     /// (Communications signal-processing mode). When on, the mic is captured
-    /// through the OS AEC in Mix mode. Default off until the v1.2 hardware smoke
-    /// passes (the ship commit flips it on).
-    #[serde(default)]
+    /// through the OS AEC in Mix mode. On by default since v1.2 (the hardware
+    /// smoke passed).
+    #[serde(default = "default_true")]
     pub aec_enabled: bool,
 }
 
@@ -96,7 +96,7 @@ impl Default for AppSettings {
             provider_models: std::collections::BTreeMap::new(),
             azure_endpoint: String::new(),
             storage_dir: String::new(),
-            aec_enabled: false,
+            aec_enabled: true,
         }
     }
 }
