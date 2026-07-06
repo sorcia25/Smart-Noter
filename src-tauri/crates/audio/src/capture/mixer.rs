@@ -78,7 +78,6 @@
 //! until at least one full 1024-frame chunk is available, then the chunk is
 //! processed. The remainder stays in `pending` for the next call.
 
-use crate::capture::echo_canceller::{EchoCanceller, EchoConfig};
 use crate::error::AudioError;
 use rubato::{FftFixedIn, Resampler};
 
@@ -138,11 +137,6 @@ pub struct Mixer {
     b_ever: bool,
     /// Whether the first-overlap alignment has been performed.
     synced: bool,
-    /// AEC on the mic lane (None = disabled → original path, zero overhead).
-    echo: Option<EchoCanceller>,
-    /// System-lane samples awaiting their delayed cleaned-mic counterpart
-    /// (keeps the mix aligned across the AEC's fixed latency).
-    a_delayed: Vec<f32>,
 }
 
 impl Mixer {
@@ -188,15 +182,7 @@ impl Mixer {
             a_ever: false,
             b_ever: false,
             synced: false,
-            echo: None,
-            a_delayed: Vec::new(),
         })
-    }
-
-    /// Enable AEC on the mic lane. Call once, right after `new`, in Mix mode.
-    pub fn enable_aec(&mut self, cfg: EchoConfig) -> Result<(), AudioError> {
-        self.echo = Some(EchoCanceller::new(cfg)?);
-        Ok(())
     }
 
     /// Feed one interleaved buffer from each source (either may be empty) and
@@ -268,28 +254,6 @@ impl Mixer {
         let n = self.a_ready.len().min(self.b_ready.len());
         if n == 0 {
             return Ok(vec![]);
-        }
-
-        if let Some(ec) = &mut self.echo {
-            // AEC path: cancel the echo out of the mic using the aligned system
-            // lane as reference, then mix the cleaned mic against a delay-matched
-            // copy of the system lane so both represent the same instant.
-            let cleaned = ec.process(&self.b_ready[..n], &self.a_ready[..n]);
-            self.a_delayed.extend_from_slice(&self.a_ready[..n]);
-            self.a_ready.drain(..n);
-            self.b_ready.drain(..n);
-
-            let k = cleaned.len().min(self.a_delayed.len());
-            if k == 0 {
-                return Ok(vec![]);
-            }
-            let mixed: Vec<f32> = self.a_delayed[..k]
-                .iter()
-                .zip(cleaned[..k].iter())
-                .map(|(a, b)| (a * SYSTEM_LANE_GAIN + b * MIC_LANE_GAIN) * ANTI_CLIP_GAIN)
-                .collect();
-            self.a_delayed.drain(..k);
-            return Ok(mixed);
         }
 
         // Mix the overlap.
@@ -748,26 +712,5 @@ mod tests {
             "B lane: {} != {expected_b}",
             out[0]
         );
-    }
-
-    // -----------------------------------------------------------------------
-    // v1.1 A4: AEC routing through the mixer
-    // -----------------------------------------------------------------------
-
-    /// With AEC enabled and a silent system lane, the mixer still emits mic-driven
-    /// audio (proves the delay-FIFO path routes cleaned mic to the output and does
-    /// not stall). Exact values aren't asserted (AEC latency shifts them); we assert
-    /// that non-trivial output eventually flows.
-    #[test]
-    fn aec_enabled_mixer_emits_mic_audio() {
-        let mut m = Mixer::new(48_000, 1, 48_000, 1).unwrap();
-        m.enable_aec(crate::capture::echo_canceller::EchoConfig::default())
-            .unwrap();
-        let mut total = 0usize;
-        for _ in 0..200 {
-            let out = m.mix(&vec![0.0f32; 480], &vec![0.2f32; 480]).unwrap();
-            total += out.len();
-        }
-        assert!(total > 0, "AEC-enabled mixer produced no output");
     }
 }
