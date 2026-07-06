@@ -10,7 +10,7 @@ import styles from './Sidebar.module.css';
 const MOCK_USER = {
   initials: 'TM',
   name: 'Toño Maldonado',
-  role: 'Pro · v1.1.0',
+  role: 'Pro · v1.2.0',
 } as const;
 
 interface NavEntry {
