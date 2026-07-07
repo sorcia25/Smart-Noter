@@ -15,6 +15,7 @@ vi.mock('@tauri-apps/api/core', () => ({
     if (cmd === 'get_settings')
       return { autoTranscribe: true, transcriptionModel: 'large-v3', nativeLanguage: 'es' };
     if (cmd === 'get_transcription_state') return null;
+    if (cmd === 'get_meeting_audio') return null;
     return null;
   }),
 }));
@@ -33,6 +34,11 @@ const baseMeeting: MeetingDetail = {
   decisions: [],
   blockers: [],
   transcript: [],
+};
+
+const meetingWithTranscript: MeetingDetail = {
+  ...baseMeeting,
+  transcript: [{ id: 1, t: '00:00', speakerId: 'p-1', text: { es: 'Hola', en: null } }],
 };
 
 function renderTab(meeting: MeetingDetail, state?: object) {
@@ -70,5 +76,30 @@ describe('TranscriptTab', () => {
     renderTab(baseMeeting);
     await userEvent.click(await screen.findByText(/Transcribir/i));
     expect(invokeMock.mock.calls.some((c) => c[0] === 'transcribe_meeting')).toBe(true);
+  });
+
+  it('re-assign speakers: sets a count, confirms, and calls rediarize_meeting', async () => {
+    const invokeMock = vi.mocked(tauriCore.invoke);
+    invokeMock.mockClear();
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_settings')
+        return { autoTranscribe: true, transcriptionModel: 'large-v3', nativeLanguage: 'es' };
+      if (cmd === 'get_transcription_state') return null;
+      if (cmd === 'get_meeting_audio')
+        return { path: 'C:/audio.wav', sizeBytes: 100, mimeType: 'audio/wav' };
+      return null;
+    });
+    const meeting = meetingWithTranscript;
+    renderTab(meeting);
+    await screen.findByLabelText('N.º de hablantes');
+
+    await userEvent.clear(screen.getByLabelText('N.º de hablantes'));
+    await userEvent.type(screen.getByLabelText('N.º de hablantes'), '2');
+    await userEvent.click(screen.getByRole('button', { name: 'Re-asignar hablantes' }));
+    await userEvent.click(screen.getByRole('button', { name: /Rehacer/i })); // confirm
+    expect(invokeMock).toHaveBeenCalledWith('rediarize_meeting', {
+      meetingId: meeting.id,
+      speakerCount: 2,
+    });
   });
 });

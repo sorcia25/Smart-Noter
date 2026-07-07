@@ -2,13 +2,16 @@ import { SubjectAvatar } from '@/components/primitives/Avatar/Avatar';
 import { Button } from '@/components/primitives/Button/Button';
 import { Chip } from '@/components/primitives/Chip/Chip';
 import { Icon } from '@/components/primitives/Icon/Icon';
+import { Modal } from '@/components/primitives/Modal/Modal';
 import { useT } from '@/i18n/useT';
-import type { MeetingDetail, Participant } from '@/ipc/bindings';
+import type { MeetingAudioInfo, MeetingDetail, Participant } from '@/ipc/bindings';
 import { useCreateSpeakerMutation, useReassignLinesMutation } from '@/store/api/meetings.api';
 import { useGetSettingsQuery } from '@/store/api/settings.api';
 import { pickL } from '@/utils/format';
+import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useRediarize } from '../useRediarize';
 import { useTranscription } from '../useTranscription';
 import styles from './TranscriptTab.module.css';
 
@@ -90,6 +93,32 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
   const [reassignLines] = useReassignLinesMutation();
   const [createSpeaker] = useCreateSpeakerMutation();
 
+  // --- Re-diarize (forced speaker count) state ---
+  const { running: rediarizing, rediarize } = useRediarize(meeting.id);
+  // null while the field is transiently empty (user is clearing/retyping it) —
+  // mirrors StopConfirmModal's speakerCount so clear()+type() doesn't fight the
+  // controlled input by snapping back to a clamped value on every keystroke.
+  const [reN, setReN] = useState<number | null>(2);
+  const reNValue = Math.max(1, Math.min(10, reN ?? 1));
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // undefined = still loading, null = no audio saved — either way the control
+  // stays disabled until we positively confirm audio is available.
+  const [audioInfo, setAudioInfo] = useState<MeetingAudioInfo | null | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    invoke<MeetingAudioInfo | null>('get_meeting_audio', { meetingId: meeting.id })
+      .then((res) => {
+        if (!cancelled) setAudioInfo(res ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setAudioInfo(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [meeting.id]);
+  const hasAudio = Boolean(audioInfo);
+
   // Select-lines mode
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -160,6 +189,26 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
         </div>
         {lines.length > 0 && (
           <div className={styles.cardHeadRight}>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              aria-label={t('rediarizeCountLabel')}
+              value={reN === null ? '' : String(reN)}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                setReN(v === '' ? null : Math.max(1, Math.min(10, Number.parseInt(v, 10) || 1)));
+              }}
+              disabled={!hasAudio || rediarizing}
+            />
+            <Button
+              variant="default"
+              disabled={!hasAudio || rediarizing}
+              title={hasAudio ? undefined : t('rediarizeNoAudio')}
+              onClick={() => setConfirmOpen(true)}
+            >
+              {rediarizing ? t('rediarizeRunning') : t('rediarizeCta')}
+            </Button>
             <Button variant={selectMode ? 'primary' : 'default'} onClick={toggleSelectMode}>
               {t('speaker.selectLines')}
             </Button>
@@ -276,6 +325,30 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
           </Button>
         </div>
       )}
+
+      <Modal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title={t('rediarizeConfirmTitle')}
+        footer={
+          <>
+            <Button variant="default" onClick={() => setConfirmOpen(false)}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setConfirmOpen(false);
+                void rediarize(reNValue);
+              }}
+            >
+              {t('rediarizeConfirmCta')}
+            </Button>
+          </>
+        }
+      >
+        {t('rediarizeConfirmBody')}
+      </Modal>
     </div>
   );
 }
