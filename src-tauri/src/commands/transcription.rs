@@ -231,7 +231,10 @@ pub async fn transcribe_meeting(
                     );
                 };
 
-                let opts = TranscribeOpts::default();
+                let opts = TranscribeOpts {
+                    language: Some(settings.native_language.clone()),
+                    ..TranscribeOpts::default()
+                };
                 match transcribe(&pcm, model_path, &opts, progress, abort.clone()) {
                     Ok(s) => s,
                     Err(e) if e.code == TranscriptionErrorCode::Cancelled => {
