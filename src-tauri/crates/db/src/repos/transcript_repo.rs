@@ -89,6 +89,22 @@ pub async fn replace_lines(
     Ok(())
 }
 
+/// Load a meeting's transcript segments (start/end seconds + Spanish text) in time
+/// order — the input to a re-diarization + re-align that keeps the transcript text.
+pub async fn segments_for(
+    pool: &SqlitePool,
+    meeting_id: &str,
+) -> Result<Vec<(i64, i64, String)>, DbError> {
+    let rows: Vec<(i64, i64, String)> = sqlx::query_as(
+        "SELECT t_seconds, end_seconds, text_es FROM transcript_lines
+         WHERE meeting_id = ? ORDER BY t_seconds",
+    )
+    .bind(meeting_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,6 +163,36 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(count2, 1);
+    }
+
+    #[tokio::test]
+    async fn segments_for_returns_lines_in_time_order() {
+        let pool = init_pool_in_memory().await.unwrap();
+        sqlx::query("INSERT INTO meetings (id, title_es, template_id, date, duration_sec, word_count) VALUES ('m-1','t','tecnica','2026-06-15',10,0)")
+            .execute(&pool).await.unwrap();
+
+        let lines = vec![
+            LineInput {
+                t_seconds: 0,
+                end_seconds: 5,
+                t_display: "00:00:00".into(),
+                text_es: "hola".into(),
+                speaker_idx: 0,
+            },
+            LineInput {
+                t_seconds: 5,
+                end_seconds: 9,
+                t_display: "00:00:05".into(),
+                text_es: "adios".into(),
+                speaker_idx: 0,
+            },
+        ];
+        replace_lines(&pool, "m-1", &lines, 1, 2).await.unwrap();
+        let segs = segments_for(&pool, "m-1").await.unwrap();
+        assert_eq!(
+            segs,
+            vec![(0, 5, "hola".to_string()), (5, 9, "adios".to_string())]
+        );
     }
 
     #[tokio::test]

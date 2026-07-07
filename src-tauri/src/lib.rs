@@ -69,6 +69,7 @@ pub fn specta_builder() -> Builder {
         commands::markers::delete_marker,
         commands::log::log_frontend_error,
         commands::transcription::transcribe_meeting,
+        commands::transcription::rediarize_meeting,
         commands::transcription::cancel_transcription,
         commands::transcription::get_transcription_state,
         commands::transcription::list_whisper_models,

@@ -540,6 +540,100 @@ pub async fn transcribe_meeting(
     Ok(())
 }
 
+/// Re-run ONLY diarization (not whisper) on a meeting that already has a transcript,
+/// with a FORCED speaker count. Keeps every transcript line's text/timestamps and
+/// just re-assigns speakers, then re-persists atomically via `replace_lines`. This
+/// is the fast "the auto-detected speaker split was wrong" correction path.
+#[tauri::command]
+#[specta::specta]
+pub async fn rediarize_meeting(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    speaker_count: u32,
+) -> Result<(), AppError> {
+    use smart_noter_db::repos::transcript_repo::segments_for;
+
+    // 1. Audio (WAV) — same resolver `transcribe_meeting` uses; None => audio deleted.
+    let audio = smart_noter_db::repos::meeting_assets_repo::MeetingAssetsRepo(&state.pool)
+        .get_audio(&meeting_id)
+        .await?;
+    let audio_path = match audio {
+        Some(a) => std::path::PathBuf::from(a.path),
+        None => return Err(AppError::NotFound(format!("no audio for {meeting_id}"))),
+    };
+
+    // 2. Diarization models must be present.
+    let app_dir = app_data(&app)?;
+    let diar_seg = diar_models::model_path(&app_dir, "segmentation")
+        .filter(|p| p.is_file())
+        .ok_or_else(|| AppError::NotFound("diarization models not downloaded".into()))?;
+    let diar_emb = diar_models::model_path(&app_dir, "embedding")
+        .filter(|p| p.is_file())
+        .ok_or_else(|| AppError::NotFound("diarization models not downloaded".into()))?;
+
+    // 3. Existing transcript segments (keep the text).
+    let segs = segments_for(&state.pool, &meeting_id)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+    if segs.is_empty() {
+        return Err(AppError::NotFound(format!(
+            "no transcript for {meeting_id}"
+        )));
+    }
+
+    // 4. CPU work off the async runtime: decode + diarize + align.
+    let n_speakers = speaker_count.max(1);
+    let (lines, count, words) = tauri::async_runtime::spawn_blocking(move || {
+        let pcm = decode::decode_to_pcm_16k_mono(&audio_path)
+            .map_err(|e| AppError::Internal(format!("decode: {}", e.message)))?;
+        let abort = Arc::new(AtomicBool::new(false));
+        let opts = DiarizeOpts {
+            num_speakers: Some(n_speakers),
+        };
+        let diar_segs = diarize(&pcm, &diar_seg, &diar_emb, &opts, abort)
+            .map_err(|e| AppError::Internal(format!("diarize: {}", e.message)))?;
+        let texts: Vec<TextSegment> = segs
+            .iter()
+            .map(|(t0, t1, text)| TextSegment {
+                start_ms: (*t0 * 1000) as u32,
+                end_ms: (*t1 * 1000) as u32,
+                text: text.clone(),
+            })
+            .collect();
+        let aligned = align(&texts, &diar_segs);
+        let max_spk = aligned.iter().map(|a| a.speaker).max().unwrap_or(0);
+        let count = (max_spk as usize) + 1;
+        let mut words = 0i64;
+        let lines: Vec<LineInput> = segs
+            .iter()
+            .zip(aligned.iter())
+            .map(|((t0, t1, text), a)| {
+                words += smart_noter_whisper::transcribe::word_count(text) as i64;
+                LineInput {
+                    t_seconds: *t0,
+                    end_seconds: *t1,
+                    t_display: smart_noter_whisper::transcribe::fmt_timestamp(*t0 as u32),
+                    text_es: text.clone(),
+                    speaker_idx: a.speaker as usize,
+                }
+            })
+            .collect();
+        Ok::<_, AppError>((lines, count, words))
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("rediarize task: {e}")))??;
+
+    // 5. Re-persist atomically (reuses the shared write path).
+    replace_lines(&state.pool, &meeting_id, &lines, count, words)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // 6. Refresh FTS (best-effort).
+    let _ = smart_noter_db::repos::search_repo::upsert_meeting(&state.pool, &meeting_id).await;
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn cancel_transcription(
