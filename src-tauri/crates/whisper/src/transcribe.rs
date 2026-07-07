@@ -27,6 +27,12 @@ pub struct TranscribeOpts {
     pub n_threads: i32,
     /// `None` → auto-detect language; `Some("es")` to force.
     pub language: Option<String>,
+    /// Whisper's per-window no-speech gate threshold. whisper.cpp's default 0.6
+    /// drops a whole 30 s window when `no_speech_prob` exceeds it (and avg_logprobs
+    /// < -1.0), silently losing quiet trailing speech (the last 3–12 s bug, worsened
+    /// by the v1.2 AEC noise-suppression). Relaxed to 0.9 so tail windows still emit;
+    /// the `text.is_empty()` skip below drops truly-empty output.
+    pub no_speech_thold: f32,
 }
 
 impl Default for TranscribeOpts {
@@ -34,6 +40,7 @@ impl Default for TranscribeOpts {
         Self {
             n_threads: 4,
             language: None,
+            no_speech_thold: 0.9,
         }
     }
 }
@@ -104,6 +111,7 @@ pub fn transcribe(
     params.set_n_threads(opts.n_threads);
     params.set_translate(false);
     params.set_language(Some(opts.language.as_deref().unwrap_or("auto")));
+    params.set_no_speech_thold(opts.no_speech_thold);
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_realtime(false);
@@ -126,7 +134,22 @@ pub fn transcribe(
     // whisper-rs 0.16 segment API (verified via the Task 0.2 spike):
     //   full_n_segments() -> i32 (infallible); get_segment(i) -> Option<WhisperSegment>;
     //   seg.to_str_lossy() -> Result<Cow<str>>; seg.start_timestamp()/end_timestamp() -> i64 (centiseconds).
+    // Tail-drop verification (whisper tail fix): the last segment's end should reach
+    // ~the pcm duration. If it's short, whisper's no-speech gate dropped the tail.
     let n = state.full_n_segments();
+    let last_end_ms = (0..n)
+        .rev()
+        .find_map(|i| state.get_segment(i))
+        .map(|s| (s.end_timestamp().max(0) * 10) as u64)
+        .unwrap_or(0);
+    let pcm_ms = (pcm.len() as f64 / 16_000.0 * 1000.0) as u64;
+    tracing::info!(
+        segments = n,
+        last_end_ms,
+        pcm_ms,
+        "whisper transcription tail check"
+    );
+
     let mut out = Vec::with_capacity(n.max(0) as usize);
     for i in 0..n {
         let Some(seg) = state.get_segment(i) else {
@@ -193,5 +216,18 @@ mod tests {
     #[test]
     fn successful_full_without_abort_is_ok() {
         assert!(classify_full_outcome(Ok(()), false).is_ok());
+    }
+
+    #[test]
+    fn transcribe_opts_default_relaxes_no_speech_and_no_forced_language() {
+        let o = TranscribeOpts::default();
+        assert_eq!(
+            o.no_speech_thold, 0.9,
+            "relaxed gate keeps quiet tail windows"
+        );
+        assert!(
+            o.language.is_none(),
+            "language still defaults to auto unless forced"
+        );
     }
 }
