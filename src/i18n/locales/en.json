@@ -37,6 +37,8 @@
   "preSub": "Set things up before starting for the best transcript and summary.",
   "meetingNameLabel": "Meeting name",
   "meetingNamePh": "e.g. Steering committee — Q4 review",
+  "speakerCountLabel": "Participants (optional)",
+  "speakerCountPh": "Auto-detect",
   "deviceSection": "Recording device",
   "deviceHint": "Pick the audio device. The app never connects to Teams or Zoom — it captures audio directly from your PC.",
   "mixCardTitle": "System + Microphone",

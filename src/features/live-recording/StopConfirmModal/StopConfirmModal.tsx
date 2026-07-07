@@ -44,6 +44,7 @@ export function StopConfirmModal({
   const dispatch = useAppDispatch();
   const [title, setTitle] = useState(suggestedTitle);
   const [busy, setBusy] = useState(false);
+  const [speakerCount, setSpeakerCount] = useState<number | null>(speakerHint);
 
   const onSave = async () => {
     if (busy) return;
@@ -56,7 +57,9 @@ export function StopConfirmModal({
       });
       dispatch(baseApi.util.invalidateTags(['Meeting']));
       onClose();
-      navigate(Paths.MeetingDetail(meeting.id), { state: { justRecorded: true, speakerHint } });
+      navigate(Paths.MeetingDetail(meeting.id), {
+        state: { justRecorded: true, speakerHint: speakerCount },
+      });
     } catch (err) {
       // Modal stays open — Discard remains the exit. Surface the error via toast.
       const ae = toAppError(err);
@@ -113,6 +116,18 @@ export function StopConfirmModal({
         onChange={(e) => setTitle(e.target.value)}
         placeholder={t('meetingNamePh')}
         autoFocus
+      />
+      <Input
+        label={t('speakerCountLabel')}
+        type="number"
+        min={1}
+        max={10}
+        value={speakerCount === null ? '' : String(speakerCount)}
+        onChange={(e) => {
+          const v = e.target.value.trim();
+          setSpeakerCount(v === '' ? null : Math.max(1, Math.min(10, Number.parseInt(v, 10) || 1)));
+        }}
+        placeholder={t('speakerCountPh')}
       />
       <div className={styles.summary}>
         <Icon name="clock" size={14} />

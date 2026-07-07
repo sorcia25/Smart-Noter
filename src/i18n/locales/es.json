@@ -37,6 +37,8 @@
   "preSub": "Configura antes de iniciar para que la transcripción y el resumen salgan perfectos.",
   "meetingNameLabel": "Nombre de la reunión",
   "meetingNamePh": "Ej: Comité directivo — Q4 review",
+  "speakerCountLabel": "Participantes (opcional)",
+  "speakerCountPh": "Auto-detectar",
   "deviceSection": "Dispositivo de grabación",
   "deviceHint": "Elige el dispositivo de audio. La app no se conecta a Teams o Zoom — captura el audio directamente desde tu PC.",
   "mixCardTitle": "Sistema + Micrófono",

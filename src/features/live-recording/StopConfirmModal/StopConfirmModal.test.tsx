@@ -10,6 +10,16 @@ import type { CaptureResult } from '@/ipc/bindings';
 import * as tauriCore from '@tauri-apps/api/core';
 import { StopConfirmModal } from './StopConfirmModal';
 
+// Spy on navigate calls so tests can assert on the state passed to navigate().
+const navigateSpy = vi.fn();
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>();
+  return {
+    ...actual,
+    useNavigate: () => navigateSpy,
+  };
+});
+
 vi.mock('@/components/primitives/Toast/Toast', () => ({
   toast: { error: vi.fn() },
 }));
@@ -54,6 +64,7 @@ describe('StopConfirmModal', () => {
       return null;
     });
     vi.mocked(toast.error).mockClear();
+    navigateSpy.mockClear();
   });
 
   it('renders title input pre-filled and Save enabled', () => {
@@ -129,5 +140,18 @@ describe('StopConfirmModal', () => {
         description: 'no finished session to finalize',
       })
     );
+  });
+
+  it('typing a participant count navigates with that speakerHint', async () => {
+    setup();
+    const countInput = screen.getByLabelText('Participantes (opcional)');
+    await userEvent.type(countInput, '3');
+    await userEvent.click(screen.getByRole('button', { name: /Guardar|Save/i }));
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalled());
+    const [, navOptions] = navigateSpy.mock.calls[0] as [
+      string,
+      { state: Record<string, unknown> },
+    ];
+    expect(navOptions.state.speakerHint).toBe(3);
   });
 });
