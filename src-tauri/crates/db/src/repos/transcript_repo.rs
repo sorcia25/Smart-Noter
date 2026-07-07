@@ -95,14 +95,19 @@ pub async fn segments_for(
     pool: &SqlitePool,
     meeting_id: &str,
 ) -> Result<Vec<(i64, i64, String)>, DbError> {
-    let rows: Vec<(i64, i64, String)> = sqlx::query_as(
+    let rows: Vec<(i64, Option<i64>, String)> = sqlx::query_as(
         "SELECT t_seconds, end_seconds, text_es FROM transcript_lines
          WHERE meeting_id = ? ORDER BY t_seconds",
     )
     .bind(meeting_id)
     .fetch_all(pool)
     .await?;
-    Ok(rows)
+    // end_seconds is nullable (legacy Sub-3a rows have none) → fall back to
+    // t_seconds (zero-duration), matching participants_repo's treatment.
+    Ok(rows
+        .into_iter()
+        .map(|(t0, t1, text)| (t0, t1.unwrap_or(t0), text))
+        .collect())
 }
 
 #[cfg(test)]
@@ -192,6 +197,42 @@ mod tests {
         assert_eq!(
             segs,
             vec![(0, 5, "hola".to_string()), (5, 9, "adios".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn segments_for_tolerates_null_end_seconds() {
+        // Legacy Sub-3a rows were inserted before migration 0003 with a NULL
+        // end_seconds. segments_for must decode that without an UnexpectedNull
+        // error, falling back to t_seconds (zero-duration) like participants_repo.
+        let pool = init_pool_in_memory().await.unwrap();
+        sqlx::query("INSERT INTO meetings (id, title_es, template_id, date, duration_sec, word_count) VALUES ('m-1','t','tecnica','2026-06-15',10,0)")
+            .execute(&pool).await.unwrap();
+
+        // Seed one normal line via replace_lines — this also creates p-m-1-S1.
+        let lines = vec![LineInput {
+            t_seconds: 0,
+            end_seconds: 5,
+            t_display: "00:00:00".into(),
+            text_es: "hola".into(),
+            speaker_idx: 0,
+        }];
+        replace_lines(&pool, "m-1", &lines, 1, 1).await.unwrap();
+
+        // A legacy row: omit end_seconds so it is stored as NULL. Reuse the
+        // speaker_id replace_lines just created.
+        sqlx::query(
+            "INSERT INTO transcript_lines (meeting_id, t_seconds, t_display, speaker_id, text_es)
+             VALUES ('m-1', 12, '00:00:12', 'p-m-1-S1', 'legacy')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let segs = segments_for(&pool, "m-1").await.unwrap();
+        assert_eq!(
+            segs,
+            vec![(0, 5, "hola".to_string()), (12, 12, "legacy".to_string()),]
         );
     }
 
