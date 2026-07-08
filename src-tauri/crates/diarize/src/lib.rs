@@ -5,7 +5,9 @@ pub mod error;
 pub use error::{DiarizationError, DiarizationErrorCode};
 
 pub mod align;
-pub use align::{align, fill_zero_durations, AlignedLine, DiarSegment, TextSegment};
+pub use align::{
+    align, fill_zero_durations, remap_contiguous, AlignedLine, DiarSegment, TextSegment,
+};
 
 pub mod overlap;
 pub use overlap::flatten_overlaps;

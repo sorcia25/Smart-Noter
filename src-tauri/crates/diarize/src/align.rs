@@ -139,6 +139,26 @@ pub fn fill_zero_durations(texts: &[TextSegment], audio_end_ms: u32) -> Vec<Text
         .collect()
 }
 
+/// Remap speaker labels to a contiguous `[0..k)` range, preserving first-appearance
+/// order. `align` can emit non-contiguous labels (sherpa uses e.g. {0,4,5}); the
+/// caller derives the participant count from `max(speaker)+1`, which would create
+/// phantom empty participants. Returns `(remapped, k)` where `k` is the real number
+/// of distinct speakers used.
+pub fn remap_contiguous(speakers: &[u32]) -> (Vec<u32>, usize) {
+    let mut mapping: Vec<u32> = Vec::new();
+    let out = speakers
+        .iter()
+        .map(|&s| match mapping.iter().position(|&o| o == s) {
+            Some(idx) => idx as u32,
+            None => {
+                mapping.push(s);
+                (mapping.len() - 1) as u32
+            }
+        })
+        .collect();
+    (out, mapping.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,6 +199,27 @@ mod tests {
         let out = fill_zero_durations(&texts, 10000);
         assert_eq!(out[0].end_ms, 5001);
         assert_eq!(out[1].end_ms, 10000);
+    }
+
+    #[test]
+    fn remap_non_contiguous_to_zero_based() {
+        let (out, k) = remap_contiguous(&[0, 4, 4, 5, 0]);
+        assert_eq!(out, vec![0, 1, 1, 2, 0]);
+        assert_eq!(k, 3);
+    }
+
+    #[test]
+    fn remap_preserves_first_appearance_order() {
+        let (out, k) = remap_contiguous(&[5, 5, 2, 0]);
+        assert_eq!(out, vec![0, 0, 1, 2]);
+        assert_eq!(k, 3);
+    }
+
+    #[test]
+    fn remap_empty_is_zero() {
+        let (out, k) = remap_contiguous(&[]);
+        assert!(out.is_empty());
+        assert_eq!(k, 0);
     }
 
     #[test]
