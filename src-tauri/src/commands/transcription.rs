@@ -551,7 +551,7 @@ pub async fn rediarize_meeting(
     state: tauri::State<'_, AppState>,
     meeting_id: String,
     speaker_count: u32,
-) -> Result<(), AppError> {
+) -> Result<u32, AppError> {
     use smart_noter_db::repos::transcript_repo::segments_for;
 
     // 1. Audio (WAV) — same resolver `transcribe_meeting` uses; None => audio deleted.
@@ -593,6 +593,7 @@ pub async fn rediarize_meeting(
         };
         let diar_segs = diarize(&pcm, &diar_seg, &diar_emb, &opts, abort)
             .map_err(|e| AppError::Internal(format!("diarize: {}", e.message)))?;
+        let audio_end_ms = (pcm.len() as f64 / 16_000.0 * 1000.0) as u32;
         let texts: Vec<TextSegment> = segs
             .iter()
             .map(|(t0, t1, text)| TextSegment {
@@ -601,21 +602,24 @@ pub async fn rediarize_meeting(
                 text: text.clone(),
             })
             .collect();
+        // Legacy/second-granularity lines can be zero-width → give them real spans.
+        let texts = smart_noter_diarize::fill_zero_durations(&texts, audio_end_ms);
         let aligned = align(&texts, &diar_segs);
-        let max_spk = aligned.iter().map(|a| a.speaker).max().unwrap_or(0);
-        let count = (max_spk as usize) + 1;
+        // align may emit non-contiguous speaker labels; remap so count = real speakers.
+        let raw: Vec<u32> = aligned.iter().map(|a| a.speaker).collect();
+        let (speakers, count) = smart_noter_diarize::remap_contiguous(&raw);
         let mut words = 0i64;
         let lines: Vec<LineInput> = segs
             .iter()
-            .zip(aligned.iter())
-            .map(|((t0, t1, text), a)| {
+            .zip(speakers.iter())
+            .map(|((t0, t1, text), &spk)| {
                 words += smart_noter_whisper::transcribe::word_count(text) as i64;
                 LineInput {
                     t_seconds: *t0,
                     end_seconds: *t1,
                     t_display: smart_noter_whisper::transcribe::fmt_timestamp(*t0 as u32),
                     text_es: text.clone(),
-                    speaker_idx: a.speaker as usize,
+                    speaker_idx: spk as usize,
                 }
             })
             .collect();
@@ -631,7 +635,7 @@ pub async fn rediarize_meeting(
 
     // 6. Refresh FTS (best-effort).
     let _ = smart_noter_db::repos::search_repo::upsert_meeting(&state.pool, &meeting_id).await;
-    Ok(())
+    Ok(count as u32)
 }
 
 #[tauri::command]
