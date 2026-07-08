@@ -215,6 +215,8 @@
   "rediarizeConfirmTitle": "Rehacer la diarización",
   "rediarizeConfirmBody": "Esto reemplaza las asignaciones de hablante actuales, incluidas correcciones manuales. El texto del transcript no cambia.",
   "rediarizeConfirmCta": "Rehacer",
+  "rediarizeNoChangeTitle": "Sin hablantes nuevos",
+  "rediarizeNoChangeBody": "La diarización no encontró más voces distintas. Puedes ajustar a mano: fusionar o reasignar hablantes.",
   "trashTitle": "Papelera",
   "trashSub": "Reuniones eliminadas. Se borran definitivamente tras 30 días.",
   "trashEmpty": "La papelera está vacía.",

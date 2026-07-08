@@ -215,6 +215,8 @@
   "rediarizeConfirmTitle": "Redo diarization",
   "rediarizeConfirmBody": "This replaces the current speaker assignments, including manual corrections. The transcript text is unchanged.",
   "rediarizeConfirmCta": "Redo",
+  "rediarizeNoChangeTitle": "No new speakers",
+  "rediarizeNoChangeBody": "Diarization found no more distinct voices. You can adjust manually: merge or reassign speakers.",
   "trashTitle": "Trash",
   "trashSub": "Deleted meetings. Permanently removed after 30 days.",
   "trashEmpty": "Trash is empty.",

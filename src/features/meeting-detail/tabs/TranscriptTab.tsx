@@ -167,6 +167,10 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
 
   const lines = meeting.transcript; // real data only — no more mock synthesis
 
+  // Distinct speakers currently in the transcript, used as the baseline to
+  // detect a no-op re-diarize (backend returned a count that didn't grow).
+  const usedSpeakerCount = useMemo(() => new Set(lines.map((l) => l.speakerId)).size, [lines]);
+
   // Auto-trigger ONLY for a freshly-saved recording with the setting on.
   const autoStarted = useRef(false);
   useEffect(() => {
@@ -339,7 +343,7 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
               variant="primary"
               onClick={() => {
                 setConfirmOpen(false);
-                void rediarize(reNValue);
+                void rediarize(reNValue, usedSpeakerCount);
               }}
             >
               {t('rediarizeConfirmCta')}
