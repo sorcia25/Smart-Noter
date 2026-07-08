@@ -5,7 +5,11 @@ import { Icon } from '@/components/primitives/Icon/Icon';
 import { Modal } from '@/components/primitives/Modal/Modal';
 import { useT } from '@/i18n/useT';
 import type { MeetingAudioInfo, MeetingDetail, Participant } from '@/ipc/bindings';
-import { useCreateSpeakerMutation, useReassignLinesMutation } from '@/store/api/meetings.api';
+import {
+  useCreateSpeakerMutation,
+  useMergeSpeakersMutation,
+  useReassignLinesMutation,
+} from '@/store/api/meetings.api';
 import { useGetSettingsQuery } from '@/store/api/settings.api';
 import { pickL } from '@/utils/format';
 import { invoke } from '@tauri-apps/api/core';
@@ -92,6 +96,12 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
   // --- Reassign state ---
   const [reassignLines] = useReassignLinesMutation();
   const [createSpeaker] = useCreateSpeakerMutation();
+
+  // --- Merge speakers (modal) state ---
+  const [mergeSpeakers] = useMergeSpeakersMutation();
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeFrom, setMergeFrom] = useState('');
+  const [mergeInto, setMergeInto] = useState('');
 
   // --- Re-diarize (forced speaker count) state ---
   const { running: rediarizing, rediarize } = useRediarize(meeting.id);
@@ -213,6 +223,11 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
             >
               {rediarizing ? t('rediarizeRunning') : t('rediarizeCta')}
             </Button>
+            {meeting.participants.length >= 2 && (
+              <Button variant="default" onClick={() => setMergeOpen(true)}>
+                {t('speaker.mergeCta')}
+              </Button>
+            )}
             <Button variant={selectMode ? 'primary' : 'default'} onClick={toggleSelectMode}>
               {t('speaker.selectLines')}
             </Button>
@@ -352,6 +367,68 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
         }
       >
         {t('rediarizeConfirmBody')}
+      </Modal>
+
+      <Modal
+        open={mergeOpen}
+        onClose={() => setMergeOpen(false)}
+        title={t('speaker.mergeTitle')}
+        footer={
+          <>
+            <Button variant="default" onClick={() => setMergeOpen(false)}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!mergeFrom || !mergeInto || mergeFrom === mergeInto}
+              onClick={async () => {
+                await mergeSpeakers({ into: mergeInto, from: mergeFrom });
+                setMergeOpen(false);
+                setMergeFrom('');
+                setMergeInto('');
+              }}
+            >
+              {t('speaker.mergeCta')}
+            </Button>
+          </>
+        }
+      >
+        <div className={styles.mergeField}>
+          <label className={styles.mergeLabel} htmlFor="merge-from-select">
+            {t('speaker.mergeFromLabel')}
+          </label>
+          <select
+            id="merge-from-select"
+            className={styles.mergeSelect}
+            value={mergeFrom}
+            onChange={(e) => setMergeFrom(e.target.value)}
+          >
+            <option value="">—</option>
+            {meeting.participants.map((p) => (
+              <option key={p.id} value={p.id}>
+                {speakerLabel(p, lang)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.mergeField}>
+          <label className={styles.mergeLabel} htmlFor="merge-into-select">
+            {t('speaker.mergeIntoLabel')}
+          </label>
+          <select
+            id="merge-into-select"
+            className={styles.mergeSelect}
+            value={mergeInto}
+            onChange={(e) => setMergeInto(e.target.value)}
+          >
+            <option value="">—</option>
+            {meeting.participants.map((p) => (
+              <option key={p.id} value={p.id}>
+                {speakerLabel(p, lang)}
+              </option>
+            ))}
+          </select>
+        </div>
       </Modal>
     </div>
   );

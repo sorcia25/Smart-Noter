@@ -185,3 +185,32 @@
 .bulkMenuWrapper {
   position: relative;
 }
+
+/* ─── Merge speakers modal ─────────────────────────────────────────── */
+
+.mergeField {
+  margin-bottom: 14px;
+}
+
+.mergeField:last-child {
+  margin-bottom: 0;
+}
+
+.mergeLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  display: block;
+}
+
+.mergeSelect {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke-strong);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-family: inherit;
+  color: inherit;
+}
