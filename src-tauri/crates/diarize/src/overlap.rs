@@ -5,8 +5,10 @@ use crate::align::DiarSegment;
 /// segments cover the same instant, the SHORTEST original segment wins that slice
 /// (a short nested turn is more specific than the long span that encloses it);
 /// ties in duration break to the lower speaker number. Adjacent output slices with
-/// the same speaker are merged. If the input has no overlaps, the output is
-/// identical to the input (no-op) — this is why it's safe on clean diarization.
+/// the same speaker are merged. Input that is already a non-overlapping partition
+/// passes through unchanged (aside from coalescing any touching same-speaker
+/// segments) — `align`'s per-speaker overlap totals are unaffected either way, so
+/// this is safe on clean diarization.
 pub fn flatten_overlaps(segments: &[DiarSegment]) -> Vec<DiarSegment> {
     if segments.len() < 2 {
         return segments.to_vec();

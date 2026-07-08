@@ -109,8 +109,9 @@ fn pick_speaker(t0: u32, t1: u32, diar: &[DiarSegment]) -> u32 {
 /// persisted at second granularity (or legacy rows with NULL end) can arrive with
 /// `end_ms <= start_ms`; such a point interval overlaps no diar segment and forces
 /// `align` into its nearest-gap fallback. Fill each degenerate line's end from the
-/// NEXT line's start; the last line (or a next line that starts no later) uses
-/// `audio_end_ms`, with a 1 ms floor so the interval is never empty.
+/// NEXT line's start; the last line uses `audio_end_ms`. A `start_ms + 1` floor
+/// covers the rare case where the next line starts no later (same second), so the
+/// interval is never empty.
 pub fn fill_zero_durations(texts: &[TextSegment], audio_end_ms: u32) -> Vec<TextSegment> {
     let n = texts.len();
     texts
