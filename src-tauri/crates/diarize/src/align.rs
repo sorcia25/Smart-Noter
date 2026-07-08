@@ -105,6 +105,40 @@ fn pick_speaker(t0: u32, t1: u32, diar: &[DiarSegment]) -> u32 {
     nearest.map(|(_, sp)| sp).unwrap_or(0)
 }
 
+/// Give every text segment a real duration for overlap scoring. Transcript lines
+/// persisted at second granularity (or legacy rows with NULL end) can arrive with
+/// `end_ms <= start_ms`; such a point interval overlaps no diar segment and forces
+/// `align` into its nearest-gap fallback. Fill each degenerate line's end from the
+/// NEXT line's start; the last line (or a next line that starts no later) uses
+/// `audio_end_ms`, with a 1 ms floor so the interval is never empty.
+pub fn fill_zero_durations(texts: &[TextSegment], audio_end_ms: u32) -> Vec<TextSegment> {
+    let n = texts.len();
+    texts
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let mut end = t.end_ms;
+            if end <= t.start_ms {
+                let next = if i + 1 < n {
+                    texts[i + 1].start_ms
+                } else {
+                    audio_end_ms
+                };
+                end = if next > t.start_ms {
+                    next
+                } else {
+                    t.start_ms + 1
+                };
+            }
+            TextSegment {
+                start_ms: t.start_ms,
+                end_ms: end,
+                text: t.text.clone(),
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,6 +156,29 @@ mod tests {
             end_ms,
             speaker,
         }
+    }
+
+    #[test]
+    fn fill_uses_next_line_start_then_audio_end() {
+        let texts = vec![t(0, 0, "a"), t(5000, 0, "b"), t(9000, 0, "c")];
+        let out = fill_zero_durations(&texts, 12000);
+        assert_eq!(out[0].end_ms, 5000);
+        assert_eq!(out[1].end_ms, 9000);
+        assert_eq!(out[2].end_ms, 12000);
+    }
+
+    #[test]
+    fn fill_keeps_real_durations() {
+        let texts = vec![t(0, 3000, "a")];
+        assert_eq!(fill_zero_durations(&texts, 10000)[0].end_ms, 3000);
+    }
+
+    #[test]
+    fn fill_same_instant_lines_get_1ms_floor() {
+        let texts = vec![t(5000, 5000, "a"), t(5000, 5000, "b")];
+        let out = fill_zero_durations(&texts, 10000);
+        assert_eq!(out[0].end_ms, 5001);
+        assert_eq!(out[1].end_ms, 10000);
     }
 
     #[test]
