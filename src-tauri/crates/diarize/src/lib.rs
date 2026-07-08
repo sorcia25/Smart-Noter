@@ -7,6 +7,9 @@ pub use error::{DiarizationError, DiarizationErrorCode};
 pub mod align;
 pub use align::{align, AlignedLine, DiarSegment};
 
+pub mod overlap;
+pub use overlap::flatten_overlaps;
+
 pub mod diarize;
 pub mod models;
 
