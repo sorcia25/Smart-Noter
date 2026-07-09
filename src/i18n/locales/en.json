@@ -207,6 +207,7 @@
   "speaker.newSpeaker": "➕ New speaker",
   "speaker.merge": "Merge into…",
   "speaker.selectLines": "Select lines",
+  "speaker.selectAllOf": "Select their lines",
   "speaker.applyReassign": "Reassign selection",
   "speaker.mergeCta": "Merge speakers",
   "speaker.mergeTitle": "Merge two speakers into one",

@@ -159,6 +159,10 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
     });
   }
 
+  function selectAllOf(speakerId: string) {
+    setSelected(new Set(lines.filter((l) => l.speakerId === speakerId).map((l) => l.id)));
+  }
+
   async function reassignTo(speakerId: string, lineIds: number[]) {
     await reassignLines({ lineIds, speakerId });
     setSelected(new Set());
@@ -239,6 +243,23 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
           </div>
         )}
       </div>
+
+      {/* Per-speaker select-all shortcut */}
+      {selectMode && (
+        <div className={styles.selectAllRow}>
+          {meeting.participants.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className={styles.selectAllChip}
+              title={t('speaker.selectAllOf')}
+              onClick={() => selectAllOf(p.id)}
+            >
+              {speakerLabel(p, lang)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Bulk reassign toolbar */}
       {selectMode && selected.size > 0 && (

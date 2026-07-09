@@ -164,6 +164,30 @@
   color: var(--accent);
 }
 
+.selectAllRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.selectAllChip {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.selectAllChip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .selectToolbar {
   display: flex;
   align-items: center;
