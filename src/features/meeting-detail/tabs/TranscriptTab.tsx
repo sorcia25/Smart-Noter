@@ -116,6 +116,8 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
   const [reN, setReN] = useState<number | null>(2);
   const reNValue = Math.max(1, Math.min(10, reN ?? 1));
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // --- Re-transcribe (re-run whisper from the saved audio) state ---
+  const [retranscribeOpen, setRetranscribeOpen] = useState(false);
   // undefined = still loading, null = no audio saved — either way the control
   // stays disabled until we positively confirm audio is available.
   const [audioInfo, setAudioInfo] = useState<MeetingAudioInfo | null | undefined>(undefined);
@@ -231,6 +233,14 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
               onClick={() => setConfirmOpen(true)}
             >
               {rediarizing ? t('rediarizeRunning') : t('rediarizeCta')}
+            </Button>
+            <Button
+              variant="default"
+              disabled={!hasAudio || status === 'running'}
+              title={hasAudio ? undefined : t('retranscribeNoAudio')}
+              onClick={() => setRetranscribeOpen(true)}
+            >
+              {status === 'running' ? `${t('retranscribeRunning')} ${pct}%` : t('retranscribeCta')}
             </Button>
             {meeting.participants.length >= 2 && (
               <Button variant="default" onClick={() => setMergeOpen(true)}>
@@ -393,6 +403,30 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
         }
       >
         {t('rediarizeConfirmBody')}
+      </Modal>
+
+      <Modal
+        open={retranscribeOpen}
+        onClose={() => setRetranscribeOpen(false)}
+        title={t('retranscribeConfirmTitle')}
+        footer={
+          <>
+            <Button variant="default" onClick={() => setRetranscribeOpen(false)}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setRetranscribeOpen(false);
+                void start(reN === null ? null : reNValue);
+              }}
+            >
+              {t('retranscribeConfirmCta')}
+            </Button>
+          </>
+        }
+      >
+        {t('retranscribeConfirmBody')}
       </Modal>
 
       <Modal
