@@ -355,9 +355,13 @@ pub async fn transcribe_meeting(
                         })
                         .collect();
                     let aligned = align(&texts, &diar_segs);
-                    let max_spk = aligned.iter().map(|a| a.speaker).max().unwrap_or(0);
-                    speaker_count = (max_spk as usize) + 1;
-                    speaker_idx = aligned.iter().map(|a| a.speaker as usize).collect();
+                    // Remap non-contiguous sherpa labels to [0..k) so first-time
+                    // transcription doesn't leave phantom empty participants
+                    // (mirrors rediarize_meeting).
+                    let raw: Vec<u32> = aligned.iter().map(|a| a.speaker).collect();
+                    let (speakers, count) = smart_noter_diarize::remap_contiguous(&raw);
+                    speaker_count = count;
+                    speaker_idx = speakers.iter().map(|&s| s as usize).collect();
                 }
                 Err(e) if e.code == DiarizationErrorCode::Cancelled => {
                     let _ = app2.emit(
