@@ -135,6 +135,10 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
     };
   }, [meeting.id]);
   const hasAudio = Boolean(audioInfo);
+  // A transcription OR re-diarization job writes the transcript via replace_lines;
+  // disable every write-control while either runs so one can't silently clobber the
+  // other's result.
+  const busy = rediarizing || status === 'running';
 
   // Select-lines mode
   const [selectMode, setSelectMode] = useState(false);
@@ -224,11 +228,11 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
                 const v = e.target.value.trim();
                 setReN(v === '' ? null : Math.max(1, Math.min(10, Number.parseInt(v, 10) || 1)));
               }}
-              disabled={!hasAudio || rediarizing}
+              disabled={!hasAudio || busy}
             />
             <Button
               variant="default"
-              disabled={!hasAudio || rediarizing}
+              disabled={!hasAudio || busy}
               title={hasAudio ? undefined : t('rediarizeNoAudio')}
               onClick={() => setConfirmOpen(true)}
             >
@@ -236,7 +240,7 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
             </Button>
             <Button
               variant="default"
-              disabled={!hasAudio || status === 'running'}
+              disabled={!hasAudio || busy}
               title={hasAudio ? undefined : t('retranscribeNoAudio')}
               onClick={() => setRetranscribeOpen(true)}
             >
