@@ -116,6 +116,8 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
   const [reN, setReN] = useState<number | null>(2);
   const reNValue = Math.max(1, Math.min(10, reN ?? 1));
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // --- Re-transcribe (re-run whisper from the saved audio) state ---
+  const [retranscribeOpen, setRetranscribeOpen] = useState(false);
   // undefined = still loading, null = no audio saved — either way the control
   // stays disabled until we positively confirm audio is available.
   const [audioInfo, setAudioInfo] = useState<MeetingAudioInfo | null | undefined>(undefined);
@@ -133,6 +135,10 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
     };
   }, [meeting.id]);
   const hasAudio = Boolean(audioInfo);
+  // A transcription OR re-diarization job writes the transcript via replace_lines;
+  // disable every write-control while either runs so one can't silently clobber the
+  // other's result.
+  const busy = rediarizing || status === 'running';
 
   // Select-lines mode
   const [selectMode, setSelectMode] = useState(false);
@@ -222,15 +228,23 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
                 const v = e.target.value.trim();
                 setReN(v === '' ? null : Math.max(1, Math.min(10, Number.parseInt(v, 10) || 1)));
               }}
-              disabled={!hasAudio || rediarizing}
+              disabled={!hasAudio || busy}
             />
             <Button
               variant="default"
-              disabled={!hasAudio || rediarizing}
+              disabled={!hasAudio || busy}
               title={hasAudio ? undefined : t('rediarizeNoAudio')}
               onClick={() => setConfirmOpen(true)}
             >
               {rediarizing ? t('rediarizeRunning') : t('rediarizeCta')}
+            </Button>
+            <Button
+              variant="default"
+              disabled={!hasAudio || busy}
+              title={hasAudio ? undefined : t('retranscribeNoAudio')}
+              onClick={() => setRetranscribeOpen(true)}
+            >
+              {status === 'running' ? `${t('retranscribeRunning')} ${pct}%` : t('retranscribeCta')}
             </Button>
             {meeting.participants.length >= 2 && (
               <Button variant="default" onClick={() => setMergeOpen(true)}>
@@ -393,6 +407,30 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
         }
       >
         {t('rediarizeConfirmBody')}
+      </Modal>
+
+      <Modal
+        open={retranscribeOpen}
+        onClose={() => setRetranscribeOpen(false)}
+        title={t('retranscribeConfirmTitle')}
+        footer={
+          <>
+            <Button variant="default" onClick={() => setRetranscribeOpen(false)}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setRetranscribeOpen(false);
+                void start(reN === null ? null : reNValue);
+              }}
+            >
+              {t('retranscribeConfirmCta')}
+            </Button>
+          </>
+        }
+      >
+        {t('retranscribeConfirmBody')}
       </Modal>
 
       <Modal
