@@ -2,13 +2,20 @@ import { SubjectAvatar } from '@/components/primitives/Avatar/Avatar';
 import { Button } from '@/components/primitives/Button/Button';
 import { Chip } from '@/components/primitives/Chip/Chip';
 import { Icon } from '@/components/primitives/Icon/Icon';
+import { Modal } from '@/components/primitives/Modal/Modal';
 import { useT } from '@/i18n/useT';
-import type { MeetingDetail, Participant } from '@/ipc/bindings';
-import { useCreateSpeakerMutation, useReassignLinesMutation } from '@/store/api/meetings.api';
+import type { MeetingAudioInfo, MeetingDetail, Participant } from '@/ipc/bindings';
+import {
+  useCreateSpeakerMutation,
+  useMergeSpeakersMutation,
+  useReassignLinesMutation,
+} from '@/store/api/meetings.api';
 import { useGetSettingsQuery } from '@/store/api/settings.api';
 import { pickL } from '@/utils/format';
+import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useRediarize } from '../useRediarize';
 import { useTranscription } from '../useTranscription';
 import styles from './TranscriptTab.module.css';
 
@@ -90,6 +97,43 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
   const [reassignLines] = useReassignLinesMutation();
   const [createSpeaker] = useCreateSpeakerMutation();
 
+  // --- Merge speakers (modal) state ---
+  const [mergeSpeakers] = useMergeSpeakersMutation();
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeFrom, setMergeFrom] = useState('');
+  const [mergeInto, setMergeInto] = useState('');
+  const closeMerge = () => {
+    setMergeOpen(false);
+    setMergeFrom('');
+    setMergeInto('');
+  };
+
+  // --- Re-diarize (forced speaker count) state ---
+  const { running: rediarizing, rediarize } = useRediarize(meeting.id);
+  // null while the field is transiently empty (user is clearing/retyping it) —
+  // mirrors StopConfirmModal's speakerCount so clear()+type() doesn't fight the
+  // controlled input by snapping back to a clamped value on every keystroke.
+  const [reN, setReN] = useState<number | null>(2);
+  const reNValue = Math.max(1, Math.min(10, reN ?? 1));
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // undefined = still loading, null = no audio saved — either way the control
+  // stays disabled until we positively confirm audio is available.
+  const [audioInfo, setAudioInfo] = useState<MeetingAudioInfo | null | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    invoke<MeetingAudioInfo | null>('get_meeting_audio', { meetingId: meeting.id })
+      .then((res) => {
+        if (!cancelled) setAudioInfo(res ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setAudioInfo(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [meeting.id]);
+  const hasAudio = Boolean(audioInfo);
+
   // Select-lines mode
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -115,6 +159,10 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
     });
   }
 
+  function selectAllOf(speakerId: string) {
+    setSelected(new Set(lines.filter((l) => l.speakerId === speakerId).map((l) => l.id)));
+  }
+
   async function reassignTo(speakerId: string, lineIds: number[]) {
     await reassignLines({ lineIds, speakerId });
     setSelected(new Set());
@@ -138,6 +186,10 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
 
   const lines = meeting.transcript; // real data only — no more mock synthesis
 
+  // Distinct speakers currently in the transcript, used as the baseline to
+  // detect a no-op re-diarize (backend returned a count that didn't grow).
+  const usedSpeakerCount = useMemo(() => new Set(lines.map((l) => l.speakerId)).size, [lines]);
+
   // Auto-trigger ONLY for a freshly-saved recording with the setting on.
   const autoStarted = useRef(false);
   useEffect(() => {
@@ -160,12 +212,54 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
         </div>
         {lines.length > 0 && (
           <div className={styles.cardHeadRight}>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              aria-label={t('rediarizeCountLabel')}
+              value={reN === null ? '' : String(reN)}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                setReN(v === '' ? null : Math.max(1, Math.min(10, Number.parseInt(v, 10) || 1)));
+              }}
+              disabled={!hasAudio || rediarizing}
+            />
+            <Button
+              variant="default"
+              disabled={!hasAudio || rediarizing}
+              title={hasAudio ? undefined : t('rediarizeNoAudio')}
+              onClick={() => setConfirmOpen(true)}
+            >
+              {rediarizing ? t('rediarizeRunning') : t('rediarizeCta')}
+            </Button>
+            {meeting.participants.length >= 2 && (
+              <Button variant="default" onClick={() => setMergeOpen(true)}>
+                {t('speaker.mergeCta')}
+              </Button>
+            )}
             <Button variant={selectMode ? 'primary' : 'default'} onClick={toggleSelectMode}>
               {t('speaker.selectLines')}
             </Button>
           </div>
         )}
       </div>
+
+      {/* Per-speaker select-all shortcut */}
+      {selectMode && (
+        <div className={styles.selectAllRow}>
+          {meeting.participants.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className={styles.selectAllChip}
+              title={t('speaker.selectAllOf')}
+              onClick={() => selectAllOf(p.id)}
+            >
+              {speakerLabel(p, lang)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Bulk reassign toolbar */}
       {selectMode && selected.size > 0 && (
@@ -276,6 +370,90 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
           </Button>
         </div>
       )}
+
+      <Modal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title={t('rediarizeConfirmTitle')}
+        footer={
+          <>
+            <Button variant="default" onClick={() => setConfirmOpen(false)}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setConfirmOpen(false);
+                void rediarize(reNValue, usedSpeakerCount);
+              }}
+            >
+              {t('rediarizeConfirmCta')}
+            </Button>
+          </>
+        }
+      >
+        {t('rediarizeConfirmBody')}
+      </Modal>
+
+      <Modal
+        open={mergeOpen}
+        onClose={closeMerge}
+        title={t('speaker.mergeTitle')}
+        footer={
+          <>
+            <Button variant="default" onClick={closeMerge}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!mergeFrom || !mergeInto || mergeFrom === mergeInto}
+              onClick={async () => {
+                await mergeSpeakers({ into: mergeInto, from: mergeFrom });
+                closeMerge();
+              }}
+            >
+              {t('speaker.mergeCta')}
+            </Button>
+          </>
+        }
+      >
+        <div className={styles.mergeField}>
+          <label className={styles.mergeLabel} htmlFor="merge-from-select">
+            {t('speaker.mergeFromLabel')}
+          </label>
+          <select
+            id="merge-from-select"
+            className={styles.mergeSelect}
+            value={mergeFrom}
+            onChange={(e) => setMergeFrom(e.target.value)}
+          >
+            <option value="">—</option>
+            {meeting.participants.map((p) => (
+              <option key={p.id} value={p.id}>
+                {speakerLabel(p, lang)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.mergeField}>
+          <label className={styles.mergeLabel} htmlFor="merge-into-select">
+            {t('speaker.mergeIntoLabel')}
+          </label>
+          <select
+            id="merge-into-select"
+            className={styles.mergeSelect}
+            value={mergeInto}
+            onChange={(e) => setMergeInto(e.target.value)}
+          >
+            <option value="">—</option>
+            {meeting.participants.map((p) => (
+              <option key={p.id} value={p.id}>
+                {speakerLabel(p, lang)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </Modal>
     </div>
   );
 }

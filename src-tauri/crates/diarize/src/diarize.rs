@@ -64,7 +64,7 @@ pub fn diarize(
         .compute(pcm.to_vec(), None)
         .map_err(|e| derr(DiarizationErrorCode::DiarizationFailed, e.to_string()))?;
 
-    let segments = raw
+    let segments: Vec<DiarSegment> = raw
         .into_iter()
         .map(|s| DiarSegment {
             start_ms: (s.start.max(0.0) * 1000.0) as u32,
@@ -72,5 +72,7 @@ pub fn diarize(
             speaker: s.speaker.max(0) as u32,
         })
         .collect();
-    Ok(segments)
+    // sherpa can emit temporally OVERLAPPING segments; flatten to a
+    // non-overlapping partition so align doesn't collapse nested turns.
+    Ok(crate::overlap::flatten_overlaps(&segments))
 }

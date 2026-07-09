@@ -105,6 +105,61 @@ fn pick_speaker(t0: u32, t1: u32, diar: &[DiarSegment]) -> u32 {
     nearest.map(|(_, sp)| sp).unwrap_or(0)
 }
 
+/// Give every text segment a real duration for overlap scoring. Transcript lines
+/// persisted at second granularity (or legacy rows with NULL end) can arrive with
+/// `end_ms <= start_ms`; such a point interval overlaps no diar segment and forces
+/// `align` into its nearest-gap fallback. Fill each degenerate line's end from the
+/// NEXT line's start; the last line uses `audio_end_ms`. A `start_ms + 1` floor
+/// covers the rare case where the next line starts no later (same second), so the
+/// interval is never empty.
+pub fn fill_zero_durations(texts: &[TextSegment], audio_end_ms: u32) -> Vec<TextSegment> {
+    let n = texts.len();
+    texts
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let mut end = t.end_ms;
+            if end <= t.start_ms {
+                let next = if i + 1 < n {
+                    texts[i + 1].start_ms
+                } else {
+                    audio_end_ms
+                };
+                end = if next > t.start_ms {
+                    next
+                } else {
+                    t.start_ms + 1
+                };
+            }
+            TextSegment {
+                start_ms: t.start_ms,
+                end_ms: end,
+                text: t.text.clone(),
+            }
+        })
+        .collect()
+}
+
+/// Remap speaker labels to a contiguous `[0..k)` range, preserving first-appearance
+/// order. `align` can emit non-contiguous labels (sherpa uses e.g. {0,4,5}); the
+/// caller derives the participant count from `max(speaker)+1`, which would create
+/// phantom empty participants. Returns `(remapped, k)` where `k` is the real number
+/// of distinct speakers used.
+pub fn remap_contiguous(speakers: &[u32]) -> (Vec<u32>, usize) {
+    let mut mapping: Vec<u32> = Vec::new();
+    let out = speakers
+        .iter()
+        .map(|&s| match mapping.iter().position(|&o| o == s) {
+            Some(idx) => idx as u32,
+            None => {
+                mapping.push(s);
+                (mapping.len() - 1) as u32
+            }
+        })
+        .collect();
+    (out, mapping.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,6 +177,50 @@ mod tests {
             end_ms,
             speaker,
         }
+    }
+
+    #[test]
+    fn fill_uses_next_line_start_then_audio_end() {
+        let texts = vec![t(0, 0, "a"), t(5000, 0, "b"), t(9000, 0, "c")];
+        let out = fill_zero_durations(&texts, 12000);
+        assert_eq!(out[0].end_ms, 5000);
+        assert_eq!(out[1].end_ms, 9000);
+        assert_eq!(out[2].end_ms, 12000);
+    }
+
+    #[test]
+    fn fill_keeps_real_durations() {
+        let texts = vec![t(0, 3000, "a")];
+        assert_eq!(fill_zero_durations(&texts, 10000)[0].end_ms, 3000);
+    }
+
+    #[test]
+    fn fill_same_instant_lines_get_1ms_floor() {
+        let texts = vec![t(5000, 5000, "a"), t(5000, 5000, "b")];
+        let out = fill_zero_durations(&texts, 10000);
+        assert_eq!(out[0].end_ms, 5001);
+        assert_eq!(out[1].end_ms, 10000);
+    }
+
+    #[test]
+    fn remap_non_contiguous_to_zero_based() {
+        let (out, k) = remap_contiguous(&[0, 4, 4, 5, 0]);
+        assert_eq!(out, vec![0, 1, 1, 2, 0]);
+        assert_eq!(k, 3);
+    }
+
+    #[test]
+    fn remap_preserves_first_appearance_order() {
+        let (out, k) = remap_contiguous(&[5, 5, 2, 0]);
+        assert_eq!(out, vec![0, 0, 1, 2]);
+        assert_eq!(k, 3);
+    }
+
+    #[test]
+    fn remap_empty_is_zero() {
+        let (out, k) = remap_contiguous(&[]);
+        assert!(out.is_empty());
+        assert_eq!(k, 0);
     }
 
     #[test]
