@@ -102,6 +102,11 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergeFrom, setMergeFrom] = useState('');
   const [mergeInto, setMergeInto] = useState('');
+  const closeMerge = () => {
+    setMergeOpen(false);
+    setMergeFrom('');
+    setMergeInto('');
+  };
 
   // --- Re-diarize (forced speaker count) state ---
   const { running: rediarizing, rediarize } = useRediarize(meeting.id);
@@ -371,11 +376,11 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
 
       <Modal
         open={mergeOpen}
-        onClose={() => setMergeOpen(false)}
+        onClose={closeMerge}
         title={t('speaker.mergeTitle')}
         footer={
           <>
-            <Button variant="default" onClick={() => setMergeOpen(false)}>
+            <Button variant="default" onClick={closeMerge}>
               {t('cancel')}
             </Button>
             <Button
@@ -383,9 +388,7 @@ export function TranscriptTab({ meeting }: TranscriptTabProps) {
               disabled={!mergeFrom || !mergeInto || mergeFrom === mergeInto}
               onClick={async () => {
                 await mergeSpeakers({ into: mergeInto, from: mergeFrom });
-                setMergeOpen(false);
-                setMergeFrom('');
-                setMergeInto('');
+                closeMerge();
               }}
             >
               {t('speaker.mergeCta')}
